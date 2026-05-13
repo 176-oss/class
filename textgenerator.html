@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 기반 학교생활기록부 서술 생성기</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f7f9fb;
+        }
+
+        .container-card {
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
+        }
+
+        .trait-tag {
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 1px solid #e5e7eb;
+            user-select: none;
+        }
+
+        .trait-tag.selected {
+            background-color: #3b82f6;
+            color: white;
+            border-color: #2563eb;
+        }
+
+        input[type=range] {
+            -webkit-appearance: none;
+            width: 100%;
+            background: transparent;
+        }
+
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 18px;
+            width: 18px;
+            border-radius: 50%;
+            background: #2563eb;
+            cursor: pointer;
+            margin-top: -6px;
+        }
+
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 6px;
+            cursor: pointer;
+            background: #e5e7eb;
+            border-radius: 3px;
+        }
+
+        /* 모달 스타일 */
+        #apiModal {
+            display: none;
+        }
+
+        .modal-overlay {
+            background-color: rgba(0, 0, 0, 0.5);
+        }
+    </style>
+</head>
+
+<body class="text-gray-800 p-4 md:p-8">
+
+    <!-- API 안내 모달 -->
+    <div id="apiModal" class="fixed inset-0 z-50 overflow-y-auto">
+        <div class="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
+            <div class="fixed inset-0 transition-opacity modal-overlay" id="closeModalBg"></div>
+            <span class="hidden sm:inline-block sm:align-middle sm:h-screen">&#8203;</span>
+            <div
+                class="inline-block align-bottom bg-white rounded-2xl text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
+                <div class="bg-white px-6 pt-6 pb-4">
+                    <div class="sm:flex sm:items-start">
+                        <div class="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left">
+                            <h3 class="text-xl leading-6 font-bold text-gray-900 mb-4">Gemini API 키 발급 방법</h3>
+                            <div class="text-sm text-gray-600 space-y-3">
+                                <p><strong>1. Google AI Studio 접속:</strong><br>
+                                    <a href="https://aistudio.google.com/" target="_blank"
+                                        class="text-blue-600 underline">https://aistudio.google.com/</a>에 접속하여 구글 개인계정으로
+                                    로그인합니다.<strong>(학교 계정은 안됩니다!!)</strong>
+                                </p>
+                                <p><strong>2. API Key 생성:</strong><br>
+                                    왼쪽 하단의 <strong>'Get API key'</strong> 메뉴를 클릭한 후, <strong>오른쪽 상단'API 키
+                                        만들기'-'키만들기'</strong> 버튼을 누릅니다.<strong>(무료 등급이어도 상관없어요!)</strong></p>
+                                <p><strong>3. 키 복사 및 입력:</strong><br>
+                                    생성된 문자열을 복사하여 본 서비스의 API Key 입력란에 붙여넣으세요.</p>
+                                <div
+                                    class="bg-yellow-50 p-3 rounded-lg border border-yellow-100 text-yellow-800 text-xs">
+                                    <strong>주의:</strong> API 키는 개인 자산입니다. 타인에게 공유되지 않도록 주의하세요. 무료 플랜은 분당 요청 횟수 제한이 있을 수
+                                    있습니다.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="bg-gray-50 px-6 py-3 sm:flex sm:flex-row-reverse">
+                    <button type="button" id="closeModalBtn"
+                        class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 focus:outline-none sm:ml-3 sm:w-auto sm:text-sm">
+                        확인했습니다
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8">
+        <div class="lg:col-span-5 space-y-6">
+            <div class="bg-white rounded-2xl p-6 container-card border border-gray-100">
+                <h1 class="text-2xl font-bold text-gray-900 mb-6">생기부 서술 생성기</h1>
+
+                <div class="space-y-5">
+                    <div>
+                        <div class="flex items-center mb-1">
+                            <label class="text-sm font-semibold text-gray-700 mr-2">Google Gemini API Key</label>
+                            <button id="openModalBtn"
+                                class="w-5 h-5 flex items-center justify-center rounded-full bg-gray-200 text-gray-500 hover:bg-blue-100 hover:text-blue-600 transition-colors"
+                                title="API 키 발급 방법 확인">
+                                <span class="text-xs font-bold">?</span>
+                            </button>
+                        </div>
+                        <input type="password" id="apiKey"
+                            class="w-full px-4 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                            placeholder="API 키를 입력하세요">
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-1">기록 영역</label>
+                            <select id="category"
+                                class="w-full px-4 py-2 border rounded-lg text-sm bg-white outline-none">
+                                <option value="교과세특">교과세특</option>
+                                <option value="자율활동">자율활동</option>
+                                <option value="진로활동">진로활동</option>
+                                <option value="동아리활동">동아리활동</option>
+                                <option value="행동특성">행동특성 (행특)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">목표 글자 수: <span
+                                    id="charLimitDisplay" class="text-blue-600 font-bold">500</span>자</label>
+                            <input type="range" id="charLimit" min="100" max="500" step="10" value="500">
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-2">항목별 추천 성향</label>
+                        <div id="dynamicTraits" class="flex flex-wrap gap-2 mb-4"></div>
+
+                        <label class="block text-sm font-semibold text-gray-700 mb-2">교우관계 키워드</label>
+                        <div id="socialTraits" class="flex flex-wrap gap-2"></div>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-1"
+                                id="detailNameLabel">과목명</label>
+                            <input type="text" id="detailName"
+                                class="w-full px-4 py-2 border rounded-lg text-sm outline-none" placeholder="예: 수학">
+                        </div>
+                        <div id="dateInputContainer" class="hidden">
+                            <label class="block text-sm font-semibold text-gray-700 mb-1">활동 날짜</label>
+                            <input type="text" id="activityDate"
+                                class="w-full px-4 py-2 border rounded-lg text-sm outline-none"
+                                placeholder="2026.05.20.">
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">핵심 활동 내용</label>
+                        <textarea id="activityContent" rows="3"
+                            class="w-full px-4 py-2 border rounded-lg text-sm resize-none outline-none"
+                            placeholder="구체적인 활동 내용을 적어주세요."></textarea>
+                    </div>
+
+                    <button id="generateBtn"
+                        class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg transition active:scale-[0.98]">문구
+                        생성하기</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="lg:col-span-7">
+            <div class="bg-white rounded-2xl p-6 container-card border border-gray-100 min-h-[600px] flex flex-col">
+                <div class="flex justify-between items-center border-b pb-4 mb-4">
+                    <h2 class="text-xl font-bold text-gray-900">생성 결과</h2>
+                    <button id="copyAllBtn"
+                        class="hidden text-sm bg-gray-100 px-3 py-1.5 rounded-md hover:bg-gray-200">전체 복사</button>
+                </div>
+                <div id="outputArea" class="space-y-4 text-center py-20 text-gray-400">
+                    정보를 입력하고 생성 버튼을 눌러주세요.
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const traitsData = {
+            "교과세특": ["호기심", "논리적", "개념응용력", "메타인지", "비판적", "탐구주도성", "끈기", "융합적사고", "의사소통역량", "자료분석력"],
+            "자율활동": ["공동체기여", "창의적", "민주적의사결정", "문제의식", "책임감", "포용적", "행동", "조직운영능력", "변화주도", "봉사정신"],
+            "진로활동": ["적성", "진로구체화", "직업적가치관", "정보수집력", "자기이해", "학문적열정", "목표설정능력", "현장탐구력", "도전정신", "진로설계"],
+            "동아리활동": ["전문성", "문제해결", "의사소통", "배려", "열정", "리더십", "팔로워십", "창의적", "분석적", "협력"],
+            "행동특성": ["나눔과배려", "갈등중재", "자기주도성", "정직", "협업능력", "끈기", "배려", "존중", "감정조절력", "지속적성장"]
+        };
+        const socialTraits = ["공감", "포용", "갈등중재", "조력자", "의사소통", "긍정", "협력", "타인존중", "문제해결", "솔선수범"];
+
+        const categorySelect = document.getElementById('category');
+        const dynamicTraitsContainer = document.getElementById('dynamicTraits');
+        const socialTraitsContainer = document.getElementById('socialTraits');
+        const charLimitSlider = document.getElementById('charLimit');
+        const charLimitDisplay = document.getElementById('charLimitDisplay');
+
+        // 모달 제어 요소
+        const apiModal = document.getElementById('apiModal');
+        const openModalBtn = document.getElementById('openModalBtn');
+        const closeModalBtn = document.getElementById('closeModalBtn');
+        const closeModalBg = document.getElementById('closeModalBg');
+
+        // 모달 열기/닫기 로직
+        openModalBtn.onclick = () => apiModal.style.display = 'block';
+        const closeModal = () => apiModal.style.display = 'none';
+        closeModalBtn.onclick = closeModal;
+        closeModalBg.onclick = closeModal;
+
+        function renderTraits() {
+            const cat = categorySelect.value;
+            dynamicTraitsContainer.innerHTML = traitsData[cat].map(t => `<span class="trait-tag px-2 py-1 rounded-full text-xs bg-gray-50" data-value="${t}">${t}</span>`).join('');
+            if (socialTraitsContainer.innerHTML === "") {
+                socialTraitsContainer.innerHTML = socialTraits.map(t => `<span class="trait-tag px-2 py-1 rounded-full text-xs bg-gray-50" data-value="${t}">${t}</span>`).join('');
+            }
+            document.querySelectorAll('.trait-tag').forEach(tag => {
+                tag.onclick = () => tag.classList.toggle('selected');
+            });
+        }
+
+        categorySelect.onchange = () => {
+            const val = categorySelect.value;
+            renderTraits();
+            if (val === '행동특성') {
+                charLimitSlider.max = 300;
+                if (charLimitSlider.value > 300) charLimitSlider.value = 300;
+            } else {
+                charLimitSlider.max = 500;
+            }
+            charLimitDisplay.textContent = charLimitSlider.value;
+            document.getElementById('detailNameLabel').textContent = val === '교과세특' ? '과목명' : (val === '동아리활동' ? '동아리명' : '활동명');
+            document.getElementById('dateInputContainer').classList.toggle('hidden', !['자율활동', '진로활동'].includes(val));
+        };
+
+        charLimitSlider.oninput = (e) => charLimitDisplay.textContent = e.target.value;
+        renderTraits();
+
+        document.getElementById('generateBtn').onclick = async () => {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            if (!apiKey) return alert('API Key를 입력하세요.');
+
+            const selected = Array.from(document.querySelectorAll('.trait-tag.selected')).map(t => t.dataset.value);
+            const content = document.getElementById('activityContent').value;
+            const cat = categorySelect.value;
+            const charLimit = charLimitSlider.value;
+            const detailName = document.getElementById('detailName').value;
+
+            const outputArea = document.getElementById('outputArea');
+            outputArea.innerHTML = `<div class="flex flex-col items-center justify-center h-full text-blue-600 py-20"><div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-4"></div>문장을 생성하는 중입니다...</div>`;
+
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+
+            const promptText = `너는 고등학교 교사야. 아래 조건으로 생기부 ${cat} 영역을 작성해.
+            [대상 활동] ${detailName}
+            [학생 성향] ${selected.join(', ')}
+            [활동 내용] ${content}
+            
+            [규정 지침]
+            1. 모든 문장은 '~함', '~임', '~돋보임' 형태의 명사형 종결 어미를 사용함.
+            2. 추상적인 표현 대신 구체적인 활동 사례와 성장을 객관적으로 기술함.
+            3. 교외 수상, 사교육 요소, 부모 정보, 소논문 단어 기재는 절대 불가함.
+            4. 공백 포함 약 ${charLimit}자 이내로 작성함.
+            
+            [응답 형식]
+            반드시 아래의 JSON 구조로만 답변해:
+            {"versions": [{"title": "추천 1", "content": "내용", "review": "검토평"}]}`;
+
+            try {
+                const res = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: promptText }] }],
+                        generationConfig: {
+                            responseMimeType: "application/json",
+                            temperature: 0.7
+                        }
+                    })
+                });
+
+                if (!res.ok) throw new Error(`API 요청 실패 (상태코드: ${res.status})`);
+
+                const data = await res.json();
+                const rawText = data.candidates[0].content.parts[0].text;
+                const parsed = JSON.parse(rawText);
+
+                outputArea.innerHTML = parsed.versions.map(v => `
+                    <div class="p-5 border rounded-2xl bg-white shadow-sm text-left animate-in fade-in slide-in-from-bottom-2 duration-500">
+                        <div class="flex justify-between items-center mb-3">
+                            <span class="text-xs font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded">${v.title}</span>
+                            <span class="text-[10px] text-gray-400">${v.content.length}자</span>
+                        </div>
+                        <div class="text-sm leading-relaxed text-gray-800 mb-3 whitespace-pre-wrap">${v.content}</div>
+                        <div class="text-[11px] text-green-600 bg-green-50 p-2 rounded-lg flex items-start">
+                            <span class="mr-1">✓</span> ${v.review}
+                        </div>
+                    </div>
+                `).join('');
+                document.getElementById('copyAllBtn').classList.remove('hidden');
+            } catch (e) {
+                outputArea.innerHTML = `<div class="text-red-500 text-sm py-20 px-6">오류가 발생했습니다: ${e.message}<br><br>API 키가 정확한지, 혹은 무료 할당량을 초과했는지 확인해 주세요.</div>`;
+            }
+        };
+
+        document.getElementById('copyAllBtn').onclick = () => {
+            const contents = Array.from(document.querySelectorAll('.p-5 div.text-sm')).map(el => el.innerText).join('\n\n---\n\n');
+            const el = document.createElement('textarea');
+            el.value = contents;
+            document.body.appendChild(el);
+            el.select();
+            document.execCommand('copy');
+            document.body.removeChild(el);
+            alert('모든 문구가 클립보드에 복사되었습니다.');
+        };
+    </script>
+</body>
+
+</html>

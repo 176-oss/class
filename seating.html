@@ -1,20 +1,22 @@
 <!DOCTYPE html>
 <html lang="ko">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>스마트 자리배치</title>
-  
+
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
-  
+
   <!-- FontAwesome Icons -->
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"></link>
-  
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  </link>
+
   <!-- React & ReactDOM -->
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
-  
+
   <!-- Babel (JSX 컴파일) -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
@@ -24,20 +26,53 @@
 
   <style>
     @media print {
-      .no-print { display: none !important; }
-      .print-only { display: block !important; }
-      body { background: white; }
-      .seat-grid { gap: 4px !important; }
+      .no-print {
+        display: none !important;
+      }
+
+      .print-only {
+        display: block !important;
+      }
+
+      body {
+        background: white;
+      }
+
+      .seat-grid {
+        gap: 4px !important;
+      }
+
       /* 인쇄 시 테두리 명확하게 */
-      .seat-box { border: 1.5px solid #333 !important; box-shadow: none !important; break-inside: avoid; }
-      @page { size: landscape; margin: 1cm; }
+      .seat-box {
+        border: 1.5px solid #3B82F6 !important;
+        box-shadow: none !important;
+        break-inside: avoid;
+      }
+
+      @page {
+        size: landscape;
+        margin: 1cm;
+      }
     }
-    
+
     /* 스크롤바 커스텀 */
-    ::-webkit-scrollbar { width: 6px; height: 6px; }
-    ::-webkit-scrollbar-track { background: #f1f1f1; }
-    ::-webkit-scrollbar-thumb { background: #c1c1c1; border-radius: 4px; }
-    ::-webkit-scrollbar-thumb:hover { background: #a8a8a8; }
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: #f1f1f1;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: #bfdbfe;
+      border-radius: 4px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: #60a5fa;
+    }
 
     /* A4 가로 사이즈 고정 클래스 */
     .a4-landscape {
@@ -49,17 +84,38 @@
 
     /* 카운트다운 애니메이션 */
     @keyframes popIn {
-      0% { transform: scale(0.5); opacity: 0; }
-      30% { transform: scale(1.2); opacity: 1; }
-      50% { transform: scale(1); opacity: 1; }
-      90% { transform: scale(1); opacity: 1; }
-      100% { transform: scale(0.8); opacity: 0; }
+      0% {
+        transform: scale(0.5);
+        opacity: 0;
+      }
+
+      30% {
+        transform: scale(1.2);
+        opacity: 1;
+      }
+
+      50% {
+        transform: scale(1);
+        opacity: 1;
+      }
+
+      90% {
+        transform: scale(1);
+        opacity: 1;
+      }
+
+      100% {
+        transform: scale(0.8);
+        opacity: 0;
+      }
     }
+
     .animate-count {
       animation: popIn 1s ease-in-out forwards;
     }
   </style>
 </head>
+
 <body>
   <div id="root"></div>
 
@@ -68,17 +124,22 @@
 
     const App = () => {
       // 상태 관리
-      const [classTitle, setClassTitle] = useState(""); 
+      const [classTitle, setClassTitle] = useState("");
       const [inputText, setInputText] = useState("1번 홍길동(남)\n2번 김철수(남)\n3번 이영희(여)\n4번 박민수(남)\n5번 정수진(여)\n6번 최동훈(남)\n7번 강지민(여)\n8번 조현우(남)\n9번 윤서연(여)\n10번 장도윤(남)\n11번 임지아(여)\n12번 한우진(남)\n13번 오유나(여)\n14번 서준서(남)\n15번 신하윤(여)\n16번 권민재(남)\n17번 황서진(여)\n18번 송예준(남)\n19번 전은지(여)\n20번 유현수(남)");
+
+      // ⭐️ 우선 배치 관련 상태 추가
+      const [priorityStudentsInput, setPriorityStudentsInput] = useState("");
+      const [prioritySeats, setPrioritySeats] = useState({});
+
       const [rows, setRows] = useState(5);
       const [cols, setCols] = useState(6);
-      const [layoutMode, setLayoutMode] = useState('normal'); 
-      
+      const [layoutMode, setLayoutMode] = useState('normal');
+
       const [groupRows, setGroupRows] = useState(2);
       const [groupCols, setGroupCols] = useState(2);
 
       const [grid, setGrid] = useState([]);
-      const [fixedSeats, setFixedSeats] = useState({}); 
+      const [fixedSeats, setFixedSeats] = useState({});
       const [draggedSeat, setDraggedSeat] = useState(null);
       const [inactiveSeats, setInactiveSeats] = useState({});
 
@@ -89,17 +150,20 @@
       const [avoidPairs, setAvoidPairs] = useState("");
       const [genderPairing, setGenderPairing] = useState(false);
       const [savedLayouts, setSavedLayouts] = useState([]);
-      
+
       const [secretSeatsInput, setSecretSeatsInput] = useState("");
       const [prevLayoutText, setPrevLayoutText] = useState("");
-      const [isExporting, setIsExporting] = useState(false); 
-      const [printPerspective, setPrintPerspective] = useState('normal'); 
+      const [isExporting, setIsExporting] = useState(false);
+      const [printPerspective, setPrintPerspective] = useState('normal');
 
       // 하단 안내 문구 관련 상태
       const [footerNote, setFooterNote] = useState("※ 자리는 랜덤 프로그램을 통해 공정하게 배치되었습니다.");
       const [footerFontSize, setFooterFontSize] = useState("text-sm");
       const [footerFontWeight, setFooterFontWeight] = useState("font-medium");
-      
+
+      // ⭐️ 학생 명단 팝업 모달 상태 추가
+      const [isStudentModalOpen, setIsStudentModalOpen] = useState(false);
+
       // 발표 모드 및 카운트다운 상태
       const [isPresenting, setIsPresenting] = useState(false);
       const [countdown, setCountdown] = useState(null);
@@ -110,8 +174,9 @@
       useEffect(() => {
         const initialGrid = Array(rows).fill(null).map(() => Array(cols).fill(null));
         setGrid(initialGrid);
-        setFixedSeats({}); 
+        setFixedSeats({});
         setInactiveSeats({});
+        setPrioritySeats({}); // 배열 크기 변경 시 우선 배치 초기화
       }, [rows, cols]);
 
       const displayName = (name) => name ? name.replace(/[\s\(\[\-]*(남|여)[\)\]\s]*$/, '').trim() : '';
@@ -127,7 +192,7 @@
       };
 
       const cleanName = (name) => name ? name.replace(/^[0-9]+번?\s*/, '').replace(/[\s\(\[\-]*(남|여)[\)\]\s]*$/, '').trim() : '';
-      
+
       const getGender = (name) => {
         if (!name) return null;
         const match = name.match(/[\s\(\[\-]*(남|여)[\)\]\s]*$/);
@@ -152,8 +217,8 @@
         const skipKeywords = ["번호", "이름", "성별", "비고", "성명", "학번", "남", "여"];
         const layoutItems = rawItems.filter(item => {
           if (skipKeywords.includes(item)) return false;
-          if (/^\d+$/.test(item)) return false; 
-          return true; 
+          if (/^\d+$/.test(item)) return false;
+          return true;
         });
 
         for (let i = 0; i < layoutItems.length; i += cols) {
@@ -167,11 +232,11 @@
             if (!current || emptyMarkers.includes(current)) continue;
 
             if (j + 1 < parsedRows[i].length) {
-              const right = parsedRows[i][j+1];
+              const right = parsedRows[i][j + 1];
               if (right && !emptyMarkers.includes(right)) pairs.push([current, right]);
             }
             if (i + 1 < parsedRows.length) {
-              const down = parsedRows[i+1][j];
+              const down = parsedRows[i + 1][j];
               if (down && !emptyMarkers.includes(down)) pairs.push([current, down]);
             }
           }
@@ -210,7 +275,7 @@
       };
 
       const showAlert = (title, message) => {
-        setModal({ isOpen: true, type: 'alert', title, message, onConfirm: () => setModal(prev => ({...prev, isOpen: false})) });
+        setModal({ isOpen: true, type: 'alert', title, message, onConfirm: () => setModal(prev => ({ ...prev, isOpen: false })) });
       };
 
       const showConfirm = (title, message, onConfirm, onCancel) => {
@@ -219,8 +284,8 @@
           type: 'confirm',
           title,
           message,
-          onConfirm: () => { onConfirm(); setModal(prev => ({...prev, isOpen: false})); },
-          onCancel: () => { if(onCancel) onCancel(); setModal(prev => ({...prev, isOpen: false})); }
+          onConfirm: () => { onConfirm(); setModal(prev => ({ ...prev, isOpen: false })); },
+          onCancel: () => { if (onCancel) onCancel(); setModal(prev => ({ ...prev, isOpen: false })); }
         });
       };
 
@@ -231,7 +296,7 @@
       const executeAssign = (useSecret) => {
         let names = inputText.split(/[,\n]/).map(n => n.trim()).filter(n => n !== "");
         const uniqueNames = [...new Set(names)];
-        
+
         const activeSeatCount = (rows * cols) - Object.keys(inactiveSeats).length;
 
         if (uniqueNames.length > activeSeatCount) {
@@ -239,8 +304,18 @@
           return;
         }
 
+        // ⭐️ 우선 배치 학생 유효성 검사
+        const pNames = priorityStudentsInput.split(/[,\n]/).map(n => n.trim()).filter(n => n);
+        const validPNames = pNames.filter(pn => uniqueNames.some(un => cleanName(un) === cleanName(pn)));
+        const availablePriorityCount = Object.keys(prioritySeats).filter(key => !inactiveSeats[key]).length;
+
+        if (validPNames.length > availablePriorityCount) {
+          showAlert("⚠️ 우선 배치 구역 초과", `지정된 우선 배치 구역(${availablePriorityCount}칸)보다 우선 배치 학생(${validPNames.length}명)이 많습니다.\n우선 구역(🌟)을 늘리거나 명단을 줄여주세요.`);
+          return;
+        }
+
         const avoids = getAvoidsList();
-        const prevPairs = getPrevPairsList(); 
+        const prevPairs = getPrevPairsList();
 
         const secretSeats = {};
         if (useSecret && secretSeatsInput.trim()) {
@@ -248,7 +323,7 @@
             const parts = line.split(':');
             if (parts.length >= 2) {
               const name = cleanName(parts[0].trim());
-              const posMatch = parts[1].match(/(\d+)[^\d]+(\d+)/); 
+              const posMatch = parts[1].match(/(\d+)[^\d]+(\d+)/);
               if (name && posMatch) {
                 const r = parseInt(posMatch[1], 10) - 1;
                 const c = parseInt(posMatch[2], 10) - 1;
@@ -283,8 +358,33 @@
             }
           });
 
+          // ⭐️ 우선 배치 학생들을 우선 배치 구역에 할당
+          let unplacedPriority = remainingNames.filter(name => validPNames.some(vp => cleanName(vp) === cleanName(name)));
+          remainingNames = remainingNames.filter(name => !unplacedPriority.includes(name));
+
+          unplacedPriority.sort(() => Math.random() - 0.5);
+
+          let emptyPrioritySeats = [];
+          for (let r = 0; r < rows; r++) {
+            for (let c = 0; c < cols; c++) {
+              if (newGrid[r][c] === null && !inactiveSeats[`${r}-${c}`] && prioritySeats[`${r}-${c}`]) {
+                emptyPrioritySeats.push({ r, c });
+              }
+            }
+          }
+          emptyPrioritySeats.sort(() => Math.random() - 0.5);
+
+          while (unplacedPriority.length > 0 && emptyPrioritySeats.length > 0) {
+            const p = unplacedPriority.pop();
+            const s = emptyPrioritySeats.pop();
+            newGrid[s.r][s.c] = p;
+          }
+
+          // 혹시 남은 우선 배치 학생이 있다면 일반 남은 명단으로 합침 (보통은 위에서 에러처리 됨)
+          remainingNames.push(...unplacedPriority);
           remainingNames.sort(() => Math.random() - 0.5);
 
+          // 나머지 학생들을 남은 자리에 무작위 배치
           for (let r = 0; r < rows; r++) {
             for (let c = 0; c < cols; c++) {
               if (newGrid[r][c] === null && !inactiveSeats[`${r}-${c}`] && remainingNames.length > 0) {
@@ -304,12 +404,12 @@
               if (avoidConflict.soft) violations += 100;
 
               const prevConflict = checkConflict(newGrid, r, c, studentA, prevPairs, layoutMode, groupRows, groupCols);
-              if (prevConflict.strict) violations += 500; 
-              if (prevConflict.soft) violations += 5;     
+              if (prevConflict.strict) violations += 500;
+              if (prevConflict.soft) violations += 5;
 
               if (genderPairing && layoutMode === 'pair') {
                 if (c % 2 === 0 && c < cols - 1) {
-                  const partner = newGrid[r][c+1];
+                  const partner = newGrid[r][c + 1];
                   if (partner) {
                     const gA = getGender(studentA);
                     const gB = getGender(partner);
@@ -332,7 +432,7 @@
         }
 
         setGrid(bestGrid);
-        
+
         if (!isPresenting) {
           if (minViolations >= 10000) {
             showAlert("⚠️ 배치 알림", "공간이 부족하여 '강제 기피 대상'을 다른 조로 완벽히 분리하지 못했습니다. 배치 결과를 확인해 주세요.");
@@ -345,14 +445,14 @@
       };
 
       const handleAssignClick = (e) => {
-        if (countdown !== null) return; 
+        if (countdown !== null) return;
 
         const useSecret = !isPresenting || e.ctrlKey || e.metaKey;
 
         if (isPresenting && layoutMode !== 'manual') {
           let currentCount = 3;
           setCountdown(currentCount);
-          
+
           const timer = setInterval(() => {
             currentCount--;
             if (currentCount > 0) {
@@ -369,7 +469,7 @@
       };
 
       const handleClear = () => {
-        showConfirm("전체 비우기", "모든 자리를 비우시겠습니까?\n(고정석과 책상 배열 정보는 유지됩니다)", () => {
+        showConfirm("전체 비우기", "모든 자리를 비우시겠습니까?\n(고정석, 우선 구역, 책상 배열 정보는 유지됩니다)", () => {
           const emptyGrid = Array(rows).fill(null).map(() => Array(cols).fill(null));
           Object.entries(fixedSeats).forEach(([name, pos]) => {
             if (pos.r < rows && pos.c < cols && !inactiveSeats[`${pos.r}-${pos.c}`]) {
@@ -385,10 +485,10 @@
         setFixedSeats(prev => {
           const newFixed = { ...prev };
           if (newFixed[name]) {
-            delete newFixed[name]; 
+            delete newFixed[name];
           } else {
             Object.keys(newFixed).forEach(key => {
-                if(newFixed[key].r === r && newFixed[key].c === c) delete newFixed[key];
+              if (newFixed[key].r === r && newFixed[key].c === c) delete newFixed[key];
             });
             newFixed[name] = { r, c };
           }
@@ -396,14 +496,30 @@
         });
       };
 
-      const toggleInactive = (r, c) => {
-        if (grid[r][c] !== null) return; 
-        setInactiveSeats(prev => {
-          const next = { ...prev };
-          if (next[`${r}-${c}`]) delete next[`${r}-${c}`];
-          else next[`${r}-${c}`] = true;
-          return next;
-        });
+      // ⭐️ 3단계 좌석 상태 토글: 기본 -> 우선배치 -> 비활성 -> 기본
+      const toggleSeatState = (r, c) => {
+        if (grid[r][c] !== null) return; // 사람이 있으면 변경 불가
+        const key = `${r}-${c}`;
+
+        if (!prioritySeats[key] && !inactiveSeats[key]) {
+          // 기본 -> 우선배치
+          setPrioritySeats(prev => ({ ...prev, [key]: true }));
+        } else if (prioritySeats[key]) {
+          // 우선배치 -> 비활성(❌)
+          setPrioritySeats(prev => {
+            const next = { ...prev };
+            delete next[key];
+            return next;
+          });
+          setInactiveSeats(prev => ({ ...prev, [key]: true }));
+        } else if (inactiveSeats[key]) {
+          // 비활성 -> 기본
+          setInactiveSeats(prev => {
+            const next = { ...prev };
+            delete next[key];
+            return next;
+          });
+        }
       };
 
       const onDragStartFromGrid = (e, r, c, name) => {
@@ -417,7 +533,7 @@
       };
 
       const onDragOverGrid = (e, r, c) => {
-        if (inactiveSeats[`${r}-${c}`]) return; 
+        if (inactiveSeats[`${r}-${c}`]) return;
         e.preventDefault();
         e.dataTransfer.dropEffect = "move";
       };
@@ -430,12 +546,12 @@
       const onDropToGrid = (e, targetR, targetC) => {
         e.preventDefault();
         if (!draggedSeat) return;
-        if (inactiveSeats[`${targetR}-${targetC}`]) return; 
+        if (inactiveSeats[`${targetR}-${targetC}`]) return;
 
         const newGrid = [...grid.map(row => [...row])];
         const avoids = getAvoidsList();
-        const prevPairs = getPrevPairsList(); 
-        
+        const prevPairs = getPrevPairsList();
+
         let proposedFixedSeats = { ...fixedSeats };
         let hasAvoidConflict = false;
         let hasPrevConflict = false;
@@ -462,8 +578,8 @@
 
           const nameA = newGrid[sourceR][sourceC];
           const nameB = newGrid[targetR][targetC];
-          if(nameA && proposedFixedSeats[nameA]) proposedFixedSeats[nameA] = { r: sourceR, c: sourceC };
-          if(nameB && proposedFixedSeats[nameB]) proposedFixedSeats[nameB] = { r: targetR, c: targetC };
+          if (nameA && proposedFixedSeats[nameA]) proposedFixedSeats[nameA] = { r: sourceR, c: sourceC };
+          if (nameB && proposedFixedSeats[nameB]) proposedFixedSeats[nameB] = { r: targetR, c: targetC };
 
         } else if (draggedSeat.source === 'waiting') {
           newGrid[targetR][targetC] = draggedSeat.name;
@@ -486,15 +602,15 @@
         } else {
           if (hasAvoidConflict) {
             showConfirm(
-              "⚠️ 배치 불가 주의!", 
-              "해당 위치로 이동하면 [강제 기피 대상]과 같은 조가 되거나 근처에 인접하게 됩니다.\n그래도 배치를 강행하시겠습니까?", 
+              "⚠️ 배치 불가 주의!",
+              "해당 위치로 이동하면 [강제 기피 대상]과 같은 조가 되거나 근처에 인접하게 됩니다.\n그래도 배치를 강행하시겠습니까?",
               applyChanges,
               () => setDraggedSeat(null)
             );
           } else if (hasPrevConflict) {
             showConfirm(
-              "💡 이전 자리 중복", 
-              "해당 위치로 이동하면 [이전 자리에서 인접했던 학생]과 다시 같은 조가 됩니다.\n이대로 배치하시겠습니까?", 
+              "💡 이전 자리 중복",
+              "해당 위치로 이동하면 [이전 자리에서 인접했던 학생]과 다시 같은 조가 됩니다.\n이대로 배치하시겠습니까?",
               applyChanges,
               () => setDraggedSeat(null)
             );
@@ -513,22 +629,21 @@
         setGrid(newGrid);
 
         setFixedSeats(prev => {
-           const newFixed = {...prev};
-           delete newFixed[draggedSeat.name];
-           return newFixed;
+          const newFixed = { ...prev };
+          delete newFixed[draggedSeat.name];
+          return newFixed;
         });
         setDraggedSeat(null);
       };
 
       const handleCopyCurrentToPrev = () => {
-        const text = grid.map((row, r) => 
+        const text = grid.map((row, r) =>
           row.map((name, c) => name ? cleanName(name) : (inactiveSeats[`${r}-${c}`] ? "제외" : "빈자리")).join('\t')
         ).join('\n');
         setPrevLayoutText(text);
         showAlert("적용 완료", "현재 화면의 배치가 '이전 자리 배치표'로 자동 입력되었습니다.\n이제 섞기를 누르면 지금 옆에 있는 친구와 찢어지게 배치됩니다!");
       };
 
-      // ⭐️ 인쇄/저장/설정 모달 띄우기
       const handlePrintClick = () => {
         setModal({
           isOpen: true,
@@ -536,15 +651,15 @@
           title: '💾 인쇄 및 설정 관리',
           message: '배치도를 파일로 저장/인쇄하거나,\n현재의 모든 설정을 백업하고 복구할 수 있습니다.',
           onConfirm: null,
-          onCancel: () => setModal(prev => ({...prev, isOpen: false}))
+          onCancel: () => setModal(prev => ({ ...prev, isOpen: false }))
         });
       };
 
       const handleExport = async (format) => {
         const element = document.getElementById('capture-area');
         if (!element || !window.html2canvas || (!window.jspdf && format === 'pdf')) {
-           showAlert("저장 오류", "저장 라이브러리를 불러오지 못했습니다. 잠시 후 다시 시도하거나 [기본 인쇄]를 이용해 주세요.");
-           return;
+          showAlert("저장 오류", "저장 라이브러리를 불러오지 못했습니다. 잠시 후 다시 시도하거나 [기본 인쇄]를 이용해 주세요.");
+          return;
         }
 
         setIsExporting(true);
@@ -560,17 +675,17 @@
         const originalPrintDisplays = [];
         printOnlyElements.forEach(el => {
           originalPrintDisplays.push(el.style.display);
-          el.style.display = 'block'; 
+          el.style.display = 'block';
         });
 
         try {
-          const canvas = await window.html2canvas(element, { 
-              scale: 2, 
-              backgroundColor: '#ffffff', 
-              useCORS: true, 
-              logging: false,
-              windowWidth: element.scrollWidth,
-              windowHeight: element.scrollHeight
+          const canvas = await window.html2canvas(element, {
+            scale: 2,
+            backgroundColor: '#ffffff',
+            useCORS: true,
+            logging: false,
+            windowWidth: element.scrollWidth,
+            windowHeight: element.scrollHeight
           });
           const imgData = canvas.toDataURL('image/png');
 
@@ -579,18 +694,18 @@
             link.download = `자리배치도_${new Date().getTime()}.png`;
             link.href = imgData;
             link.click();
-            setModal(prev => ({...prev, isOpen: false}));
+            setModal(prev => ({ ...prev, isOpen: false }));
             showAlert("저장 완료", "배치도가 이미지(PNG) 파일로 저장되었습니다.");
           } else if (format === 'pdf') {
             const { jsPDF } = window.jspdf;
             const pdf = new jsPDF({ orientation: canvas.width > canvas.height ? 'landscape' : 'portrait', unit: 'px', format: [canvas.width, canvas.height] });
             pdf.addImage(imgData, 'PNG', 0, 0, canvas.width, canvas.height);
             pdf.save(`자리배치도_${new Date().getTime()}.pdf`);
-            setModal(prev => ({...prev, isOpen: false}));
+            setModal(prev => ({ ...prev, isOpen: false }));
             showAlert("저장 완료", "배치도가 PDF 파일로 저장되었습니다.");
           }
         } catch (err) {
-          setModal(prev => ({...prev, isOpen: false}));
+          setModal(prev => ({ ...prev, isOpen: false }));
           showAlert("저장 실패", "저장 중 오류가 발생했습니다. 키보드 단축키 [ Ctrl + P ]를 이용하여 인쇄/저장해 주세요.");
         } finally {
           hideElements.forEach((el, idx) => el.style.display = originalDisplays[idx]);
@@ -600,37 +715,40 @@
       };
 
       const saveCurrentLayout = () => {
-        if (grid.every(row => row.every(seat => seat === null))) { 
-          showAlert("저장 실패", "저장할 배치가 없습니다."); 
-          return; 
+        if (grid.every(row => row.every(seat => seat === null))) {
+          showAlert("저장 실패", "저장할 배치가 없습니다.");
+          return;
         }
         const time = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-        setSavedLayouts(prev => [{ 
-          time, 
-          grid: grid.map(r => [...r]), 
-          fixedSeats: {...fixedSeats},
-          inactiveSeats: {...inactiveSeats},
-          secretSeatsInput 
+        setSavedLayouts(prev => [{
+          time,
+          grid: grid.map(r => [...r]),
+          fixedSeats: { ...fixedSeats },
+          inactiveSeats: { ...inactiveSeats },
+          prioritySeats: { ...prioritySeats },
+          secretSeatsInput,
+          priorityStudentsInput
         }, ...prev].slice(0, 5));
         showAlert("저장 완료", "현재 배치가 기록되었습니다.");
       };
-      
+
       const loadLayout = (savedObj) => {
         showConfirm("기록 불러오기", `[${savedObj.time}] 배치를 불러오시겠습니까?\n현재 화면이 덮어씌워집니다.`, () => {
           setGrid(savedObj.grid.map(r => [...r]));
           setFixedSeats(savedObj.fixedSeats);
           setInactiveSeats(savedObj.inactiveSeats || {});
-          if (savedObj.secretSeatsInput !== undefined) setSecretSeatsInput(savedObj.secretSeatsInput); 
+          if (savedObj.prioritySeats) setPrioritySeats(savedObj.prioritySeats);
+          if (savedObj.secretSeatsInput !== undefined) setSecretSeatsInput(savedObj.secretSeatsInput);
+          if (savedObj.priorityStudentsInput !== undefined) setPriorityStudentsInput(savedObj.priorityStudentsInput);
         });
       };
 
-      // 설정 파일 내보내기
       const handleExportSettings = () => {
         const settings = {
           classTitle, inputText, rows, cols, layoutMode, groupRows, groupCols,
-          grid, fixedSeats, inactiveSeats, useGenderColor, avoidPairs,
-          genderPairing, secretSeatsInput, prevLayoutText, footerNote,
-          footerFontSize, footerFontWeight
+          grid, fixedSeats, inactiveSeats, prioritySeats, priorityStudentsInput,
+          useGenderColor, avoidPairs, genderPairing, secretSeatsInput, prevLayoutText,
+          footerNote, footerFontSize, footerFontWeight
         };
         const blob = new Blob([JSON.stringify(settings, null, 2)], { type: "application/json" });
         const url = URL.createObjectURL(blob);
@@ -642,20 +760,19 @@
         link.click();
         document.body.removeChild(link);
         URL.revokeObjectURL(url);
-        setModal(prev => ({...prev, isOpen: false}));
+        setModal(prev => ({ ...prev, isOpen: false }));
         setTimeout(() => showAlert("백업 완료", "모든 설정이 성공적으로 저장되었습니다.\n나중에 [설정 불러오기]를 통해 언제든 이 설정 그대로 복구할 수 있습니다."), 300);
       };
 
-      // 설정 파일 불러오기
       const handleImportSettings = (e) => {
         const file = e.target.files[0];
         if (!file) return;
-        
+
         const reader = new FileReader();
         reader.onload = (event) => {
           try {
             const settings = JSON.parse(event.target.result);
-            
+
             if (settings.inputText !== undefined) setInputText(settings.inputText);
             if (settings.classTitle !== undefined) setClassTitle(settings.classTitle);
             if (settings.rows !== undefined) setRows(settings.rows);
@@ -666,6 +783,8 @@
             if (settings.grid !== undefined) setGrid(settings.grid);
             if (settings.fixedSeats !== undefined) setFixedSeats(settings.fixedSeats);
             if (settings.inactiveSeats !== undefined) setInactiveSeats(settings.inactiveSeats);
+            if (settings.prioritySeats !== undefined) setPrioritySeats(settings.prioritySeats);
+            if (settings.priorityStudentsInput !== undefined) setPriorityStudentsInput(settings.priorityStudentsInput);
             if (settings.useGenderColor !== undefined) setUseGenderColor(settings.useGenderColor);
             if (settings.avoidPairs !== undefined) setAvoidPairs(settings.avoidPairs);
             if (settings.genderPairing !== undefined) setGenderPairing(settings.genderPairing);
@@ -674,15 +793,15 @@
             if (settings.footerNote !== undefined) setFooterNote(settings.footerNote);
             if (settings.footerFontSize !== undefined) setFooterFontSize(settings.footerFontSize);
             if (settings.footerFontWeight !== undefined) setFooterFontWeight(settings.footerFontWeight);
-            
-            setModal(prev => ({...prev, isOpen: false}));
+
+            setModal(prev => ({ ...prev, isOpen: false }));
             setTimeout(() => showAlert("복구 완료", "설정 파일을 성공적으로 불러왔습니다!"), 300);
           } catch (err) {
             showAlert("불러오기 실패", "올바른 설정 파일(.json)이 아니거나 파일이 손상되었습니다.");
           }
         };
         reader.readAsText(file);
-        e.target.value = null; // 초기화
+        e.target.value = null;
       };
 
       const renderRows = printPerspective === 'teacher' ? [...Array(rows)].map((_, i) => rows - 1 - i) : [...Array(rows)].map((_, i) => i);
@@ -718,12 +837,12 @@
 
       return (
         <div className="h-screen bg-gray-50 flex flex-col md:flex-row text-gray-800 font-sans overflow-hidden relative">
-          
+
           <div className="no-print w-full md:w-80 bg-white border-b md:border-b-0 md:border-r border-gray-200 flex flex-col shadow-lg z-10 flex-shrink-0 h-[45vh] md:h-full">
-            <div className="p-4 sm:p-5 overflow-y-auto flex-1 flex flex-col">
-              
-              <div className="flex justify-between items-center mb-4 sm:mb-6 w-full border-b border-gray-100 pb-3">
-                <div 
+            <div className="p-3 sm:p-4 overflow-y-auto flex-1 flex flex-col gap-2.5">
+
+              <div className="flex justify-between items-center w-full border-b border-gray-100 pb-2 mb-1">
+                <div
                   className={`flex items-center gap-1.5 w-fit ${isPresenting ? 'cursor-default opacity-80' : 'cursor-pointer group'}`}
                   onClick={() => { if (!isPresenting) setShowAdvanced(true); }}
                   title={isPresenting ? "발표 모드 중 (고급 설정 잠김)" : "고급 설정 열기 (선생님 전용)"}
@@ -731,12 +850,12 @@
                   <div className={`p-1.5 rounded-lg transition-colors shadow-sm ${isPresenting ? 'bg-gray-100 text-gray-500' : 'bg-gray-100 text-gray-600 group-hover:bg-indigo-100 group-hover:text-indigo-600'}`}>
                     <i className="fa-solid fa-users text-base"></i>
                   </div>
-                  <h1 className={`text-sm sm:text-base font-bold tracking-tight transition-colors whitespace-nowrap ${isPresenting ? 'text-gray-800' : 'text-gray-900 group-hover:text-indigo-600'}`}>
+                  <h1 className={`text-sm font-bold tracking-tight transition-colors whitespace-nowrap ${isPresenting ? 'text-gray-800' : 'text-gray-900 group-hover:text-indigo-600'}`}>
                     자리배치 설정
                   </h1>
-                  {!isPresenting && <i className="fa-solid fa-gear text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity text-xs ml-1"></i>}
+                  {!isPresenting && <i className="fa-solid fa-gear text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity text-[10px] ml-1"></i>}
                 </div>
-                
+
                 <button
                   onClick={() => setIsPresenting(!isPresenting)}
                   className={`p-2 rounded-full transition-all flex items-center justify-center ${isPresenting ? 'bg-blue-50 text-blue-600 shadow-inner' : 'text-gray-400 hover:bg-gray-100 hover:text-gray-600'}`}
@@ -746,203 +865,129 @@
                 </button>
               </div>
 
-              <div className="mb-4 bg-gray-50 p-3 sm:p-4 rounded-xl border border-gray-100">
-                <h2 className="text-xs sm:text-sm font-semibold text-gray-700 mb-2 sm:mb-3">학급 타이틀 (선택)</h2>
+              <div className="bg-gray-50 p-2.5 rounded-xl border border-gray-100">
+                <h2 className="text-[11px] sm:text-xs font-semibold text-gray-700 mb-1.5">학급 타이틀 (선택)</h2>
                 <input
                   type="text"
-                  className="w-full border border-gray-300 rounded p-1.5 sm:p-2 text-center focus:ring-2 focus:ring-blue-500 outline-none text-sm"
+                  className="w-full border border-gray-300 rounded p-1.5 text-center focus:ring-2 focus:ring-blue-500 outline-none text-xs"
                   placeholder="예: 3학년 10반 자리배치표"
                   value={classTitle}
                   onChange={(e) => setClassTitle(e.target.value)}
                 />
               </div>
 
-              <div className="mb-4 bg-gray-50 p-3 sm:p-4 rounded-xl border border-gray-100">
-                <h2 className="text-xs sm:text-sm font-semibold text-gray-700 mb-2 sm:mb-3">교실 크기 (행 x 열)</h2>
-                <div className="flex gap-2 mb-3">
-                  <button onClick={() => {setRows(5); setCols(6);}} className="flex-1 py-1.5 px-2 text-xs font-medium bg-white border border-gray-300 rounded hover:bg-gray-100 transition-colors">5 x 6</button>
-                  <button onClick={() => {setRows(6); setCols(5);}} className="flex-1 py-1.5 px-2 text-xs font-medium bg-white border border-gray-300 rounded hover:bg-gray-100 transition-colors">6 x 5</button>
-                  <button onClick={() => {setRows(6); setCols(6);}} className="flex-1 py-1.5 px-2 text-xs font-medium bg-white border border-gray-300 rounded hover:bg-gray-100 transition-colors">6 x 6</button>
+              <div className="bg-gray-50 p-2.5 rounded-xl border border-gray-100">
+                <h2 className="text-[11px] sm:text-xs font-semibold text-gray-700 mb-1.5">교실 크기 (행 x 열)</h2>
+                <div className="flex gap-1.5 mb-2">
+                  <button onClick={() => { setRows(5); setCols(6); }} className="flex-1 py-1 px-1 text-[11px] font-medium bg-white border border-gray-300 rounded hover:bg-gray-100 transition-colors">5x6</button>
+                  <button onClick={() => { setRows(6); setCols(5); }} className="flex-1 py-1 px-1 text-[11px] font-medium bg-white border border-gray-300 rounded hover:bg-gray-100 transition-colors">6x5</button>
+                  <button onClick={() => { setRows(6); setCols(6); }} className="flex-1 py-1 px-1 text-[11px] font-medium bg-white border border-gray-300 rounded hover:bg-gray-100 transition-colors">6x6</button>
                 </div>
-                <div className="flex gap-4">
+                <div className="flex gap-3">
                   <div className="flex-1">
-                    <label className="text-[10px] sm:text-xs text-gray-500 block mb-1">행 (세로줄)</label>
-                    <input type="number" min="1" max="10" value={rows} onChange={(e) => setRows(Number(e.target.value))} className="w-full border border-gray-300 rounded p-1.5 sm:p-2 text-center focus:ring-2 focus:ring-blue-500 outline-none" />
+                    <label className="text-[9px] text-gray-500 block mb-0.5">행 (세로줄)</label>
+                    <input type="number" min="1" max="10" value={rows} onChange={(e) => setRows(Number(e.target.value))} className="w-full border border-gray-300 rounded p-1 text-center focus:ring-2 focus:ring-blue-500 outline-none text-xs" />
                   </div>
                   <div className="flex-1">
-                    <label className="text-[10px] sm:text-xs text-gray-500 block mb-1">열 (가로줄)</label>
-                    <input type="number" min="1" max="10" value={cols} onChange={(e) => setCols(Number(e.target.value))} className="w-full border border-gray-300 rounded p-1.5 sm:p-2 text-center focus:ring-2 focus:ring-blue-500 outline-none" />
+                    <label className="text-[9px] text-gray-500 block mb-0.5">열 (가로줄)</label>
+                    <input type="number" min="1" max="10" value={cols} onChange={(e) => setCols(Number(e.target.value))} className="w-full border border-gray-300 rounded p-1 text-center focus:ring-2 focus:ring-blue-500 outline-none text-xs" />
                   </div>
                 </div>
-                <p className="text-[10px] text-gray-500 mt-3 pt-2 border-t border-gray-200">
-                  💡 <b>Tip:</b> 오른쪽 화면에서 빈자리를 마우스로 클릭하면 <b>'❌ (사용 불가)'</b>로 만들 수 있습니다.
+                <p className="text-[9px] text-gray-500 mt-2 pt-1.5 border-t border-gray-200">
+                  💡 <b>Tip:</b> 빈자리 클릭 ➔ <b>🌟우선구역</b> ➔ <b>❌불가</b> ➔ <b>기본</b>
                 </p>
               </div>
 
-              <div className="mb-4 bg-gray-50 p-3 sm:p-4 rounded-xl border border-gray-100">
-                <h2 className="text-xs sm:text-sm font-semibold text-gray-700 mb-2 sm:mb-3 flex items-center gap-1.5"><i className="fa-solid fa-eye"></i> 교탁 보는 시점</h2>
-                <div className="flex gap-2">
+              <div className="bg-gray-50 p-2.5 rounded-xl border border-gray-100">
+                <h2 className="text-[11px] sm:text-xs font-semibold text-gray-700 mb-1.5 flex items-center gap-1.5"><i className="fa-solid fa-eye"></i> 교탁 시점</h2>
+                <div className="flex gap-1.5">
                   <button
                     onClick={() => setPrintPerspective('normal')}
-                    className={`flex-1 py-1.5 sm:py-2 px-1 text-[10px] sm:text-[11px] font-bold rounded-lg border transition-colors ${printPerspective === 'normal' ? 'bg-blue-100 border-blue-400 text-blue-700 shadow-sm' : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-100'}`}
+                    className={`flex-1 py-1.5 px-1 text-[10px] font-bold rounded-lg border transition-colors ${printPerspective === 'normal' ? 'bg-blue-100 border-blue-400 text-blue-700 shadow-sm' : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-100'}`}
                   >
-                    ⬆️ 기본 (교탁 위)
+                    ⬆️ 기본
                   </button>
                   <button
                     onClick={() => setPrintPerspective('teacher')}
-                    className={`flex-1 py-1.5 sm:py-2 px-1 text-[10px] sm:text-[11px] font-bold rounded-lg border transition-colors ${printPerspective === 'teacher' ? 'bg-blue-100 border-blue-400 text-blue-700 shadow-sm' : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-100'}`}
+                    className={`flex-1 py-1.5 px-1 text-[10px] font-bold rounded-lg border transition-colors ${printPerspective === 'teacher' ? 'bg-blue-100 border-blue-400 text-blue-700 shadow-sm' : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-100'}`}
                   >
-                    ⬇️ 선생님 시점 (반전)
+                    ⬇️ 반전
                   </button>
                 </div>
               </div>
 
-              <div className="mb-4 sm:mb-6 bg-gray-50 p-3 sm:p-4 rounded-xl border border-gray-100">
-                <h2 className="text-xs sm:text-sm font-semibold text-gray-700 mb-2 sm:mb-3">배치 모드</h2>
+              <div className="bg-gray-50 p-2.5 rounded-xl border border-gray-100">
+                <h2 className="text-[11px] sm:text-xs font-semibold text-gray-700 mb-1.5">배치 모드</h2>
                 <div className="grid grid-cols-4 gap-1.5">
-                  <button onClick={() => setLayoutMode('normal')} className={`flex flex-col items-center p-1.5 sm:p-2 border rounded-lg transition-colors ${layoutMode === 'normal' ? 'bg-blue-50 border-blue-400 text-blue-700 shadow-sm' : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
-                    <i className="fa-solid fa-table-cells mb-1 text-sm sm:text-base"></i>
-                    <span className="text-[9px] sm:text-[10px] font-bold">기본</span>
+                  <button onClick={() => setLayoutMode('normal')} className={`flex flex-col items-center p-1 border rounded-lg transition-colors ${layoutMode === 'normal' ? 'bg-blue-50 border-blue-400 text-blue-700 shadow-sm' : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
+                    <i className="fa-solid fa-table-cells mb-0.5 text-xs"></i><span className="text-[9px] font-bold">기본</span>
                   </button>
-                  <button onClick={() => setLayoutMode('pair')} className={`flex flex-col items-center p-1.5 sm:p-2 border rounded-lg transition-colors ${layoutMode === 'pair' ? 'bg-blue-50 border-blue-400 text-blue-700 shadow-sm' : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
-                    <i className="fa-solid fa-right-left mb-1 text-sm sm:text-base"></i>
-                    <span className="text-[9px] sm:text-[10px] font-bold">짝꿍</span>
+                  <button onClick={() => setLayoutMode('pair')} className={`flex flex-col items-center p-1 border rounded-lg transition-colors ${layoutMode === 'pair' ? 'bg-blue-50 border-blue-400 text-blue-700 shadow-sm' : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
+                    <i className="fa-solid fa-right-left mb-0.5 text-xs"></i><span className="text-[9px] font-bold">짝꿍</span>
                   </button>
-                  <button onClick={() => setLayoutMode('group')} className={`flex flex-col items-center p-1.5 sm:p-2 border rounded-lg transition-colors ${layoutMode === 'group' ? 'bg-blue-50 border-blue-400 text-blue-700 shadow-sm' : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
-                    <i className="fa-solid fa-users-rectangle mb-1 text-sm sm:text-base"></i>
-                    <span className="text-[9px] sm:text-[10px] font-bold">모둠</span>
+                  <button onClick={() => setLayoutMode('group')} className={`flex flex-col items-center p-1 border rounded-lg transition-colors ${layoutMode === 'group' ? 'bg-blue-50 border-blue-400 text-blue-700 shadow-sm' : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
+                    <i className="fa-solid fa-users-rectangle mb-0.5 text-xs"></i><span className="text-[9px] font-bold">모둠</span>
                   </button>
-                  <button onClick={() => setLayoutMode('manual')} className={`flex flex-col items-center p-1.5 sm:p-2 border rounded-lg transition-colors ${layoutMode === 'manual' ? 'bg-blue-50 border-blue-400 text-blue-700 shadow-sm' : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
-                    <i className="fa-solid fa-hand-pointer mb-1 text-sm sm:text-base"></i>
-                    <span className="text-[9px] sm:text-[10px] font-bold">직접</span>
+                  <button onClick={() => setLayoutMode('manual')} className={`flex flex-col items-center p-1 border rounded-lg transition-colors ${layoutMode === 'manual' ? 'bg-blue-50 border-blue-400 text-blue-700 shadow-sm' : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
+                    <i className="fa-solid fa-hand-pointer mb-0.5 text-xs"></i><span className="text-[9px] font-bold">직접</span>
                   </button>
                 </div>
-                
                 {layoutMode === 'group' && (
-                  <div className="mt-2 sm:mt-3 bg-white p-2 rounded border border-gray-200 shadow-sm">
-                    <label className="text-[10px] sm:text-xs font-bold text-gray-700 block mb-1">👥 모둠 구성</label>
-                    <select 
-                      value={`${groupRows}x${groupCols}`} 
-                      onChange={(e) => {
-                        const [r, c] = e.target.value.split('x');
-                        setGroupRows(Number(r)); setGroupCols(Number(c));
-                      }}
-                      className="w-full text-xs sm:text-sm border border-gray-300 rounded p-1 sm:p-1.5 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-gray-50"
-                    >
-                      <option value="2x2">4명 (2줄 x 2칸)</option>
-                      <option value="2x3">6명 (2줄 x 3칸)</option>
-                      <option value="3x2">6명 (3줄 x 2칸)</option>
-                      <option value="2x4">8명 (2줄 x 4칸)</option>
+                  <div className="mt-1.5 bg-white p-1.5 rounded border border-gray-200 shadow-sm">
+                    <label className="text-[9px] font-bold text-gray-700 block mb-0.5">👥 모둠 구성</label>
+                    <select value={`${groupRows}x${groupCols}`} onChange={(e) => { const [r, c] = e.target.value.split('x'); setGroupRows(Number(r)); setGroupCols(Number(c)); }} className="w-full text-[10px] border border-gray-300 rounded p-1 outline-none focus:border-blue-500 bg-gray-50">
+                      <option value="2x2">4명 (2줄x2칸)</option>
+                      <option value="2x3">6명 (2줄x3칸)</option>
+                      <option value="3x2">6명 (3줄x2칸)</option>
+                      <option value="2x4">8명 (2줄x4칸)</option>
                     </select>
                   </div>
                 )}
               </div>
 
-              <div className="mb-4 flex-1 flex flex-col min-h-[160px]">
-                <div className="flex justify-between items-end mb-2">
-                  <h2 className="text-sm font-semibold text-gray-700">학생 명단</h2>
-                  <div className="flex gap-2 items-center">
-                    <button
-                      onClick={() => setShowRoster(!showRoster)}
-                      className={`text-[10px] px-2 py-1 rounded border font-bold transition-colors ${showRoster ? 'bg-indigo-100 text-indigo-700 border-indigo-200' : 'bg-white text-gray-500 border-gray-300 hover:bg-gray-50'}`}
-                    >
-                      {showRoster ? '📋 명단 표 함께 켜짐' : '📋 명단 표 숨겨짐'}
-                    </button>
-                    <span className="text-xs font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">{inputText.split(/[,\n]/).filter(n => n.trim()).length}명</span>
-                  </div>
-                </div>
-                <textarea
-                  className="w-full flex-1 border border-gray-300 rounded-lg p-3 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-none leading-relaxed"
-                  placeholder="이름을 입력하세요 (엔터 또는 쉼표 구분)"
-                  value={inputText}
-                  onChange={(e) => setInputText(e.target.value)}
-                />
-                
-                <div className="flex flex-col gap-2 mt-2 pt-1 border-t border-gray-100">
-                  <div className="flex items-center gap-2 mt-1">
-                    <input 
-                      type="checkbox" 
-                      id="use-gender-color"
-                      checked={useGenderColor}
-                      onChange={(e) => setUseGenderColor(e.target.checked)}
-                      className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500 cursor-pointer"
-                    />
-                    <label htmlFor="use-gender-color" className="text-[11px] sm:text-xs text-gray-600 cursor-pointer font-bold">
-                      남/여 색상으로 구분하기
-                    </label>
-                  </div>
-                  <div className={`flex items-center gap-2 ${layoutMode !== 'pair' ? 'opacity-50' : ''}`}>
-                    <input 
-                      type="checkbox" 
-                      id="gender-pair"
-                      checked={genderPairing}
-                      onChange={(e) => setGenderPairing(e.target.checked)}
-                      disabled={layoutMode !== 'pair'}
-                      className="w-4 h-4 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500 cursor-pointer disabled:cursor-not-allowed"
-                    />
-                    <label htmlFor="gender-pair" className={`text-[11px] sm:text-xs text-gray-600 font-bold ${layoutMode !== 'pair' ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
-                      남녀 짝꿍 우선 배치 (짝꿍 모드 전용)
-                    </label>
-                  </div>
-                  <p className="text-[9px] text-gray-400 font-normal leading-tight">
-                    * 두 기능 모두 명단 이름 끝에 '남', '여' 표기가 있어야 합니다. (괄호 생략 가능)
-                  </p>
-                </div>
-              </div>
-
-              <div className="mb-6">
-                <h2 className="text-sm font-semibold text-gray-700 mb-2">하단 안내 문구</h2>
-                <input
-                  type="text"
-                  className="w-full border border-gray-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                  placeholder="배치도 하단에 표시될 문구를 입력하세요"
-                  value={footerNote}
-                  onChange={(e) => setFooterNote(e.target.value)}
-                />
-                <div className="flex gap-2 mt-2">
-                  <select 
-                    value={footerFontSize} 
-                    onChange={e => setFooterFontSize(e.target.value)} 
-                    className="flex-1 border border-gray-300 rounded p-1.5 text-[11px] sm:text-xs focus:ring-2 focus:ring-blue-500 outline-none bg-white text-gray-600"
-                  >
-                    <option value="text-xs">글자: 작게</option>
-                    <option value="text-sm">글자: 보통</option>
-                    <option value="text-base">글자: 조금 크게</option>
-                    <option value="text-lg">글자: 아주 크게</option>
-                    <option value="text-xl">글자: 최대</option>
-                  </select>
-                  <select 
-                    value={footerFontWeight} 
-                    onChange={e => setFooterFontWeight(e.target.value)} 
-                    className="flex-1 border border-gray-300 rounded p-1.5 text-[11px] sm:text-xs focus:ring-2 focus:ring-blue-500 outline-none bg-white text-gray-600"
-                  >
-                    <option value="font-normal">굵기: 얇게</option>
-                    <option value="font-medium">굵기: 보통</option>
-                    <option value="font-bold">굵기: 굵게</option>
-                    <option value="font-extrabold">굵기: 아주 굵게</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-1.5 sm:gap-2 mt-auto pt-2 border-t border-gray-100">
-                <button 
-                  onClick={handleAssignClick}
-                  className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 sm:py-3 px-4 rounded-lg flex items-center justify-center gap-2 transition-colors shadow-md text-sm sm:text-base"
+              {/* ⭐️ 팝업 버튼 및 간소화된 명단 옵션 영역 */}
+              <div className="bg-indigo-50 p-2.5 rounded-xl border border-indigo-100 flex flex-col gap-2">
+                <button
+                  onClick={() => setIsStudentModalOpen(true)}
+                  className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 rounded-lg flex items-center justify-center gap-1.5 transition-colors shadow-sm text-xs"
                 >
-                  <i className="fa-solid fa-shuffle"></i>
-                  {layoutMode === 'manual' ? '남은 자리 자동 채우기' : '자리 랜덤 배치'}
+                  <i className="fa-solid fa-list-ul"></i> 명단 및 우선구역 설정
                 </button>
-                <div className="flex gap-1.5 sm:gap-2">
-                  <button 
-                    onClick={handleClear}
-                    className="flex-1 bg-white border border-gray-300 hover:bg-gray-100 text-gray-700 font-medium py-1.5 sm:py-2 px-2 sm:px-3 rounded-lg flex items-center justify-center gap-1.5 transition-colors text-xs sm:text-sm"
-                  >
+
+                <div className="flex flex-col gap-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <input type="checkbox" id="use-gender-color" checked={useGenderColor} onChange={(e) => setUseGenderColor(e.target.checked)} className="w-3 h-3 text-indigo-600 rounded border-gray-300 cursor-pointer" />
+                    <label htmlFor="use-gender-color" className="text-[10px] text-gray-700 cursor-pointer font-bold">남/여 색상 구분하기</label>
+                  </div>
+                  <div className={`flex items-center gap-1.5 ${layoutMode !== 'pair' ? 'opacity-50' : ''}`}>
+                    <input type="checkbox" id="gender-pair" checked={genderPairing} onChange={(e) => setGenderPairing(e.target.checked)} disabled={layoutMode !== 'pair'} className="w-3 h-3 text-indigo-600 rounded border-gray-300 cursor-pointer disabled:cursor-not-allowed" />
+                    <label htmlFor="gender-pair" className={`text-[10px] text-gray-700 font-bold ${layoutMode !== 'pair' ? 'cursor-not-allowed' : 'cursor-pointer'}`}>남녀 짝꿍 우선 배치</label>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-gray-50 p-2.5 rounded-xl border border-gray-100 mt-2.5">
+                <h2 className="text-[11px] sm:text-xs font-semibold text-gray-700 mb-1.5">하단 안내 문구</h2>
+                <input type="text" className="w-full border border-gray-300 rounded p-1.5 text-xs focus:ring-2 focus:ring-blue-500 outline-none" placeholder="표시될 문구를 입력하세요" value={footerNote} onChange={(e) => setFooterNote(e.target.value)} />
+                <div className="flex gap-1.5 mt-1.5">
+                  <select value={footerFontSize} onChange={e => setFooterFontSize(e.target.value)} className="flex-1 border border-gray-300 rounded p-1 text-[10px] bg-white text-gray-600">
+                    <option value="text-xs">글자: 작게</option><option value="text-sm">보통</option><option value="text-base">크게</option>
+                  </select>
+                  <select value={footerFontWeight} onChange={e => setFooterFontWeight(e.target.value)} className="flex-1 border border-gray-300 rounded p-1 text-[10px] bg-white text-gray-600">
+                    <option value="font-normal">굵기: 얇게</option><option value="font-medium">보통</option><option value="font-bold">굵게</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-1.5 mt-auto pt-2 border-t border-gray-100">
+                <button onClick={handleAssignClick} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 rounded-lg flex items-center justify-center gap-1.5 transition-colors shadow-md text-[13px]">
+                  <i className="fa-solid fa-shuffle"></i> {layoutMode === 'manual' ? '남은 자리 자동 채우기' : '자리 랜덤 배치'}
+                </button>
+                <div className="flex gap-1.5">
+                  <button onClick={handleClear} className="flex-1 bg-white border border-gray-300 hover:bg-gray-100 text-gray-700 font-medium py-1.5 rounded-lg flex items-center justify-center gap-1.5 transition-colors text-xs">
                     <i className="fa-solid fa-trash-can"></i> 비우기
                   </button>
-                  <button 
-                    onClick={handlePrintClick}
-                    className="flex-1 bg-gray-800 hover:bg-gray-900 text-white font-medium py-1.5 sm:py-2 px-2 sm:px-3 rounded-lg flex items-center justify-center gap-1.5 shadow-md transition-colors text-xs sm:text-sm"
-                  >
+                  <button onClick={handlePrintClick} className="flex-1 bg-gray-800 hover:bg-gray-900 text-white font-medium py-1.5 rounded-lg flex items-center justify-center gap-1.5 shadow-md transition-colors text-xs">
                     <i className="fa-solid fa-folder-open"></i> 인쇄/저장
                   </button>
                 </div>
@@ -953,7 +998,7 @@
           <div className="flex-1 flex flex-col items-center p-4 md:p-8 overflow-auto bg-gray-200 relative">
 
             <div id="capture-area" className="flex flex-col bg-white p-8 md:p-10 rounded-3xl shadow-sm border border-gray-100 mb-8 transition-all a4-landscape mx-auto relative flex-shrink-0">
-              
+
               {classTitle && (
                 <div className="w-full text-center mb-6">
                   <h2 className="text-3xl sm:text-4xl font-black text-gray-800 tracking-widest drop-shadow-sm">{classTitle}</h2>
@@ -962,7 +1007,7 @@
 
               <div className="flex flex-col lg:flex-row items-center lg:items-start justify-center gap-6 lg:gap-10 w-full flex-grow">
                 <div className="flex flex-col items-center">
-                  
+
                   {printPerspective === 'normal' && (
                     <div className="w-full flex justify-center mb-8 sm:mb-12">
                       <div className="bg-blue-500 text-white px-16 py-3 rounded-b-3xl shadow-lg text-lg font-bold tracking-widest border-t-4 border-blue-400 relative overflow-hidden">
@@ -972,56 +1017,66 @@
                     </div>
                   )}
 
-                  <div 
-                    className="seat-grid inline-grid gap-2 sm:gap-3" 
-                    style={{ gridTemplateColumns: `repeat(${cols}, max-content)` }} 
+                  <div
+                    className="seat-grid inline-grid gap-2 sm:gap-3"
+                    style={{ gridTemplateColumns: `repeat(${cols}, max-content)` }}
                   >
                     {renderRows.map((r, vr) => (
                       renderCols.map((c, vc) => {
                         const studentName = grid[r] && grid[r][c] ? grid[r][c] : null;
                         const isFixed = studentName && fixedSeats[studentName] && fixedSeats[studentName].r === r && fixedSeats[studentName].c === c;
-                        const isInactive = inactiveSeats[`${r}-${c}`]; 
-                        
+                        const isInactive = inactiveSeats[`${r}-${c}`];
+                        const isPriority = prioritySeats[`${r}-${c}`]; // 우선 구역 여부
+
                         const { number, name } = parseStudentName(studentName);
                         const gender = getGender(studentName);
-                        
-                        let activeSeatClass = 'bg-gray-100 border-dashed border-gray-300 text-gray-400 cursor-pointer hover:bg-red-50 hover:border-red-300 hover:text-red-400';
+
+                        // 기본 빈자리 클래스
+                        let activeSeatClass = 'bg-gray-100 border-dashed border-gray-300 text-gray-400 cursor-pointer hover:bg-blue-50 hover:border-blue-300';
                         if (studentName) {
                           if (isFixed) {
-                             activeSeatClass = 'border-amber-400 bg-amber-50 text-gray-900 shadow-sm hover:border-amber-500 hover:shadow-md hover:-translate-y-1 cursor-grab active:cursor-grabbing';
+                            activeSeatClass = 'border-amber-400 bg-amber-50 text-gray-900 shadow-sm hover:border-amber-500 hover:shadow-md hover:-translate-y-1 cursor-grab active:cursor-grabbing';
                           } else if (useGenderColor && gender === 'M') {
-                             activeSeatClass = 'bg-blue-50 border-blue-300 text-blue-900 shadow-sm hover:border-blue-400 hover:shadow-md hover:-translate-y-1 cursor-grab active:cursor-grabbing';
+                            activeSeatClass = 'bg-blue-50 border-blue-300 text-blue-900 shadow-sm hover:border-blue-400 hover:shadow-md hover:-translate-y-1 cursor-grab active:cursor-grabbing';
                           } else if (useGenderColor && gender === 'F') {
-                             activeSeatClass = 'bg-pink-50 border-pink-300 text-pink-900 shadow-sm hover:border-pink-400 hover:shadow-md hover:-translate-y-1 cursor-grab active:cursor-grabbing';
+                            activeSeatClass = 'bg-pink-50 border-pink-300 text-pink-900 shadow-sm hover:border-pink-400 hover:shadow-md hover:-translate-y-1 cursor-grab active:cursor-grabbing';
                           } else {
-                             activeSeatClass = 'bg-white border-blue-200 text-gray-800 shadow-sm hover:border-blue-400 hover:shadow-md hover:-translate-y-1 cursor-grab active:cursor-grabbing';
+                            activeSeatClass = 'bg-white border-blue-200 text-gray-800 shadow-sm hover:border-blue-400 hover:shadow-md hover:-translate-y-1 cursor-grab active:cursor-grabbing';
                           }
+                        } else if (isPriority) {
+                          // 우선 구역이면서 빈자리일 때의 스타일
+                          activeSeatClass = 'bg-yellow-50 border-dashed border-yellow-400 text-yellow-600 cursor-pointer hover:bg-red-50 hover:border-red-300 hover:text-red-400';
                         }
-                        
+
                         return (
-                          <div 
+                          <div
                             key={`${r}-${c}`}
                             draggable={!isInactive && !!studentName}
                             onDragStart={(e) => onDragStartFromGrid(e, r, c, studentName)}
                             onDragOver={(e) => onDragOverGrid(e, r, c)}
                             onDrop={(e) => onDropToGrid(e, r, c)}
-                            onClick={() => toggleInactive(r, c)} 
+                            onClick={() => toggleSeatState(r, c)} // ⭐️ 토글 함수 변경 적용
                             className={`
                               seat-box relative flex flex-col items-center justify-center rounded-xl border-2 transition-all p-2 flex-shrink-0
                               ${seatSizeClass}
-                              ${isInactive ? 'opacity-30 border-dashed border-gray-300 bg-transparent text-transparent hover:opacity-70 hover:bg-red-50 hover:border-red-300 cursor-pointer' : activeSeatClass}
+                              ${isInactive ? 'opacity-30 border-dashed border-gray-300 bg-transparent text-transparent hover:opacity-70 hover:bg-gray-100 hover:border-gray-300 cursor-pointer' : activeSeatClass}
                               ${getSeatMarginClass(r, c)}
                             `}
-                            title={isInactive ? "클릭하면 책상 복구됨" : (!studentName ? "클릭하면 책상 없앰 (배정 제외)" : "")}
+                            title={isInactive ? "클릭하면 기본 자리 복구" : (!studentName ? (isPriority ? "클릭하면 책상 없앰 (사용 불가)" : "클릭하면 🌟우선 배치 구역으로 설정") : "")}
                           >
                             {!isInactive && (
                               <span className="absolute top-1 left-2 text-[9px] sm:text-[10px] text-gray-400 no-print select-none">
-                                {r+1}-{c+1}
+                                {r + 1}-{c + 1}
                               </span>
                             )}
 
+                            {/* 우선 구역 표시 아이콘 (비어있거나 사용중이어도 작게 표시) */}
+                            {isPriority && !isInactive && !isPresenting && (
+                              <span className="absolute top-1 left-8 text-[9px] text-yellow-500 no-print">🌟</span>
+                            )}
+
                             {!isInactive && studentName && !isPresenting && (
-                              <button 
+                              <button
                                 onClick={(e) => { e.stopPropagation(); toggleFixed(r, c, studentName); }}
                                 className={`absolute top-1 right-1 p-1 rounded-full hover:bg-gray-100 transition-colors no-print ${isFixed ? 'text-amber-600 hover:bg-amber-100' : 'text-gray-300 hover:text-gray-600'}`}
                                 title={isFixed ? "고정 해제" : "자리 고정"}
@@ -1032,7 +1087,13 @@
 
                             <div className="font-bold text-center px-1 select-none w-full flex flex-col items-center justify-center gap-0.5" style={{ wordBreak: 'keep-all', overflowWrap: 'anywhere' }}>
                               {isInactive ? (
-                                <span className="text-xl opacity-60 no-print">❌</span> 
+                                <span className="text-xl opacity-60 no-print">❌</span>
+                              ) : isPriority && !studentName ? (
+                                // 우선 구역 빈자리일 때 UI
+                                <div className="flex flex-col items-center opacity-70 no-print">
+                                  <span className="text-lg">🌟</span>
+                                  <span className="text-[10px] sm:text-xs text-yellow-600 mt-0.5 tracking-tighter">우선배치</span>
+                                </div>
                               ) : (
                                 studentName ? (
                                   <>
@@ -1042,7 +1103,7 @@
                                 ) : <span className="text-gray-300 text-[10px] sm:text-xs md:text-sm font-normal">빈 자리</span>
                               )}
                             </div>
-                            
+
                             {isFixed && !isInactive && !isPresenting && <div className="print-only hidden absolute bottom-1 right-1 text-[10px] text-gray-500">📌</div>}
                           </div>
                         );
@@ -1095,40 +1156,40 @@
             </div>
 
             {(layoutMode === 'manual' || waitingList.length > 0) && (
-              <div 
+              <div
                 className="no-print w-full max-w-4xl bg-white p-5 rounded-2xl shadow-md min-h-[120px] border-2 border-dashed border-gray-300 relative transition-all"
                 onDragOver={onDragOverWaiting}
                 onDrop={onDropToWaitingList}
               >
-                 <div className="absolute -top-3 left-6 bg-gray-600 text-white text-xs font-bold px-3 py-1 rounded-full">
-                   대기 명단 ({waitingList.length}명)
-                 </div>
-                 <p className="text-xs text-gray-500 mb-3 ml-2">💡 학생을 드래그하여 빈 자리에 직접 배치하세요. 자리에 있는 학생을 이 박스로 끌고 오면 자리가 비워집니다.</p>
-                 
-                 <div className="flex flex-wrap gap-2.5">
-                   {waitingList.map(name => {
-                     const gender = getGender(name);
-                     const waitingClass = useGenderColor 
-                       ? (gender === 'M' ? 'bg-blue-50 text-blue-800 border-blue-200 hover:bg-blue-100' : gender === 'F' ? 'bg-pink-50 text-pink-800 border-pink-200 hover:bg-pink-100' : 'bg-gray-50 text-gray-800 border-gray-200 hover:bg-gray-100')
-                       : 'bg-blue-50 text-blue-800 border-blue-200 hover:bg-blue-100';
-                     return (
-                       <div
-                         key={name}
-                         draggable
-                         onDragStart={(e) => onDragStartFromWaiting(e, name)}
-                         className={`px-3 py-1.5 rounded-lg font-bold shadow-sm cursor-grab active:cursor-grabbing text-sm border transition-colors flex items-center gap-1.5 ${waitingClass}`}
-                       >
-                         <i className="fa-solid fa-hand-pointer opacity-50"></i>
-                         {displayName(name)}
-                       </div>
-                     );
-                   })}
-                   {waitingList.length === 0 && (
-                      <div className="w-full text-center text-gray-400 text-sm py-4 font-medium flex items-center justify-center gap-2">
-                         🎉 모든 학생이 배치되었습니다!
+                <div className="absolute -top-3 left-6 bg-gray-600 text-white text-xs font-bold px-3 py-1 rounded-full">
+                  대기 명단 ({waitingList.length}명)
+                </div>
+                <p className="text-xs text-gray-500 mb-3 ml-2">💡 학생을 드래그하여 빈 자리에 직접 배치하세요. 자리에 있는 학생을 이 박스로 끌고 오면 자리가 비워집니다.</p>
+
+                <div className="flex flex-wrap gap-2.5">
+                  {waitingList.map(name => {
+                    const gender = getGender(name);
+                    const waitingClass = useGenderColor
+                      ? (gender === 'M' ? 'bg-blue-50 text-blue-800 border-blue-200 hover:bg-blue-100' : gender === 'F' ? 'bg-pink-50 text-pink-800 border-pink-200 hover:bg-pink-100' : 'bg-gray-50 text-gray-800 border-gray-200 hover:bg-gray-100')
+                      : 'bg-blue-50 text-blue-800 border-blue-200 hover:bg-blue-100';
+                    return (
+                      <div
+                        key={name}
+                        draggable
+                        onDragStart={(e) => onDragStartFromWaiting(e, name)}
+                        className={`px-3 py-1.5 rounded-lg font-bold shadow-sm cursor-grab active:cursor-grabbing text-sm border transition-colors flex items-center gap-1.5 ${waitingClass}`}
+                      >
+                        <i className="fa-solid fa-hand-pointer opacity-50"></i>
+                        {displayName(name)}
                       </div>
-                   )}
-                 </div>
+                    );
+                  })}
+                  {waitingList.length === 0 && (
+                    <div className="w-full text-center text-gray-400 text-sm py-4 font-medium flex items-center justify-center gap-2">
+                      🎉 모든 학생이 배치되었습니다!
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>
@@ -1145,14 +1206,14 @@
                     <i className="fa-solid fa-xmark text-lg"></i>
                   </button>
                 </div>
-                
+
                 <div className="p-4 sm:p-5 space-y-4 sm:space-y-5 max-h-[75vh] overflow-y-auto">
-                  
+
                   <div className="bg-rose-50 p-3 sm:p-4 rounded-xl border border-rose-100">
                     <label className="text-xs sm:text-sm font-bold text-rose-900 block mb-1.5 sm:mb-2">🤫 비밀 고정석 (학생 몰래 지정)</label>
                     <p className="text-[10px] sm:text-xs text-rose-700 mb-2 sm:mb-3 leading-relaxed">
-                      화면에는 표시되지 않지만 랜덤 배치 시 지정된 자리로 <b>마치 우연히 뽑힌 것처럼</b> 들어갑니다.<br/>
-                      💡 <b>발표 모드 팁:</b> 발표 모드에서는 <kbd className="bg-rose-100 px-1 rounded font-mono">Ctrl</kbd> 키(Mac은 <kbd className="bg-rose-100 px-1 rounded font-mono">Cmd</kbd>)를 누른 채로 <b>[자리 랜덤 배치]</b>를 클릭할 때만 적용됩니다! 평소엔 누르지 말고 여러 번 섞는 척 연기하세요 😉<br/>
+                      화면에는 표시되지 않지만 랜덤 배치 시 지정된 자리로 <b>마치 우연히 뽑힌 것처럼</b> 들어갑니다.<br />
+                      💡 <b>발표 모드 팁:</b> 발표 모드에서는 <kbd className="bg-rose-100 px-1 rounded font-mono">Ctrl</kbd> 키(Mac은 <kbd className="bg-rose-100 px-1 rounded font-mono">Cmd</kbd>)를 누른 채로 <b>[자리 랜덤 배치]</b>를 클릭할 때만 적용됩니다! 평소엔 누르지 말고 여러 번 섞는 척 연기하세요 😉<br />
                       입력 형식: <code>이름: 행-열</code> (예: <code>홍길동: 1-2</code>)
                     </p>
                     <textarea
@@ -1176,14 +1237,14 @@
                   <div className="bg-indigo-50 p-4 sm:p-5 rounded-xl border border-indigo-100">
                     <div className="flex justify-between items-center mb-2">
                       <label className="text-sm font-bold text-indigo-900 block">🔄 이전 자리 배치표 (새 친구 사귀기)</label>
-                      <button 
-                        onClick={handleCopyCurrentToPrev} 
+                      <button
+                        onClick={handleCopyCurrentToPrev}
                         className="text-[10px] sm:text-[11px] bg-white border border-indigo-200 text-indigo-600 hover:bg-indigo-100 px-2 py-1.5 rounded transition-colors font-bold shadow-sm"
                       >
                         현재 화면 복사해오기
                       </button>
                     </div>
-                    
+
                     <div className="text-xs sm:text-sm text-indigo-800 mb-3 leading-relaxed bg-white/60 p-3 rounded-lg border border-indigo-200">
                       <p className="font-bold mb-1">💡 이용 방법 2가지 (택 1)</p>
                       <ul className="space-y-1 mb-3 list-disc list-inside pl-1 text-[11px] sm:text-xs">
@@ -1197,7 +1258,7 @@
                           rows="8"
                           value={`첨부한 파일(자리배치도)을 읽고, 텍스트 형태의 표로 변환해줘.\n[출력 규칙]\n\n1. 이름만 추출하고, 이름 사이에는 '탭(Tab)' 공백을 넣어줘.\n2. 실제 자리 배치 모양 그대로 행과 열을 맞춰서 작성해줘.\n3. 이름 외에 번호나 불필요한 기호는 모두 제거해줘.\n4. 빈자리가 있다면 '빈자리'라고 표시해줘.`}
                         />
-                        <button 
+                        <button
                           onClick={(e) => {
                             const text = `첨부한 파일(자리배치도)을 읽고, 텍스트 형태의 표로 변환해줘.\n[출력 규칙]\n\n1. 이름만 추출하고, 이름 사이에는 '탭(Tab)' 공백을 넣어줘.\n2. 실제 자리 배치 모양 그대로 행과 열을 맞춰서 작성해줘.\n3. 이름 외에 번호나 불필요한 기호는 모두 제거해줘.\n4. 빈자리가 있다면 '빈자리'라고 표시해줘.`;
                             const textArea = document.createElement("textarea");
@@ -1210,7 +1271,7 @@
                               const originalHtml = btn.innerHTML;
                               btn.innerHTML = '<span class="text-emerald-600 font-bold">복사완료!</span>';
                               setTimeout(() => btn.innerHTML = originalHtml, 2000);
-                            } catch (err) {}
+                            } catch (err) { }
                             document.body.removeChild(textArea);
                           }}
                           className="absolute top-1 right-1 bg-white hover:bg-indigo-100 text-indigo-600 px-2 py-1 rounded text-[10px] font-bold transition-colors border border-indigo-200 shadow-sm"
@@ -1228,15 +1289,31 @@
                     />
                   </div>
 
+                  {layoutMode === 'pair' && (
+                    <div className="flex items-center gap-2 sm:gap-3 bg-gray-50 p-2 sm:p-3 rounded-lg border border-gray-200">
+                      <input
+                        type="checkbox"
+                        id="gender-pair"
+                        checked={genderPairing}
+                        onChange={(e) => setGenderPairing(e.target.checked)}
+                        className="w-4 h-4 sm:w-5 sm:h-5 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500 cursor-pointer"
+                      />
+                      <label htmlFor="gender-pair" className="text-xs sm:text-sm text-gray-800 cursor-pointer font-medium leading-tight">
+                        남녀 짝꿍 우선 배치<br />
+                        <span className="text-[9px] sm:text-xs text-gray-500 font-normal">(명단 이름 끝에 '남', '여' 표기. 괄호 생략 가능)</span>
+                      </label>
+                    </div>
+                  )}
+
                   <div className="pt-3 sm:pt-4 border-t border-gray-100">
-                    <button 
+                    <button
                       onClick={() => { saveCurrentLayout(); setShowAdvanced(false); }}
                       className="w-full py-2 sm:py-2.5 mb-2 sm:mb-3 bg-gray-800 hover:bg-gray-900 text-white text-xs sm:text-sm font-bold rounded-lg flex items-center justify-center gap-2 transition-colors shadow-md"
                     >
                       <i className="fa-solid fa-floppy-disk text-base sm:text-lg"></i>
                       현재 배치 기록하기
                     </button>
-                    
+
                     {savedLayouts.length > 0 && (
                       <div className="space-y-1.5 sm:space-y-2 mt-2">
                         <label className="text-[10px] sm:text-xs text-gray-500 font-bold block mb-1">⏱ 이전 기록 불러오기</label>
@@ -1276,7 +1353,7 @@
 
                 {modal.type === 'export' && (
                   <div className="p-5 sm:p-6 space-y-6 bg-gray-50">
-                    
+
                     {/* 1. 이미지 및 PDF 저장 */}
                     <div>
                       <h4 className="text-sm font-bold text-gray-700 mb-3 flex items-center gap-1.5">
@@ -1300,8 +1377,8 @@
                       </div>
                       <button
                         onClick={() => {
-                          setModal(prev => ({...prev, isOpen: false}));
-                          try { window.print(); } catch(e) {}
+                          setModal(prev => ({ ...prev, isOpen: false }));
+                          try { window.print(); } catch (e) { }
                           setTimeout(() => showAlert("🖨️ 기본 인쇄", "키보드 단축키 [ Ctrl + P ] (Mac은 Cmd + P) 를 누르시면 브라우저 기본 인쇄창이 열립니다."), 300);
                         }}
                         disabled={isExporting}
@@ -1322,13 +1399,13 @@
                         입력된 명단, 자리, 기피 대상 등 모든 설정을 저장하거나 다른 기기에서 불러옵니다.
                       </p>
                       <div className="flex gap-2">
-                        <button 
-                          onClick={handleExportSettings} 
+                        <button
+                          onClick={handleExportSettings}
                           className="flex-1 py-2 text-xs bg-white text-gray-800 font-bold rounded-lg border border-gray-300 hover:bg-gray-100 transition-colors shadow-sm flex items-center justify-center gap-1.5"
                         >
                           <i className="fa-solid fa-download"></i> 내보내기
                         </button>
-                        <label 
+                        <label
                           className="flex-1 py-2 text-xs bg-gray-800 text-white font-bold rounded-lg hover:bg-gray-900 transition-colors shadow-sm cursor-pointer flex items-center justify-center gap-1.5"
                         >
                           <i className="fa-solid fa-upload"></i> 불러오기
@@ -1337,7 +1414,7 @@
                       </div>
                     </div>
 
-                    <button 
+                    <button
                       onClick={modal.onCancel}
                       disabled={isExporting}
                       className="w-full pt-2 text-sm font-medium text-gray-400 hover:text-gray-600 transition-colors"
@@ -1346,18 +1423,18 @@
                     </button>
                   </div>
                 )}
-                
+
                 {modal.type !== 'export' && (
                   <div className="bg-gray-50 px-4 py-3 flex justify-end gap-2 border-t border-gray-100">
                     {modal.type === 'confirm' && (
-                      <button 
+                      <button
                         onClick={modal.onCancel}
                         className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
                       >
                         취소
                       </button>
                     )}
-                    <button 
+                    <button
                       onClick={modal.onConfirm}
                       className={`px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors ${modal.type === 'confirm' ? (modal.title.includes('💡') ? 'bg-amber-500 hover:bg-amber-600' : 'bg-red-600 hover:bg-red-700') : 'bg-blue-600 hover:bg-blue-700'}`}
                     >
@@ -1378,6 +1455,73 @@
             </div>
           )}
 
+          {/* ⭐️ 학생 명단 및 우선 배치 관리 팝업 모달 */}
+          {isStudentModalOpen && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 z-[80] flex justify-center items-center p-3 sm:p-4 no-print">
+              <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200">
+                <div className="flex justify-between items-center p-4 border-b border-gray-100 bg-gray-50">
+                  <h3 className="font-bold text-gray-800 flex items-center gap-2 text-sm sm:text-base">
+                    <i className="fa-solid fa-list-ul text-indigo-500"></i> 학생 명단 및 우선 배치 관리
+                  </h3>
+                  <button onClick={() => setIsStudentModalOpen(false)} className="text-gray-400 hover:text-gray-600 p-1 rounded-md hover:bg-gray-200 transition-colors">
+                    <i className="fa-solid fa-xmark text-lg"></i>
+                  </button>
+                </div>
+
+                <div className="p-4 sm:p-5 space-y-5 max-h-[75vh] overflow-y-auto">
+                  {/* 전체 학생 명단 */}
+                  <div className="flex flex-col gap-2">
+                    <div className="flex justify-between items-end">
+                      <h2 className="text-sm font-semibold text-gray-700">전체 학생 명단</h2>
+                      <div className="flex gap-2 items-center">
+                        <button
+                          onClick={() => setShowRoster(!showRoster)}
+                          className={`text-[10px] px-2 py-1 rounded border font-bold transition-colors ${showRoster ? 'bg-indigo-100 text-indigo-700 border-indigo-200' : 'bg-white text-gray-500 border-gray-300 hover:bg-gray-50'}`}
+                        >
+                          {showRoster ? '📋 명단 표 켜짐' : '📋 명단 표 숨겨짐'}
+                        </button>
+                        <span className="text-xs font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">
+                          {inputText.split(/[,\n]/).filter(n => n.trim()).length}명
+                        </span>
+                      </div>
+                    </div>
+                    <textarea
+                      className="w-full border border-gray-300 rounded-lg p-3 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-none leading-relaxed h-32"
+                      placeholder="이름을 입력하세요 (엔터 또는 쉼표 구분)"
+                      value={inputText}
+                      onChange={(e) => setInputText(e.target.value)}
+                    />
+                  </div>
+
+                  {/* 우선 배치 명단 */}
+                  <div className="bg-yellow-50 p-4 rounded-xl border border-yellow-200 flex flex-col gap-2">
+                    <h3 className="text-sm font-semibold text-yellow-800 flex items-center gap-1.5">
+                      <i className="fa-solid fa-star text-yellow-500"></i> 우선 배치 학생
+                    </h3>
+                    <p className="text-[11px] text-yellow-700 leading-tight">
+                      오른쪽 화면의 빈자리를 한 번 클릭해 <span className="font-bold">🌟우선 구역</span>으로 만들고, 그곳에서 섞일 학생 이름만 아래에 따로 적어주세요.
+                    </p>
+                    <textarea
+                      className="w-full border border-yellow-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-yellow-400 outline-none resize-none leading-relaxed h-20 bg-white"
+                      placeholder="우선 구역에 섞을 이름 (엔터/쉼표 구분)"
+                      value={priorityStudentsInput}
+                      onChange={(e) => setPriorityStudentsInput(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <div className="p-4 border-t border-gray-100 bg-gray-50 flex justify-end">
+                  <button
+                    onClick={() => setIsStudentModalOpen(false)}
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-6 rounded-lg transition-colors shadow-sm text-sm"
+                  >
+                    확인 및 닫기
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
         </div>
       );
     };
@@ -1386,4 +1530,5 @@
     root.render(<App />);
   </script>
 </body>
+
 </html>
