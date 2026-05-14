@@ -268,7 +268,7 @@
             const outputArea = document.getElementById('outputArea');
             outputArea.innerHTML = `<div class="flex flex-col items-center justify-center h-full text-blue-600 py-20"><div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-4"></div>문장을 생성하는 중입니다...</div>`;
 
-            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
 
             const promptText = `너는 고등학교 교사야. 아래 조건으로 생기부 ${cat} 영역을 작성해.
             [대상 활동] ${detailName}
