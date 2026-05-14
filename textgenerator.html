@@ -269,9 +269,9 @@
             outputArea.innerHTML = `<div class="flex flex-col items-center justify-center h-full text-blue-600 py-20"><div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-4"></div>문장을 생성하는 중입니다...</div>`;
 
             const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
-            날짜 정보 가져오기 및 유효성 검사
-const dateVal = document.getElementById('activityDate').value.trim();
-let formatInstruction = "";
+            // 날짜 정보 가져오기 및 유효성 검사
+            const dateVal = document.getElementById('activityDate').value.trim();
+            let formatInstruction = "";
             if (cat === '자율활동' || cat === '진로활동') {
                 if (!dateVal) return alert('자율/진로 활동은 날짜 입력이 필수입니다.');
                 formatInstruction = `6. **중요: 모든 추천 문구의 첫 문장은 반드시 '${detailName}(${dateVal})'로 시작할 것.** (예: ${detailName}(${dateVal}) 활동에서...)`;
@@ -292,7 +292,12 @@ let formatInstruction = "";
             [응답 형식]
             반드시 아래의 JSON 구조로만 답변해:
             {"versions": [
-    {"title": "버전 명칭", "content": "내용", "review": "검토평"},]}`;
+                {"title": "버전 명칭 1", "content": "내용", "review": "검토평"},
+                {"title": "버전 명칭 2", "content": "내용", "review": "검토평"},
+                {"title": "버전 명칭 3", "content": "내용", "review": "검토평"},
+                {"title": "버전 명칭 4", "content": "내용", "review": "검토평"},
+                {"title": "버전 명칭 5", "content": "내용", "review": "검토평"}
+            ]}`;
 
             try {
                 const res = await fetch(apiUrl, {
