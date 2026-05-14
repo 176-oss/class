@@ -269,7 +269,18 @@
             outputArea.innerHTML = `<div class="flex flex-col items-center justify-center h-full text-blue-600 py-20"><div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-4"></div>문장을 생성하는 중입니다...</div>`;
 
             const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+날짜 정보 가져오기 및 유효성 검사
+const dateVal = document.getElementById('activityDate').value.trim();
+let formatInstruction = "";
 
+if (cat === '자율활동' || cat === '진로활동') {
+    if (!dateVal) {
+        alert('자율/진로 활동은 날짜 입력이 필수입니다.');
+        return;
+    }
+    // AI에게 줄 강력한 형식 지침
+    formatInstruction = `6. **반드시** 모든 추천 문구의 첫 줄 시작은 '${detailName}(${dateVal})' 로 시작할 것. (예: ${detailName}(${dateVal})활동에 참여하여...)`;
+}
             const promptText = `너는 고등학교 교사야. 아래 조건으로 생기부 ${cat} 영역을 작성해.
             [대상 활동] ${detailName}
             [학생 성향] ${selected.join(', ')}
@@ -283,7 +294,13 @@
             
             [응답 형식]
             반드시 아래의 JSON 구조로만 답변해:
-            {"versions": [{"title": "추천 1", "content": "내용", "review": "검토평"}]}`;
+            {"versions": [
+    {"title": "버전 1 (특징 설명)", "content": "내용", "review": "검토평"},
+    {"title": "버전 2 (특징 설명)", "content": "내용", "review": "검토평"},
+    {"title": "버전 3 (특징 설명)", "content": "내용", "review": "검토평"},
+    {"title": "버전 4 (특징 설명)", "content": "내용", "review": "검토평"},
+    {"title": "버전 5 (특징 설명)", "content": "내용", "review": "검토평"}
+  ]}`;
 
             try {
                 const res = await fetch(apiUrl, {
