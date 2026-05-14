@@ -269,18 +269,13 @@
             outputArea.innerHTML = `<div class="flex flex-col items-center justify-center h-full text-blue-600 py-20"><div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-4"></div>문장을 생성하는 중입니다...</div>`;
 
             const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
-날짜 정보 가져오기 및 유효성 검사
+            날짜 정보 가져오기 및 유효성 검사
 const dateVal = document.getElementById('activityDate').value.trim();
 let formatInstruction = "";
-
-if (cat === '자율활동' || cat === '진로활동') {
-    if (!dateVal) {
-        alert('자율/진로 활동은 날짜 입력이 필수입니다.');
-        return;
-    }
-    // AI에게 줄 강력한 형식 지침
-    formatInstruction = `6. **반드시** 모든 추천 문구의 첫 줄 시작은 '${detailName}(${dateVal})' 로 시작할 것. (예: ${detailName}(${dateVal})활동에 참여하여...)`;
-}
+            if (cat === '자율활동' || cat === '진로활동') {
+                if (!dateVal) return alert('자율/진로 활동은 날짜 입력이 필수입니다.');
+                formatInstruction = `6. **중요: 모든 추천 문구의 첫 문장은 반드시 '${detailName}(${dateVal})'로 시작할 것.** (예: ${detailName}(${dateVal}) 활동에서...)`;
+            }
             const promptText = `너는 고등학교 교사야. 아래 조건으로 생기부 ${cat} 영역을 작성해.
             [대상 활동] ${detailName}
             [학생 성향] ${selected.join(', ')}
@@ -291,16 +286,13 @@ if (cat === '자율활동' || cat === '진로활동') {
             2. 추상적인 표현 대신 구체적인 활동 사례와 성장을 객관적으로 기술함.
             3. 교외 수상, 사교육 요소, 부모 정보, 소논문 단어 기재는 절대 불가함.
             4. 공백 포함 약 ${charLimit}자 이내로 작성함.
+            5. 서로 다른 특징의 5가지 버전을 생성함.
+            ${formatInstruction} // 날짜 포맷 지침 삽입
             
             [응답 형식]
             반드시 아래의 JSON 구조로만 답변해:
             {"versions": [
-    {"title": "버전 1 (특징 설명)", "content": "내용", "review": "검토평"},
-    {"title": "버전 2 (특징 설명)", "content": "내용", "review": "검토평"},
-    {"title": "버전 3 (특징 설명)", "content": "내용", "review": "검토평"},
-    {"title": "버전 4 (특징 설명)", "content": "내용", "review": "검토평"},
-    {"title": "버전 5 (특징 설명)", "content": "내용", "review": "검토평"}
-  ]}`;
+    {"title": "버전 명칭", "content": "내용", "review": "검토평"},]}`;
 
             try {
                 const res = await fetch(apiUrl, {
