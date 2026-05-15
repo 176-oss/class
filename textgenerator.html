@@ -171,6 +171,14 @@
                         </div>
                     </div>
 
+                    <!-- 성취기준 입력란 (교과세특에서만 보임) -->
+                    <div id="achievementStandardContainer">
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">도달한 성취기준 <span class="text-xs text-blue-500 font-normal">(교과세특)</span></label>
+                        <textarea id="achievementStandard" rows="2"
+                            class="w-full px-4 py-2 border rounded-lg text-sm resize-none outline-none bg-blue-50 border-blue-100 placeholder-blue-300"
+                            placeholder="예: [10국01-01] 읽기 목적을 고려하여 다양한 읽기 방법을 적용한다."></textarea>
+                    </div>
+
                     <div>
                         <label class="block text-sm font-semibold text-gray-700 mb-1">핵심 활동 내용</label>
                         <textarea id="activityContent" rows="3"
@@ -214,6 +222,7 @@
         const socialTraitsContainer = document.getElementById('socialTraits');
         const charLimitSlider = document.getElementById('charLimit');
         const charLimitDisplay = document.getElementById('charLimitDisplay');
+        const achievementStandardContainer = document.getElementById('achievementStandardContainer');
 
         // 모달 제어 요소
         const apiModal = document.getElementById('apiModal');
@@ -241,6 +250,8 @@
         categorySelect.onchange = () => {
             const val = categorySelect.value;
             renderTraits();
+            
+            // 글자수 슬라이더 업데이트
             if (val === '행동특성') {
                 charLimitSlider.max = 300;
                 if (charLimitSlider.value > 300) charLimitSlider.value = 300;
@@ -248,8 +259,13 @@
                 charLimitSlider.max = 500;
             }
             charLimitDisplay.textContent = charLimitSlider.value;
+            
+            // UI 요소 가시성 및 텍스트 업데이트
             document.getElementById('detailNameLabel').textContent = val === '교과세특' ? '과목명' : (val === '동아리활동' ? '동아리명' : '활동명');
             document.getElementById('dateInputContainer').classList.toggle('hidden', !['자율활동', '진로활동'].includes(val));
+            
+            // 교과세특일 때만 성취기준 입력란 표시
+            achievementStandardContainer.classList.toggle('hidden', val !== '교과세특');
         };
 
         charLimitSlider.oninput = (e) => charLimitDisplay.textContent = e.target.value;
@@ -265,11 +281,13 @@
             const charLimit = charLimitSlider.value;
             const detailName = document.getElementById('detailName').value;
 
-            // 날짜 정보 가져오기 및 유효성 검사
-            const dateVal = document.getElementById('activityDate').value.trim();
+            // 추가 명령문 변수
             let formatInstruction = "";
+            let achievementInstruction = "";
             
+            // 날짜 및 성취기준 검사/적용
             if (cat === '자율활동' || cat === '진로활동') {
+                const dateVal = document.getElementById('activityDate').value.trim();
                 if (!dateVal) {
                     return alert('자율/진로 활동은 날짜 입력이 필수입니다.');
                 }
@@ -280,9 +298,12 @@
                     document.getElementById('activityDate').focus();
                     return alert('날짜 형식을 반드시 (YYYY.MM.DD.) 형태로 입력해주세요. (끝에 마침표 포함)\n\n예: 2026.05.14.');
                 }
-
-                // AI가 절대로 변형하지 못하도록 강력한 프롬프트 지침 추가
                 formatInstruction = `6. **[최우선 지침] 모든 추천 문구의 맨 처음은 반드시 '${detailName}(${dateVal})' 형태로 시작할 것.** (예: ${detailName}(${dateVal})을 통해...) 괄호와 날짜 형식(YYYY.MM.DD.)을 한 글자도 누락하거나 변형하지 말 것.`;
+            } else if (cat === '교과세특') {
+                const achievementVal = document.getElementById('achievementStandard').value.trim();
+                if (achievementVal) {
+                    achievementInstruction = `\n[도달한 성취기준]\n${achievementVal}\n\n[추가 지침]\n위 성취기준을 기반으로 학생이 수업 중 어떤 과정과 태도를 통해 해당 역량에 도달했는지 자연스럽게 녹여내어 서술할 것.`;
+                }
             }
 
             const outputArea = document.getElementById('outputArea');
@@ -294,12 +315,13 @@
             [대상 활동] ${detailName}
             [학생 성향] ${selected.join(', ')}
             [활동 내용] ${content}
+            ${achievementInstruction}
             
             [규정 지침]
-            1. 모든 문장은 '~함', '~임', '~돋보임' 형태의 명사형 종결 어미를 사용함.
+            1. 모든 문장은 '~함', '~임', '~돋보임', '~모습을 보임', '~보임' 형태의 관찰자 시점의 명사형 종결 어미를 사용함.
             2. 추상적인 표현 대신 구체적인 활동 사례와 성장을 객관적으로 기술함.
             3. 교외 수상, 사교육 요소, 부모 정보, 소논문 단어 기재는 절대 불가함.
-            4. 공백 포함 약 ${charLimit}자 이내로 작성함.
+            4. 공백 포함 ${charLimit}자 이내로 작성함.
             5. 서로 다른 특징의 5가지 버전을 생성함.
             ${formatInstruction}
             
