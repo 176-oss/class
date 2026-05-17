@@ -8,15 +8,60 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
-        body { font-family: 'Inter', sans-serif; background-color: #f7f9fb; }
-        .container-card { box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1); }
-        .trait-tag { cursor: pointer; transition: all 0.2s; border: 1px solid #e5e7eb; user-select: none; }
-        .trait-tag.selected { background-color: #3b82f6; color: white; border-color: #2563eb; }
-        input[type=range] { -webkit-appearance: none; width: 100%; background: transparent; }
-        input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; height: 18px; width: 18px; border-radius: 50%; background: #2563eb; cursor: pointer; margin-top: -6px; }
-        input[type=range]::-webkit-slider-runnable-track { width: 100%; height: 6px; cursor: pointer; background: #e5e7eb; border-radius: 3px; }
-        #apiModal { display: none; }
-        .modal-overlay { background-color: rgba(0, 0, 0, 0.5); }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f7f9fb;
+        }
+
+        .container-card {
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
+        }
+
+        .trait-tag {
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 1px solid #e5e7eb;
+            user-select: none;
+        }
+
+        .trait-tag.selected {
+            background-color: #3b82f6;
+            color: white;
+            border-color: #2563eb;
+        }
+
+        input[type=range] {
+            -webkit-appearance: none;
+            width: 100%;
+            background: transparent;
+        }
+
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 18px;
+            width: 18px;
+            border-radius: 50%;
+            background: #2563eb;
+            cursor: pointer;
+            margin-top: -6px;
+        }
+
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 6px;
+            cursor: pointer;
+            background: #e5e7eb;
+            border-radius: 3px;
+        }
+
+        #apiModal {
+            display: none;
+        }
+
+        .modal-overlay {
+            background-color: rgba(0, 0, 0, 0.5);
+        }
     </style>
 </head>
 
@@ -26,15 +71,18 @@
         <div class="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
             <div class="fixed inset-0 transition-opacity modal-overlay" id="closeModalBg"></div>
             <span class="hidden sm:inline-block sm:align-middle sm:h-screen">&#8203;</span>
-            <div class="inline-block align-bottom bg-white rounded-2xl text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
+            <div
+                class="inline-block align-bottom bg-white rounded-2xl text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
                 <div class="bg-white px-6 pt-6 pb-4">
                     <div class="sm:flex sm:items-start">
                         <div class="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left">
                             <h3 class="text-xl leading-6 font-bold text-gray-900 mb-4">Gemini API 키 발급 방법</h3>
                             <div class="text-sm text-gray-600 space-y-3">
-                                <p><strong>1. Google AI Studio 접속:</strong> <a href="https://aistudio.google.com/" target="_blank" class="text-blue-600 underline">AI Studio</a></p>
+                                <p><strong>1. Google AI Studio 접속:</strong> <a href="https://aistudio.google.com/"
+                                        target="_blank" class="text-blue-600 underline">AI Studio</a></p>
                                 <p><strong>2. API Key 생성:</strong> 'Get API key' -> 'Create API key' 클릭</p>
-                                <div class="bg-yellow-50 p-3 rounded-lg border border-yellow-100 text-yellow-800 text-xs">
+                                <div
+                                    class="bg-yellow-50 p-3 rounded-lg border border-yellow-100 text-yellow-800 text-xs">
                                     무료 등급은 분당 요청 횟수 제한이 있습니다. 429 에러 발생 시 잠시 기다려주세요.
                                 </div>
                             </div>
@@ -42,7 +90,8 @@
                     </div>
                 </div>
                 <div class="bg-gray-50 px-6 py-3 sm:flex sm:flex-row-reverse">
-                    <button type="button" id="closeModalBtn" class="w-full inline-flex justify-center rounded-md bg-blue-600 px-4 py-2 text-white font-medium sm:w-auto sm:text-sm">확인</button>
+                    <button type="button" id="closeModalBtn"
+                        class="w-full inline-flex justify-center rounded-md bg-blue-600 px-4 py-2 text-white font-medium sm:w-auto sm:text-sm">확인</button>
                 </div>
             </div>
         </div>
@@ -60,24 +109,30 @@
                                 <label class="text-xs font-semibold text-gray-700 mr-2">API Key</label>
                                 <button id="openModalBtn" class="text-[10px] text-blue-500 underline">발급방법</button>
                             </div>
-                            <input type="password" id="apiKey" class="w-full px-3 py-2 border rounded-lg text-sm outline-none focus:border-blue-500" placeholder="키 입력">
+                            <input type="password" id="apiKey"
+                                class="w-full px-3 py-2 border rounded-lg text-sm outline-none focus:border-blue-500"
+                                placeholder="키 입력" autocomplete="off">
                         </div>
                         <div>
                             <label class="block text-xs font-semibold text-gray-700 mb-1">모델 선택</label>
-                            <select id="modelSelect" class="w-full px-3 py-2 border rounded-lg text-sm bg-white outline-none focus:border-blue-500">
-                                <option value="gemini-2.5-flash" selected>Gemini 2.5 Flash</option>
+                            <select id="modelSelect"
+                                class="w-full px-3 py-2 border rounded-lg text-sm bg-white outline-none focus:border-blue-500">
+                                <option value="gemini-3.1-flash-lite" selected>Gemini 3.1 Flash Lite</option>
+                                <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
                                 <option value="gemini-2.5-flash-lite">Gemini 2.5 Flash Lite</option>
-                                <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite</option>
                                 <option value="custom">직접 입력...</option>
                             </select>
-                            <input type="text" id="customModel" class="hidden mt-2 w-full px-3 py-1 border rounded text-xs outline-none" placeholder="예: gemini-2.0-flash-exp">
+                            <input type="text" id="customModel"
+                                class="hidden mt-2 w-full px-3 py-1 border rounded text-xs outline-none"
+                                placeholder="예: gemini-2.0-flash-exp">
                         </div>
                     </div>
 
                     <div class="grid grid-cols-2 gap-4">
                         <div>
                             <label class="block text-sm font-semibold text-gray-700 mb-1">기록 영역</label>
-                            <select id="category" class="w-full px-4 py-2 border rounded-lg text-sm bg-white outline-none">
+                            <select id="category"
+                                class="w-full px-4 py-2 border rounded-lg text-sm bg-white outline-none">
                                 <option value="교과세특">교과세특</option>
                                 <option value="자율활동">자율활동</option>
                                 <option value="진로활동">진로활동</option>
@@ -86,7 +141,8 @@
                             </select>
                         </div>
                         <div>
-                            <label class="block text-sm font-semibold text-gray-700 mb-2">글자 수: <span id="charLimitDisplay" class="text-blue-600 font-bold">500</span>자</label>
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">글자 수: <span
+                                    id="charLimitDisplay" class="text-blue-600 font-bold">500</span>자</label>
                             <input type="range" id="charLimit" min="100" max="500" step="10" value="500">
                         </div>
                     </div>
@@ -94,33 +150,44 @@
                     <div>
                         <label class="block text-sm font-semibold text-gray-700 mb-2">항목별 추천 성향</label>
                         <div id="dynamicTraits" class="flex flex-wrap gap-2 mb-4"></div>
-                        
+
                         <label class="block text-sm font-semibold text-gray-700 mb-2">교우관계 키워드</label>
                         <div id="socialTraits" class="flex flex-wrap gap-2"></div>
                     </div>
 
                     <div class="grid grid-cols-2 gap-4">
                         <div>
-                            <label class="block text-sm font-semibold text-gray-700 mb-1" id="detailNameLabel">과목명</label>
-                            <input type="text" id="detailName" class="w-full px-4 py-2 border rounded-lg text-sm outline-none" placeholder="예: 수학">
+                            <label class="block text-sm font-semibold text-gray-700 mb-1"
+                                id="detailNameLabel">과목명</label>
+                            <input type="text" id="detailName"
+                                class="w-full px-4 py-2 border rounded-lg text-sm outline-none" placeholder="예: 수학">
                         </div>
                         <div id="dateInputContainer" class="hidden">
                             <label class="block text-sm font-semibold text-gray-700 mb-1">날짜 (YYYY.MM.DD.)</label>
-                            <input type="text" id="activityDate" class="w-full px-4 py-2 border rounded-lg text-sm outline-none border-blue-200" placeholder="2026.05.14.">
+                            <input type="text" id="activityDate"
+                                class="w-full px-4 py-2 border rounded-lg text-sm outline-none border-blue-200"
+                                placeholder="2026.05.14.">
                         </div>
                     </div>
 
                     <div id="achievementStandardContainer">
-                        <label class="block text-sm font-semibold text-gray-700 mb-1">성취기준 <span class="text-xs text-blue-400">(교과세특용)</span></label>
-                        <textarea id="achievementStandard" rows="2" class="w-full px-4 py-2 border rounded-lg text-sm bg-blue-50 outline-none" placeholder="성취기준을 입력하세요."></textarea>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">성취기준 <span
+                                class="text-xs text-blue-400">(교과세특용)</span></label>
+                        <textarea id="achievementStandard" rows="2"
+                            class="w-full px-4 py-2 border rounded-lg text-sm bg-blue-50 outline-none"
+                            placeholder="성취기준을 입력하세요."></textarea>
                     </div>
 
                     <div>
                         <label class="block text-sm font-semibold text-gray-700 mb-1">핵심 활동 내용</label>
-                        <textarea id="activityContent" rows="3" class="w-full px-4 py-2 border rounded-lg text-sm outline-none" placeholder="활동 내용을 상세히 적어주세요."></textarea>
+                        <textarea id="activityContent" rows="3"
+                            class="w-full px-4 py-2 border rounded-lg text-sm outline-none"
+                            placeholder="활동 내용을 상세히 적어주세요."></textarea>
                     </div>
 
-                    <button id="generateBtn" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg transition active:scale-[0.98]">문구 생성하기</button>
+                    <button id="generateBtn"
+                        class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg transition active:scale-[0.98]">문구
+                        생성하기</button>
                 </div>
             </div>
         </div>
@@ -129,7 +196,8 @@
             <div class="bg-white rounded-2xl p-6 container-card border border-gray-100 min-h-[600px] flex flex-col">
                 <div class="flex justify-between items-center border-b pb-4 mb-4">
                     <h2 class="text-xl font-bold text-gray-900">생성 결과</h2>
-                    <button id="copyAllBtn" class="hidden text-sm bg-gray-100 px-3 py-1.5 rounded-md hover:bg-gray-200">전체 복사</button>
+                    <button id="copyAllBtn"
+                        class="hidden text-sm bg-gray-100 px-3 py-1.5 rounded-md hover:bg-gray-200">전체 복사</button>
                 </div>
                 <div id="outputArea" class="space-y-4 text-center py-20 text-gray-400">데이터를 입력하고 버튼을 누르세요.</div>
             </div>
@@ -137,6 +205,8 @@
     </div>
 
     <script>
+        let geminiApiKey = null;
+
         const traitsData = {
             "교과세특": ["지적호기심", "논리적추론", "개념응용력", "메타인지", "비판적분석", "탐구주도성", "학업적끈기", "융합적사고", "의사소통역량", "자료분석력"],
             "자율활동": ["공동체기여", "창의적제안", "민주적의사결정", "문제의식", "책임감", "포용적소통", "행동하는양심", "조직운영능력", "변화주도", "봉사정신"],
@@ -162,7 +232,7 @@
         function renderTraits() {
             const cat = categorySelect.value;
             dynamicTraitsContainer.innerHTML = traitsData[cat].map(t => `<span class="trait-tag px-2 py-1 rounded-full text-xs bg-gray-50" data-value="${t}">${t}</span>`).join('');
-            
+
             if (socialTraitsContainer.innerHTML === "") {
                 socialTraitsContainer.innerHTML = socialTraits.map(t => `<span class="trait-tag px-2 py-1 rounded-full text-xs bg-gray-50" data-value="${t}">${t}</span>`).join('');
             }
@@ -188,8 +258,13 @@
         document.getElementById('closeModalBtn').onclick = () => apiModal.style.display = 'none';
 
         document.getElementById('generateBtn').onclick = async () => {
-            const apiKey = document.getElementById('apiKey').value.trim();
-            if (!apiKey) return alert('API Key를 입력하세요.');
+            const currentKeyInput = document.getElementById('apiKey').value.trim();
+            if (currentKeyInput) {
+                geminiApiKey = currentKeyInput;
+                document.getElementById('apiKey').value = "";
+            }
+
+            if (!geminiApiKey) return alert('API Key를 입력하세요.');
 
             let selectedModel = modelSelect.value;
             if (selectedModel === 'custom') {
@@ -215,8 +290,8 @@
             const outputArea = document.getElementById('outputArea');
             outputArea.innerHTML = `<div class="py-20 text-blue-600 animate-pulse text-center w-full">데이터를 분석하여 문구를 생성 중입니다...<br><span class="text-xs text-gray-400">요청 모델: ${selectedModel}</span></div>`;
 
-            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${selectedModel}:generateContent?key=${apiKey}`;
-            
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${selectedModel}:generateContent?key=${geminiApiKey}`;
+
             const promptText = `너는 중고등학교 교사야. 아래 조건들을 모두 종합적으로 취합하여 생활기록부 ${cat} 영역 서술형 문구를 작성해. 특히 선택된 학생 성향과 교우관계 키워드가 활동 내용과 자연스럽게 연결되도록 해.
 
             [대상 활동/과목] ${detailName}
@@ -249,8 +324,8 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         contents: [{ parts: [{ text: promptText }] }],
-                        generationConfig: { 
-                            responseMimeType: "application/json", 
+                        generationConfig: {
+                            responseMimeType: "application/json",
                             temperature: 0.8,
                             maxOutputTokens: 2048
                         }
@@ -281,7 +356,7 @@
             function renderResult(data) {
                 try {
                     let responseText = data.candidates[0].content.parts[0].text;
-                    
+
                     const jsonStart = responseText.indexOf('{');
                     const jsonEnd = responseText.lastIndexOf('}');
                     if (jsonStart !== -1 && jsonEnd !== -1) {
@@ -322,4 +397,5 @@
         };
     </script>
 </body>
+
 </html>
