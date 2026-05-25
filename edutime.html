@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>에듀타임 시간표 위젯 설치 가이드</title>
+    <link rel="stylesheet" href="index.css">
+    <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;800&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        .guide-container { max-width: 800px; margin: 40px auto; padding: 20px; background: rgba(255, 255, 255, 0.95); border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); }
+        .guide-section { margin-bottom: 40px; padding-bottom: 30px; border-bottom: 1px solid #eee; }
+        .guide-section:last-child { border-bottom: none; }
+        .step-list { line-height: 1.8; font-size: 1.1rem; color: #444; }
+        .code-box { position: relative; background: #1e1e1e; color: #d4d4d4; padding: 20px; border-radius: 12px; margin-top: 15px; overflow-x: auto; font-family: monospace; font-size: 0.9rem; max-height: 300px; overflow-y: scroll; }
+        .copy-btn { position: absolute; top: 15px; right: 15px; background: #6366f1; color: white; border: none; padding: 8px 16px; border-radius: 8px; cursor: pointer; font-weight: 600; transition: 0.2s; }
+        .copy-btn:hover { background: #4f46e5; }
+        .download-btn { display: inline-flex; align-items: center; gap: 10px; background: #10b981; color: white; text-decoration: none; padding: 15px 25px; border-radius: 12px; font-weight: 800; font-size: 1.2rem; margin-top: 15px; transition: 0.2s; }
+        .download-btn:hover { background: #059669; transform: translateY(-2px); }
+        .back-btn { display: inline-flex; align-items: center; gap: 8px; color: #666; text-decoration: none; margin-bottom: 20px; font-weight: 600; }
+        .back-btn:hover { color: #000; }
+    </style>
+</head>
+<body>
+    <div class="background-blobs">
+        <div class="blob blob-1"></div><div class="blob blob-2"></div>
+    </div>
+
+    <main class="container">
+        <div class="guide-container">
+            <a href="index.html" class="back-btn"><i data-lucide="arrow-left"></i> 홈으로 돌아가기</a>
+            
+            <header style="margin-bottom: 30px;">
+                <h1 style="font-size: 2rem; color: #111;">📅 에듀타임 시간표 위젯 설치 가이드</h1>
+                <p style="color: #666; font-size: 1.1rem;">우리 학교 시간표를 스마트폰 바탕화면에서 가장 빠르고 예쁘게 확인하세요.</p>
+            </header>
+
+            <section class="guide-section">
+                <h2>🍎 아이폰 (iOS) 설치 방법</h2>
+                <ol class="step-list">
+                    <li>App Store에서 <strong>'Scriptable'</strong> 앱을 무료로 다운로드합니다.</li>
+                    <li>앱을 열고 우측 상단의 <strong>[ + ] 버튼</strong>을 누릅니다.</li>
+                    <li>아래의 [코드 복사하기] 버튼을 눌러 전체 코드를 복사한 뒤, 빈 화면에 붙여넣고 저장(Done)합니다.</li>
+                    <li>바탕화면으로 나가서 꾹 누른 뒤, 좌측 상단 [ + ]를 눌러 Scriptable 위젯을 꺼냅니다.</li>
+                    <li>위젯을 터치해 'Run Script'에서 방금 만든 스크립트를 선택하면 끝!</li>
+                </ol>
+                
+                <div class="code-box">
+                    <button class="copy-btn" onclick="copyCode()">코드 복사하기</button>
+                    <pre><code id="scriptable-code">
+// =====================================
+// 여기에 아까 완성하신 '아이폰 Scriptable'
+// 전체 코드를 그대로 붙여넣으세요!
+// =====================================
+                    </code></pre>
+                </div>
+            </section>
+
+            <section class="guide-section">
+                <h2>🤖 안드로이드 (Android) 설치 방법</h2>
+                <ol class="step-list">
+                    <li>아래의 다운로드 버튼을 눌러 <strong>APK 설치 파일</strong>을 다운로드합니다.</li>
+                    <li>다운로드된 파일을 실행하고, '출처를 알 수 없는 앱 설치'를 허용해 줍니다.</li>
+                    <li>바탕화면을 꾹 눌러 '위젯' 메뉴에서 에듀타임 시간표를 꺼내면 끝!</li>
+                </ol>
+                
+                <a href="edutime_widget.apk" download class="download-btn">
+                    <i data-lucide="download"></i> 안드로이드 앱(.apk) 다운로드
+                </a>
+            </section>
+        </div>
+    </main>
+
+    <script>
+        lucide.createIcons();
+        function copyCode() {
+            const code = document.getElementById('scriptable-code').innerText;
+            navigator.clipboard.writeText(code).then(() => {
+                const btn = document.querySelector('.copy-btn');
+                btn.innerText = '복사 완료! ✔️';
+                btn.style.background = '#10b981';
+                setTimeout(() => {
+                    btn.innerText = '코드 복사하기';
+                    btn.style.background = '#6366f1';
+                }, 3000);
+            });
+        }
+    </script>
+</body>
+</html>
