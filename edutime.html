@@ -42,7 +42,7 @@
                     <li>앱을 열고 우측 상단의 <strong>[ + ] 버튼</strong>을 누릅니다.</li>
                     <li>아래의 [코드 복사하기] 버튼을 눌러 전체 코드를 복사한 뒤, 빈 화면에 붙여넣고 저장(Done)합니다.</li>
                     <li>바탕화면으로 나가서 꾹 누른 뒤, 좌측 상단 [ + ]를 눌러 Scriptable 위젯을 꺼냅니다.</li>
-                    <li>위젯을 터치해 'Run Script'에서 방금 만든 스크립트를 선택하면 끝!</li>
+                    <li>위젯을 터치해 Script : Untitled Script / When Interacting : Run script / Parameter : '빈칸' 끝!</li>
                 </ol>
                 
                 <div class="code-box">
@@ -519,16 +519,15 @@ function buildWidget(widget, schedule, errorMsg) {
                     위젯 3개를 겹쳐서 <strong>[지난주 - 이번주 - 다음주]</strong> 시간표를 손가락 제스처로 넘겨볼 수 있는 무적의 스택을 만들어보세요!
                 </p>
                 <ul style="padding-left: 20px; color: #444; font-size: 0.95rem; line-height: 1.8;">
-                    <li><strong>1단계 (위젯 3개 만들기):</strong> Scriptable 앱을 켜고, 방금 만든 에듀타임 스크립트를 <strong>총 3개로 복사(Duplicate)</strong>합니다. (이름을 각각 '지난주', '이번주', '다음주'로 해두면 편합니다.)</li>
-                    <li><strong>2단계 (주차 오프셋 설정):</strong> 홈 화면에 Scriptable 위젯 3개를 각각 따로 꺼내놓습니다.</li>
-                    <li><strong>3단계 (매개변수 입력):</strong> 각 위젯을 꾹 눌러 <strong>[위젯 편집]</strong>으로 들어간 뒤, <strong>Parameter(매개변수)</strong> 칸에 다음과 같이 숫자를 입력합니다.
+                    <li><strong>1단계 :</strong> 바탕화면 꾹 누른 뒤 '스마트 스택' 위젯을 꺼냅니다.</li>
+                    <li><strong>2단계 :</strong> 스택 안에 있는 다른 위젯을 [-]를 눌러 다 지웁니다. </li>
+                    <li><strong>3단계 :</strong> 왼쪽 위 [+]를 눌러 scriptable 위젯 3개를 꺼냅니다. 위젯을 터치해  <strong>[위젯 편집]</strong>으로 들어간 뒤, <strong>Parameter(매개변수)</strong> 칸에 다음과 같이 숫자를 입력합니다.
                         <ul style="padding-left: 20px; margin: 5px 0; list-style-type: circle;">
                             <li>지난주 위젯 Parameter ➔ <code style="background:#eee; padding:2px 6px; border-radius:4px; font-weight:bold;">-1</code> 입력</li>
                             <li>이번주 위젯 Parameter ➔ <code style="background:#eee; padding:2px 6px; border-radius:4px; font-weight:bold;">0</code> 입력 (또는 비워두기)</li>
                             <li>다음주 위젯 Parameter ➔ <code style="background:#eee; padding:2px 6px; border-radius:4px; font-weight:bold;">1</code> 입력</li>
                         </ul>
                     </li>
-                    <li><strong>4단계 (스택 겹치기):</strong> 세팅이 끝난 3개의 위젯을 홈 화면에서 <strong>서로 겹치듯 포개어 올리면</strong> 하나의 '스마트 스택' 위젯으로 합쳐집니다!이제 손가락으로 위아래로 쓸어 넘기며 변동된 과거/미래 시간표를 실시간으로 확인하세요!</li>
                 </ul>
             </div>
             <section class="guide-section">
