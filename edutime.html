@@ -61,11 +61,7 @@
                 
                 <div class="code-box">
                     <button class="copy-btn" onclick="copyCode()">코드 복사하기</button>
-                    <pre><code id="scriptable-code">
-// =====================================
-
-// =====================================
-                    </code></pre>
+                    <pre><code id="scriptable-code">코드를 불러오는 중입니다... 잠시만 기다려주세요 ⏳</code></pre>
                 </div>
             </section>
             
@@ -104,10 +100,10 @@
         </div>
     </main>
 
-<script>
+    <script>
         lucide.createIcons();
 
-        // 🌟 마법의 코드: 외부 파일을 몰래 읽어와서 화면에 뿌려줍니다!
+        // 🌟 외부 파일을 몰래 읽어와서 화면에 뿌려주는 로직
         fetch('widget_code.js')
             .then(response => {
                 if (!response.ok) throw new Error("네트워크 에러");
