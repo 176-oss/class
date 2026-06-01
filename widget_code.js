@@ -180,8 +180,11 @@ function loadSpecificBackup(targetWeekOffset) {
 async function fetchSchedule() {
   cleanOldBackups();
 
-  if (WEEK_OFFSET === -1) {
-    return loadSpecificBackup(-1);
+  // ✨ [추가된 꿀팁] 컴시간은 지난주 데이터를 안 주므로, 쓸데없이 서버 찌르지 말고 바로 백업 파일로 직행! (로딩 속도 0.1초 컷)
+  if (WEEK_OFFSET < 0) {
+      let backup = loadSpecificBackup(WEEK_OFFSET);
+      if (backup && !backup.error) return backup;
+      else throw new Error("백업 없음"); // 백업도 없으면 catch로 넘겨서 에러 처리
   }
 
   let url = `${VERCEL_URL}?school=${encodeURIComponent(SCHOOL_NAME)}&teacher=${encodeURIComponent(TEACHER_NAME)}&week=${WEEK_OFFSET}`;
@@ -189,11 +192,13 @@ async function fetchSchedule() {
   req.timeoutInterval = 5; 
   let res = await req.loadJSON(); 
   
-  // ✨ [핵심 개편] 이번 주(0) 데이터를 가져왔을 때 기본 백업 작동
+  // 통신에 성공하면 주차에 상관없이 무조건 백업!
+  if (!res.error) {
+      saveBackupIfNeeded(res, WEEK_OFFSET);
+  }
+  
+  // 이번 주(0)일 때 금요일 오후면 다음 주(1) 데이터 미리 땡겨오기 (기존의 좋은 아이디어는 유지)
   if (WEEK_OFFSET === 0) {
-    saveBackupIfNeeded(res, 0);
-    
-    // 🔥 [신의 한 수] 금요일 오후에 이번 주 통신이 성공했다면, 백그라운드에서 몰래 '다음 주(week=1) 데이터'까지 미리 당겨와서 백업 폴더에 채워넣음!
     let now = new Date();
     if ((now.getDay() === 5 && now.getHours() >= 16) || now.getDay() === 6 || now.getDay() === 0) {
         try {
@@ -201,16 +206,9 @@ async function fetchSchedule() {
             let nextReq = new Request(nextUrl);
             nextReq.timeoutInterval = 4;
             let nextRes = await nextReq.loadJSON();
-            saveBackupIfNeeded(nextRes, 1); // 다음 주 데이터 백업 가동
-        } catch(e) {
-            // 다음 주 조기 수신 실패 시 조용히 넘어감 (이번 주 구동에 방해 금지)
-        }
+            saveBackupIfNeeded(nextRes, 1); 
+        } catch(e) {}
     }
-  }
-  
-  // 만약 위젯 매개변수가 다음 주(1) 세팅이고, 통신에 성공했다면 그것도 백업해 둠
-  if (WEEK_OFFSET === 1) {
-      saveBackupIfNeeded(res, 1);
   }
   
   return res;
