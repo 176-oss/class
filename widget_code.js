@@ -1,11 +1,17 @@
 // ⚙️ 본인의 Vercel 주소를 입력하세요 (뒤에 /api 꼭 확인!)
 const VERCEL_URL = "https://edutime-api.vercel.app/api"; 
 
+// ✨ [수정 1] 선생님 픽: Flat UI 20색
 const CLASS_COLORS = [
   "#3498db", "#e74c3c", "#2ecc71", "#f1c40f", "#9b59b6", 
   "#1abc9c", "#e67e22", "#e84393", "#00cec9", "#ffeaa7",
   "#6c5ce7", "#ff7675", "#55efc4", "#fdcb6e", "#a29bfe",
   "#00b894", "#0984e3", "#d63031", "#e17055", "#b2bec3"
+];
+
+// ✨ [수정 2] 서브 과목 컬러 (기존보다 10% 더 연하고 맑아진 파스텔톤)
+const PASTEL_SUBJECT_COLORS = [
+    "#9DD9E8", "#F9BBD1", "#EEDC7D", "#B9D864", "#D8CAEE"
 ];
 
 let SCHOOL_NAME = Keychain.contains("SCHOOL_NAME") ? Keychain.get("SCHOOL_NAME") : "";
@@ -50,13 +56,12 @@ if (!SCHOOL_NAME || !TEACHER_NAME) {
     errorMsg = "학교에서 아직 시간표를 생성하지 않았습니다.";
   }
   
-  // 💡 [수정] 오프라인 대체(Fallback) 로직 대폭 강화
-  if ((!scheduleData || errorMsg) && WEEK_OFFSET >= -1) {
-      // 요청한 주차(WEEK_OFFSET)에 딱 맞는 백업 파일을 조준 사격해서 가져옴
+  // 오프라인 대체(Fallback) 로직
+  if ((!scheduleData || errorMsg)) { // WEEK_OFFSET 제한 해제
       let backupData = loadSpecificBackup(WEEK_OFFSET);
       if (backupData && !backupData.error) {
           scheduleData = backupData;
-          errorMsg = `오프라인 모드 (저장된 백업)`;
+          errorMsg = `오프라인 모드 (백업)`;
       } else {
           errorMsg = "네트워크 오류 & 백업 없음";
           scheduleData = null;
@@ -90,50 +95,38 @@ function cleanOldBackups() {
     let creationDate = fm.creationDate(filePath);
     let diffDays = (now.getTime() - creationDate.getTime()) / (1000 * 60 * 60 * 24);
     
-    // 2주 지난 백업 파일 자동 삭제
     if (diffDays > 14) {
       fm.remove(filePath);
     }
   }
 }
 
-// 💡 [수정] 이번 주와 다음 주를 각각 구분하여 안전하게 백업 파일 생성
+// ✨ [수정 3] 지난 주 데이터도 백업할 수 있도록 제한 해제
 function saveBackupIfNeeded(data, targetWeekOffset) {
   if (!data || data.error || !Array.isArray(data) || data.length !== 5) return;
   
   let now = new Date();
-  let dayOfWeek = now.getDay(); // 5:금, 6:토, 0:일
-  let hour = now.getHours();
+  let d = new Date(now);
+  let dayOfWeek = now.getDay();
   
-  // ✨ 금요일 오후 4시 이후 ~ 토요일 ~ 일요일 사이에만 작동
-  if ((dayOfWeek === 5 && hour >= 16) || dayOfWeek === 6 || dayOfWeek === 0) {
-    let d = new Date(now);
-    
-    // 파일명 기준점을 '해당 주간의 금요일' 날짜로 통일하기 위한 연산
-    if (dayOfWeek === 6) d.setDate(d.getDate() - 1);
-    if (dayOfWeek === 0) d.setDate(d.getDate() - 2);
-    
-    // 만약 다음 주(week=1) 데이터를 백업하는 중이라면, 날짜 이름을 7일 뒤로 밀어서 저장!
-    // 이렇게 해야 월요일이 되었을 때 "이번 주 시간표 파일"로 자연스럽게 매칭됩니다.
-    if (targetWeekOffset === 1) {
-        d.setDate(d.getDate() + 7);
-    }
-    
-    let dateStr = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`;
-    let safeSchool = SCHOOL_NAME.replace(/[^a-zA-Z0-9가-힣]/g, "");
-    let safeTeacher = TEACHER_NAME.replace(/[^a-zA-Z0-9가-힣]/g, "");
-    
-    let fileName = `backup_${safeSchool}_${safeTeacher}_${dateStr}.json`;
-    let { fm, dir } = getBackupDirectory();
-    let filePath = fm.joinPath(dir, fileName);
-    
-    if (!fm.fileExists(filePath)) {
-      fm.writeString(filePath, JSON.stringify(data));
-    }
-  }
+  // 날짜 계산을 항상 '해당 주간의 금요일'로 맞춤
+  let distance = 5 - dayOfWeek;
+  d.setDate(d.getDate() + distance);
+  // 요청된 주차(targetWeekOffset)만큼 주 단위 이동 (-1:지난주, 0:이번주, 1:다음주)
+  d.setDate(d.getDate() + (targetWeekOffset * 7));
+  
+  let dateStr = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`;
+  let safeSchool = SCHOOL_NAME.replace(/[^a-zA-Z0-9가-힣]/g, "");
+  let safeTeacher = TEACHER_NAME.replace(/[^a-zA-Z0-9가-힣]/g, "");
+  
+  let fileName = `backup_${safeSchool}_${safeTeacher}_${dateStr}.json`;
+  let { fm, dir } = getBackupDirectory();
+  let filePath = fm.joinPath(dir, fileName);
+  
+  // 파일이 이미 있으면 덮어써서 최신화! (보강/변경 시간표 반영을 위해)
+  fm.writeString(filePath, JSON.stringify(data));
 }
 
-// 💡 [수정] 현재 위젯이 요구하는 주차(이번 주, 지난 주 등)에 맞는 백업 파일을 정밀 매칭
 function loadSpecificBackup(targetWeekOffset) {
   let { fm, dir } = getBackupDirectory();
   let files = fm.listContents(dir);
@@ -145,30 +138,23 @@ function loadSpecificBackup(targetWeekOffset) {
   let targetFiles = files.filter(f => f.startsWith(prefix));
   if (targetFiles.length === 0) return { error: "백업 없음" };
   
-  targetFiles.sort(); // 날짜 오름차순 정렬
-  
   let now = new Date();
   let dayOfWeek = now.getDay();
-  let d = new Date(now);
   
-  // 오늘 주간의 금요일 날짜 계산
   let currentWeekFriday = new Date(now);
-  let distance = 5 - dayOfWeek; // 금요일까지 남은 일수
+  let distance = 5 - dayOfWeek;
   currentWeekFriday.setDate(now.getDate() + distance);
-  
-  // 위젯이 요청한 주차 오프셋만큼 날짜 조정 (지난주면 -7일, 다음주면 +7일)
   currentWeekFriday.setDate(currentWeekFriday.getDate() + (targetWeekOffset * 7));
   
   let targetDateStr = `${currentWeekFriday.getFullYear()}${String(currentWeekFriday.getMonth()+1).padStart(2,'0')}${String(currentWeekFriday.getDate()).padStart(2,'0')}`;
   let matchFileName = `${prefix}${targetDateStr}.json`;
   
-  // 정확히 일치하는 날짜의 백업 파일이 있다면 리턴
   if (targetFiles.includes(matchFileName)) {
       let filePath = fm.joinPath(dir, matchFileName);
       return JSON.parse(fm.readString(filePath));
   }
   
-  // 만약 정확한 매칭에 실패하면, 살아있는 백업 중 가장 최신 파일이라도 꺼내주는 유연함 발휘
+  targetFiles.sort();
   let latestFile = targetFiles.pop(); 
   let filePath = fm.joinPath(dir, latestFile);
   return JSON.parse(fm.readString(filePath));
@@ -214,9 +200,7 @@ async function fetchSchedule() {
   return res;
 }
 
-// ... [이하 showSetupWizard, buildWidget 함수는 기존과 동일하게 유지] ...
-
-
+// ... [showSetupWizard 유지] ...
 async function showSetupWizard() {
   let a1 = new Alert();
   a1.title = "1. 학교 검색 🏫";
@@ -352,8 +336,45 @@ function buildWidget(widget, schedule, errorMsg) {
   let gridStack = widget.addStack();
   gridStack.layoutHorizontally();
   const days = ["월", "화", "수", "목", "금"];
+  
+  // ✨ [수정 4] 안드로이드처럼 학급과 과목을 미리 스캔해서 절대 겹치지 않게 확정 맵핑!
+  let uniqueClasses = new Set();
+  let subjectCounts = {};
+  
+  if (schedule && !errorMsg) {
+      for (let d = 0; d < 5; d++) {
+          let dayData = schedule[d] || schedule[String(d)];
+          if (dayData) {
+              for (let p = 0; p < 7; p++) {
+                  let cellData = dayData[p];
+                  let cellText = (cellData && cellData.subject) ? cellData.subject : "-";
+                  let cleanText = cellText.replace("(휴강)", "").trim();
+                  if (cleanText !== "-") {
+                      let parts = cleanText.split(" ");
+                      let classKeyMatch = parts[0].match(/(\d+-\d+)/);
+                      if (classKeyMatch) uniqueClasses.add(classKeyMatch[1]);
+                      let subjTextStr = parts.slice(1).join(" ").replace(" ", "/").replace(",", "/");
+                      if (subjTextStr) {
+                          subjectCounts[subjTextStr] = (subjectCounts[subjTextStr] || 0) + 1;
+                      }
+                  }
+              }
+          }
+      }
+  }
+  
+  let sortedClasses = Array.from(uniqueClasses).sort();
   let classColorMap = {};
-  let colorIdx = 0;
+  sortedClasses.forEach((clazz, index) => {
+      classColorMap[clazz] = CLASS_COLORS[index % CLASS_COLORS.length];
+  });
+  
+  let sortedSubjectsByFreq = Object.keys(subjectCounts).sort((a, b) => subjectCounts[b] - subjectCounts[a]);
+  let subjectColorMap = {};
+  sortedSubjectsByFreq.forEach((subj, index) => {
+      if (index === 0) subjectColorMap[subj] = "#FFFFFF"; // 👑 메인 과목은 퓨어 화이트
+      else subjectColorMap[subj] = PASTEL_SUBJECT_COLORS[(index - 1) % PASTEL_SUBJECT_COLORS.length];
+  });
 
   for (let d = 0; d < 5; d++) {
     let dayStack = gridStack.addStack(); 
@@ -385,24 +406,20 @@ function buildWidget(widget, schedule, errorMsg) {
       if (cleanText !== "-") {
         let parts = cleanText.split(" ");
         classTextStr = parts[0]; 
-        subjTextStr = parts.slice(1).join(" "); 
-
+        subjTextStr = parts.slice(1).join(" ").replace(" ", "/").replace(",", "/"); 
         let match = classTextStr.match(/(\d+-\d+)/);
         if (match) classKey = match[1]; 
       }
 
-let periodStack = dayStack.addStack(); 
+      let periodStack = dayStack.addStack(); 
       periodStack.layoutVertically(); 
       periodStack.centerAlignContent();
       periodStack.setPadding(3, 2, 3, 2); 
       periodStack.cornerRadius = 6; 
 
-      // 🎨 1. 상태별 배경색 설정 (테두리 제거)
       if (isCancelled) {
-        // ⬛️ 없어진 수업(휴강): 진한 회색 배경
         periodStack.backgroundColor = new Color("#424242"); 
       } else if (isChanged) {
-        // 🟧 변경된 수업: 옅은 주황색 (다크/라이트 모드 자동 변환)
         periodStack.backgroundColor = Color.dynamic(new Color("#FFE0B2"), new Color("#5C3A21")); 
       }
 
@@ -416,36 +433,28 @@ let periodStack = dayStack.addStack();
 
       txt1.font = Font.boldSystemFont(11); 
       txt1.lineLimit = 1;
-      txt2.font = Font.systemFont(9); 
+      // 과목명이 길면 폰트 사이즈를 줄임
+      if (subjTextStr.length > 3 || subjTextStr.includes("/")) {
+          txt2.font = Font.systemFont(8);
+      } else {
+          txt2.font = Font.systemFont(9); 
+      }
       txt2.lineLimit = 1;
 
-      // 🎨 2. 상태별 글씨색 설정
       if (classKey) {
-        if (!classColorMap[classKey]) {
-          classColorMap[classKey] = CLASS_COLORS[colorIdx % CLASS_COLORS.length];
-          colorIdx++;
-        }
-        
         if (isCancelled) {
-          // 👻 없어진 수업(휴강): 반투명 흰색 글씨 (Opacity 0.4)
           txt1.textColor = new Color("#FFFFFF", 0.4);
           txt2.textColor = new Color("#FFFFFF", 0.4);
         } else {
-          // ✅ 변경된 수업 & 일반 수업: 원래 학급 고유 색상 유지
-          txt1.textColor = new Color(classColorMap[classKey]);
-          
-          // (선택 사항) 만약 다크모드/라이트모드에서 다 잘 보이게 하려면
-          // txt2.textColor = Color.dynamic(Color.black(), Color.white());
-          txt2.textColor = new Color("#aaaaaa"); // 기존 과목명 색상 유지
+          txt1.textColor = new Color(classColorMap[classKey] || CLASS_COLORS[0]);
+          txt2.textColor = new Color(subjectColorMap[subjTextStr] || "#FFFFFF"); // ✨ 서브 과목 연한 파스텔 적용!
         }
       } else {
         txt1.font = Font.systemFont(11); 
-        txt1.textColor = new Color("#444444"); 
+        txt1.textColor = new Color("#444446"); 
       }
       
       dayStack.addSpacer(4);
-      
-      dayStack.addSpacer(4); 
     }
     if (d < 4) gridStack.addSpacer(6); 
   }
