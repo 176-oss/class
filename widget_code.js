@@ -1,7 +1,6 @@
 // ⚙️ 본인의 Vercel 주소를 입력하세요 (뒤에 /api 꼭 확인!)
 const VERCEL_URL = "https://edutime-api.vercel.app/api"; 
 
-// ✨ [수정 1] 선생님 픽: Flat UI 20색
 const CLASS_COLORS = [
   "#3498db", "#e74c3c", "#2ecc71", "#f1c40f", "#9b59b6", 
   "#1abc9c", "#e67e22", "#e84393", "#00cec9", "#ffeaa7",
@@ -9,10 +8,12 @@ const CLASS_COLORS = [
   "#00b894", "#0984e3", "#d63031", "#e17055", "#b2bec3"
 ];
 
-// ✨ [수정 2] 서브 과목 컬러 (기존보다 10% 더 연하고 맑아진 파스텔톤)
 const PASTEL_SUBJECT_COLORS = [
     "#9DD9E8", "#F9BBD1", "#EEDC7D", "#B9D864", "#D8CAEE"
 ];
+
+// ✨ [신규] iOS 표준 시작 시간표 세팅
+const START_TIMES = ["09:00", "10:00", "11:00", "12:00", "13:50", "14:50", "15:50"];
 
 let SCHOOL_NAME = Keychain.contains("SCHOOL_NAME") ? Keychain.get("SCHOOL_NAME") : "";
 let TEACHER_NAME = Keychain.contains("TEACHER_NAME") ? Keychain.get("TEACHER_NAME") : "";
@@ -33,7 +34,11 @@ if (args.queryParameters && args.queryParameters.action === "settings") {
 }
 
 let widget = new ListWidget();
-widget.backgroundColor = new Color("#1c1c1e"); 
+
+// ✨ [신규] 기기에 저장된 투명도(Opacity) 설정을 가져와 배경색에 투명 알파 기둥 연결
+let opacityPct = Keychain.contains("WIDGET_OPACITY") ? Keychain.get("WIDGET_OPACITY") : "100";
+let alphaValue = parseInt(opacityPct) / 100;
+widget.backgroundColor = new Color("#1c1c1e", alphaValue); 
 widget.setPadding(12, 16, 12, 16); 
 
 if (!SCHOOL_NAME || !TEACHER_NAME) {
@@ -56,8 +61,7 @@ if (!SCHOOL_NAME || !TEACHER_NAME) {
     errorMsg = "학교에서 아직 시간표를 생성하지 않았습니다.";
   }
   
-  // 오프라인 대체(Fallback) 로직
-  if ((!scheduleData || errorMsg)) { // WEEK_OFFSET 제한 해제
+  if ((!scheduleData || errorMsg)) { 
       let backupData = loadSpecificBackup(WEEK_OFFSET);
       if (backupData && !backupData.error) {
           scheduleData = backupData;
@@ -76,7 +80,7 @@ else widget.presentLarge();
 Script.complete();
 
 // ==========================================
-// 📂 파일 매니저 (주차별 정밀 백업 및 교체)
+// 📂 파일 매니저
 // ==========================================
 function getBackupDirectory() {
   let fm = FileManager.local();
@@ -94,14 +98,10 @@ function cleanOldBackups() {
     let filePath = fm.joinPath(dir, file);
     let creationDate = fm.creationDate(filePath);
     let diffDays = (now.getTime() - creationDate.getTime()) / (1000 * 60 * 60 * 24);
-    
-    if (diffDays > 14) {
-      fm.remove(filePath);
-    }
+    if (diffDays > 14) fm.remove(filePath);
   }
 }
 
-// ✨ [수정 3] 지난 주 데이터도 백업할 수 있도록 제한 해제
 function saveBackupIfNeeded(data, targetWeekOffset) {
   if (!data || data.error || !Array.isArray(data) || data.length !== 5) return;
   
@@ -109,10 +109,8 @@ function saveBackupIfNeeded(data, targetWeekOffset) {
   let d = new Date(now);
   let dayOfWeek = now.getDay();
   
-  // 날짜 계산을 항상 '해당 주간의 금요일'로 맞춤
   let distance = 5 - dayOfWeek;
   d.setDate(d.getDate() + distance);
-  // 요청된 주차(targetWeekOffset)만큼 주 단위 이동 (-1:지난주, 0:이번주, 1:다음주)
   d.setDate(d.getDate() + (targetWeekOffset * 7));
   
   let dateStr = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`;
@@ -123,7 +121,6 @@ function saveBackupIfNeeded(data, targetWeekOffset) {
   let { fm, dir } = getBackupDirectory();
   let filePath = fm.joinPath(dir, fileName);
   
-  // 파일이 이미 있으면 덮어써서 최신화! (보강/변경 시간표 반영을 위해)
   fm.writeString(filePath, JSON.stringify(data));
 }
 
@@ -140,7 +137,6 @@ function loadSpecificBackup(targetWeekOffset) {
   
   let now = new Date();
   let dayOfWeek = now.getDay();
-  
   let currentWeekFriday = new Date(now);
   let distance = 5 - dayOfWeek;
   currentWeekFriday.setDate(now.getDate() + distance);
@@ -161,16 +157,15 @@ function loadSpecificBackup(targetWeekOffset) {
 }
 
 // ==========================================
-// 🌐 네트워크 및 화면 빌드 로직
+// 🌐 네트워크 로직
 // ==========================================
 async function fetchSchedule() {
   cleanOldBackups();
 
-  // ✨ [추가된 꿀팁] 컴시간은 지난주 데이터를 안 주므로, 쓸데없이 서버 찌르지 말고 바로 백업 파일로 직행! (로딩 속도 0.1초 컷)
   if (WEEK_OFFSET < 0) {
       let backup = loadSpecificBackup(WEEK_OFFSET);
       if (backup && !backup.error) return backup;
-      else throw new Error("백업 없음"); // 백업도 없으면 catch로 넘겨서 에러 처리
+      else throw new Error("백업 없음");
   }
 
   let url = `${VERCEL_URL}?school=${encodeURIComponent(SCHOOL_NAME)}&teacher=${encodeURIComponent(TEACHER_NAME)}&week=${WEEK_OFFSET}`;
@@ -178,12 +173,10 @@ async function fetchSchedule() {
   req.timeoutInterval = 5; 
   let res = await req.loadJSON(); 
   
-  // 통신에 성공하면 주차에 상관없이 무조건 백업!
   if (!res.error) {
       saveBackupIfNeeded(res, WEEK_OFFSET);
   }
   
-  // 이번 주(0)일 때 금요일 오후면 다음 주(1) 데이터 미리 땡겨오기 (기존의 좋은 아이디어는 유지)
   if (WEEK_OFFSET === 0) {
     let now = new Date();
     if ((now.getDay() === 5 && now.getHours() >= 16) || now.getDay() === 6 || now.getDay() === 0) {
@@ -200,7 +193,9 @@ async function fetchSchedule() {
   return res;
 }
 
-// ... [showSetupWizard 유지] ...
+// ==========================================
+// ⚙️ 설정 마법사 (투명도 추가 빌드 ✨)
+// ==========================================
 async function showSetupWizard() {
   let a1 = new Alert();
   a1.title = "1. 학교 검색 🏫";
@@ -282,24 +277,42 @@ async function showSetupWizard() {
     selectedTeacher = String(filteredTeachers[tSelIdx]);
   }
 
+  // ✨ [신규 요청] 5단계: 투명도 직접 입력 UI 추가
+  let a5 = new Alert();
+  a5.title = "5. 위젯 투명도 설정 🌓";
+  a5.message = "위젯의 배경 투명도를 고르세요.";
+  a5.addAction("0% (완전 투명 배경)");
+  a5.addAction("30% (투명함)");
+  a5.addAction("60% (은은하게 비침)");
+  a5.addAction("100% (원래 불투명 배경)");
+  let opIdx = await a5.presentAlert();
+  let opacityValue = "100";
+  if (opIdx === 0) opacityValue = "0";
+  else if (opIdx === 1) opacityValue = "30";
+  else if (opIdx === 2) opacityValue = "60";
+  else opacityValue = "100";
+
   SCHOOL_NAME = selectedSchool;
   TEACHER_NAME = selectedTeacher;
   Keychain.set("SCHOOL_NAME", SCHOOL_NAME);
   Keychain.set("TEACHER_NAME", TEACHER_NAME);
+  Keychain.set("WIDGET_OPACITY", opacityValue); // 투명도 키체인에 기록
   
   let success = new Alert();
   success.title = "🎉 설정 완료!";
-  success.message = `[${displaySchool}]\n[${TEACHER_NAME}] 위젯 설정이 저장되었습니다.`;
+  success.message = `[${displaySchool}]\n[${TEACHER_NAME}] 위젯 설정 및 투명도(${opacityValue}%)가 저장되었습니다.`;
   success.addAction("확인");
   await success.presentAlert();
 }
 
+// ==========================================
+// 🎨 화면 최종 빌드
+// ==========================================
 function buildWidget(widget, schedule, errorMsg) {
   let headerStack = widget.addStack();
   headerStack.centerAlignContent();
   
   let myScriptName = encodeURIComponent(Script.name());
-
   let weekLabelText = "[이번 주] ";
   let labelColor = Color.white();
   
@@ -309,9 +322,6 @@ function buildWidget(widget, schedule, errorMsg) {
   } else if (WEEK_OFFSET === 1) {
     weekLabelText = "[다음 주] ";
     labelColor = new Color("#ffcc00"); 
-  } else if (WEEK_OFFSET === 2) {
-    weekLabelText = "[다다음 주] ";
-    labelColor = new Color("#ff9500"); 
   }
 
   let weekLabel = headerStack.addText(weekLabelText);
@@ -337,7 +347,6 @@ function buildWidget(widget, schedule, errorMsg) {
   gridStack.layoutHorizontally();
   const days = ["월", "화", "수", "목", "금"];
   
-  // ✨ [수정 4] 안드로이드처럼 학급과 과목을 미리 스캔해서 절대 겹치지 않게 확정 맵핑!
   let uniqueClasses = new Set();
   let subjectCounts = {};
   
@@ -354,9 +363,7 @@ function buildWidget(widget, schedule, errorMsg) {
                       let classKeyMatch = parts[0].match(/(\d+-\d+)/);
                       if (classKeyMatch) uniqueClasses.add(classKeyMatch[1]);
                       let subjTextStr = parts.slice(1).join(" ").replace(" ", "/").replace(",", "/");
-                      if (subjTextStr) {
-                          subjectCounts[subjTextStr] = (subjectCounts[subjTextStr] || 0) + 1;
-                      }
+                      if (subjTextStr) subjectCounts[subjTextStr] = (subjectCounts[subjTextStr] || 0) + 1;
                   }
               }
           }
@@ -372,10 +379,53 @@ function buildWidget(widget, schedule, errorMsg) {
   let sortedSubjectsByFreq = Object.keys(subjectCounts).sort((a, b) => subjectCounts[b] - subjectCounts[a]);
   let subjectColorMap = {};
   sortedSubjectsByFreq.forEach((subj, index) => {
-      if (index === 0) subjectColorMap[subj] = "#FFFFFF"; // 👑 메인 과목은 퓨어 화이트
+      if (index === 0) subjectColorMap[subj] = "#FFFFFF"; 
       else subjectColorMap[subj] = PASTEL_SUBJECT_COLORS[(index - 1) % PASTEL_SUBJECT_COLORS.length];
   });
 
+  // ────────────────────────────────────────────────────────
+  // ✨ [신규 요청] 맨 왼쪽 교시 및 시작 시간 축 컬럼 생성
+  // ────────────────────────────────────────────────────────
+  let timeStack = gridStack.addStack();
+  timeStack.layoutVertically();
+  
+  let timeHeaderStack = timeStack.addStack();
+  timeHeaderStack.layoutHorizontally();
+  timeHeaderStack.addSpacer();
+  let timeLabel = timeHeaderStack.addText("교시");
+  timeLabel.font = Font.boldSystemFont(12);
+  timeLabel.textColor = new Color("#8e8e93");
+  timeHeaderStack.addSpacer();
+  
+  timeStack.addSpacer(6);
+  
+  for (let p = 0; p < 7; p++) {
+    let periodTimeStack = timeStack.addStack();
+    periodTimeStack.layoutVertically();
+    periodTimeStack.centerAlignContent();
+    periodTimeStack.setPadding(3, 2, 3, 2);
+    
+    let h1 = periodTimeStack.addStack(); h1.layoutHorizontally(); h1.addSpacer();
+    let txt1 = h1.addText(`${p + 1}`);
+    h1.addSpacer();
+    
+    let h2 = periodTimeStack.addStack(); h2.layoutHorizontally(); h2.addSpacer();
+    let txt2 = h2.addText(`(${START_TIMES[p]})`);
+    h2.addSpacer();
+    
+    txt1.font = Font.boldSystemFont(11);
+    txt1.textColor = new Color("#8e8e93");
+    txt2.font = Font.systemFont(7.5); // 시간은 컴팩트하게
+    txt2.textColor = new Color("#636366");
+    
+    timeStack.addSpacer(4);
+    timeStack.addSpacer(4); // 다른 요일 셀의 마진 합과 동일하게 보정
+  }
+  gridStack.addSpacer(6); // 시간 축 기둥과 월요일 사이 여백 분리
+
+  // ────────────────────────────────────────────────────────
+  // 3. 월~금 시간표 빌드
+  // ────────────────────────────────────────────────────────
   for (let d = 0; d < 5; d++) {
     let dayStack = gridStack.addStack(); 
     dayStack.layoutVertically();
@@ -420,7 +470,7 @@ function buildWidget(widget, schedule, errorMsg) {
       if (isCancelled) {
         periodStack.backgroundColor = new Color("#424242"); 
       } else if (isChanged) {
-        periodStack.backgroundColor = Color.dynamic(new Color("#FFE0B2"), new Color("#5C3A21")); 
+        periodStack.backgroundColor = Color.dynamic(new Color("#60FFAB40"), new Color("#40FFAB40")); 
       }
 
       let h1 = periodStack.addStack(); h1.layoutHorizontally(); h1.addSpacer();
@@ -433,7 +483,6 @@ function buildWidget(widget, schedule, errorMsg) {
 
       txt1.font = Font.boldSystemFont(11); 
       txt1.lineLimit = 1;
-      // 과목명이 길면 폰트 사이즈를 줄임
       if (subjTextStr.length > 3 || subjTextStr.includes("/")) {
           txt2.font = Font.systemFont(8);
       } else {
@@ -447,7 +496,7 @@ function buildWidget(widget, schedule, errorMsg) {
           txt2.textColor = new Color("#FFFFFF", 0.4);
         } else {
           txt1.textColor = new Color(classColorMap[classKey] || CLASS_COLORS[0]);
-          txt2.textColor = new Color(subjectColorMap[subjTextStr] || "#FFFFFF"); // ✨ 서브 과목 연한 파스텔 적용!
+          txt2.textColor = new Color(subjectColorMap[subjTextStr] || "#FFFFFF"); 
         }
       } else {
         txt1.font = Font.systemFont(11); 
