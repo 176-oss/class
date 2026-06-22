@@ -119,8 +119,7 @@
 <body>
   <div id="root"></div>
 
-  <script type="text/babel" data-presets="react" data-runtime="classic">
-    /** @jsxRuntime classic */
+  <script type="text/plain" id="react-code">
     const { useState, useEffect, useCallback, useRef } = React;
 
     const App = () => {
@@ -1529,6 +1528,24 @@
 
     const root = ReactDOM.createRoot(document.getElementById('root'));
     root.render(<App />);
+  </script>
+
+  <script>
+    (function() {
+      const scriptEl = document.getElementById('react-code');
+      if (scriptEl && window.Babel) {
+        try {
+          const compiled = Babel.transform(scriptEl.textContent, {
+            presets: [['react', { runtime: 'classic' }]]
+          }).code;
+          const newScript = document.createElement('script');
+          newScript.textContent = compiled;
+          document.body.appendChild(newScript);
+        } catch (e) {
+          console.error("Babel compilation error: ", e);
+        }
+      }
+    })();
   </script>
 </body>
 
