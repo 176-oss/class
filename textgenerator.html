@@ -4,8 +4,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI 기반 학교생활기록부 서술 생성기</title>
+    <title>AI 기반 학교생활기록부 서술 생성기 (엑셀 지원)</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 엑셀 파일 처리를 위한 SheetJS 라이브러리 로드 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
 
@@ -55,86 +57,90 @@
             border-radius: 3px;
         }
 
-        #apiModal {
-            display: none;
+        /* 탭 스타일 */
+        .tab-btn {
+            transition: all 0.2s;
+        }
+        .tab-btn.active {
+            background-color: white;
+            color: #2563eb;
+            font-weight: bold;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
         }
 
-        .modal-overlay {
-            background-color: rgba(0, 0, 0, 0.5);
+        /* 메시지 박스 스타일 (alert 대체) */
+        #msgBox {
+            transition: opacity 0.3s ease-in-out;
         }
     </style>
 </head>
 
 <body class="text-gray-800 p-4 md:p-8">
 
-    <div id="apiModal" class="fixed inset-0 z-50 overflow-y-auto">
+    <!-- 메시지 알림창 (alert 대체) -->
+    <div id="msgBox" class="fixed top-5 left-1/2 transform -translate-x-1/2 z-50 bg-red-500 text-white px-6 py-3 rounded-full shadow-lg opacity-0 pointer-events-none text-sm font-semibold flex items-center gap-2">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+        <span id="msgText">메시지</span>
+    </div>
+
+    <!-- API 안내 모달 -->
+    <div id="apiModal" class="fixed inset-0 z-50 overflow-y-auto hidden">
         <div class="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
-            <div class="fixed inset-0 transition-opacity modal-overlay" id="closeModalBg"></div>
+            <div class="fixed inset-0 transition-opacity bg-black bg-opacity-50" id="closeModalBg"></div>
             <span class="hidden sm:inline-block sm:align-middle sm:h-screen">&#8203;</span>
-            <div
-                class="inline-block align-bottom bg-white rounded-2xl text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
+            <div class="inline-block align-bottom bg-white rounded-2xl text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
                 <div class="bg-white px-6 pt-6 pb-4">
-                    <div class="sm:flex sm:items-start">
-                        <div class="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left">
-                            <h3 class="text-xl leading-6 font-bold text-gray-900 mb-4">Gemini API 키 발급 방법</h3>
-                            <div class="text-sm text-gray-600 space-y-3">
-                                <p><strong>1. Google AI Studio 접속:</strong> <a href="https://aistudio.google.com/"
-                                        target="_blank" class="text-blue-600 underline">AI Studio</a></p>
-                                <p><strong>2. 학교 계정이 아닌 개인계정으로 사용!!</strong></p>
-                                <p><strong>3. API Key 생성:</strong> 오른쪽 상단 'API키 만들기' -> '키 만들기' -> '키 복사' </p>
-                                <p><strong>4. API Key 붙여넣기</strong></p>
-                                <div
-                                    class="bg-yellow-50 p-3 rounded-lg border border-yellow-100 text-yellow-800 text-xs">
-                                    무료 등급은 분당 요청 횟수 제한이 있습니다. 429 에러 발생 시 잠시 기다려주세요.
-                                </div>
-                            </div>
+                    <h3 class="text-xl leading-6 font-bold text-gray-900 mb-4">Gemini API 키 발급 방법</h3>
+                    <div class="text-sm text-gray-600 space-y-3">
+                        <p><strong>1. Google AI Studio 접속:</strong> <a href="https://aistudio.google.com/" target="_blank" class="text-blue-600 underline">AI Studio</a></p>
+                        <p><strong>2. 학교 계정이 아닌 개인계정으로 사용!!</strong></p>
+                        <p><strong>3. API Key 생성:</strong> 오른쪽 상단 'API키 만들기' -> '키 만들기' -> '키 복사' </p>
+                        <p><strong>4. API Key 붙여넣기</strong></p>
+                        <div class="bg-yellow-50 p-3 rounded-lg border border-yellow-100 text-yellow-800 text-xs">
+                            무료 등급은 분당 요청 횟수 제한이 있습니다. 엑셀 일괄 생성 시 자체적으로 지연시간(Delay)을 적용하여 에러를 방지합니다.
                         </div>
                     </div>
                 </div>
                 <div class="bg-gray-50 px-6 py-3 sm:flex sm:flex-row-reverse">
-                    <button type="button" id="closeModalBtn"
-                        class="w-full inline-flex justify-center rounded-md bg-blue-600 px-4 py-2 text-white font-medium sm:w-auto sm:text-sm">확인</button>
+                    <button type="button" id="closeModalBtn" class="w-full inline-flex justify-center rounded-md bg-blue-600 px-4 py-2 text-white font-medium sm:w-auto sm:text-sm">확인</button>
                 </div>
             </div>
         </div>
     </div>
 
+    <!-- 메인 레이아웃 -->
     <div class="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8">
+        
+        <!-- 왼쪽 입력 패널 -->
         <div class="lg:col-span-5 space-y-6">
             <div class="bg-white rounded-2xl p-6 container-card border border-gray-100">
                 <h1 class="text-2xl font-bold text-gray-900 mb-6">생기부 서술 생성기 🚀</h1>
 
-                <div class="space-y-5">
+                <!-- API Key 및 공통 설정 -->
+                <div class="space-y-5 mb-6 pb-6 border-b border-gray-100">
                     <div class="grid grid-cols-2 gap-4">
                         <div>
                             <div class="flex items-center mb-1">
                                 <label class="text-xs font-semibold text-gray-700 mr-2">API Key</label>
                                 <button id="openModalBtn" class="text-[10px] text-blue-500 underline">발급방법</button>
                             </div>
-                            <input type="password" id="apiKey"
-                                class="w-full px-3 py-2 border rounded-lg text-sm outline-none focus:border-blue-500"
-                                placeholder="키 입력" autocomplete="off">
+                            <input type="password" id="apiKey" class="w-full px-3 py-2 border rounded-lg text-sm outline-none focus:border-blue-500" placeholder="키 입력" autocomplete="off">
                         </div>
                         <div>
                             <label class="block text-xs font-semibold text-gray-700 mb-1">모델 선택</label>
-                            <select id="modelSelect"
-                                class="w-full px-3 py-2 border rounded-lg text-sm bg-white outline-none focus:border-blue-500">
-                                <option value="gemini-3.1-flash-lite" selected>Gemini 3.1 Flash Lite</option>
+                            <select id="modelSelect" class="w-full px-3 py-2 border rounded-lg text-sm bg-white outline-none focus:border-blue-500">
+                                <option value="gemini-3.1-flash-lite" selected>Gemini 3.1 Flash Lite (추천/빠름)</option>
                                 <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
-                                <option value="gemini-2.5-flash-lite">Gemini 2.5 Flash Lite</option>
+                                <option value="gemini-2.5-pro">Gemini 2.5 Pro (고품질/느림)</option>
                                 <option value="custom">직접 입력...</option>
                             </select>
-                            <input type="text" id="customModel"
-                                class="hidden mt-2 w-full px-3 py-1 border rounded text-xs outline-none"
-                                placeholder="예: gemini-2.0-flash-exp">
+                            <input type="text" id="customModel" class="hidden mt-2 w-full px-3 py-1 border rounded text-xs outline-none" placeholder="예: gemini-2.0-flash-exp">
                         </div>
                     </div>
-
                     <div class="grid grid-cols-2 gap-4">
                         <div>
                             <label class="block text-sm font-semibold text-gray-700 mb-1">기록 영역</label>
-                            <select id="category"
-                                class="w-full px-4 py-2 border rounded-lg text-sm bg-white outline-none">
+                            <select id="category" class="w-full px-4 py-2 border rounded-lg text-sm bg-white outline-none">
                                 <option value="교과세특">교과세특</option>
                                 <option value="자율활동">자율활동</option>
                                 <option value="진로활동">진로활동</option>
@@ -143,12 +149,20 @@
                             </select>
                         </div>
                         <div>
-                            <label class="block text-sm font-semibold text-gray-700 mb-2">글자 수: <span
-                                    id="charLimitDisplay" class="text-blue-600 font-bold">500</span>자</label>
-                            <input type="range" id="charLimit" min="100" max="500" step="10" value="500">
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">목표 글자 수: <span id="charLimitDisplay" class="text-blue-600 font-bold">500</span>자</label>
+                            <input type="range" id="charLimit" min="100" max="1000" step="10" value="500">
                         </div>
                     </div>
+                </div>
 
+                <!-- 탭 UI -->
+                <div class="flex space-x-1 mb-6 bg-gray-100 p-1 rounded-lg">
+                    <button id="tabManual" class="tab-btn active flex-1 py-2 text-sm rounded text-gray-500">직접 입력 (1명)</button>
+                    <button id="tabExcel" class="tab-btn flex-1 py-2 text-sm rounded text-gray-500">엑셀 일괄 생성</button>
+                </div>
+
+                <!-- [모드 1] 직접 입력 폼 -->
+                <div id="manualMode" class="space-y-5 block">
                     <div>
                         <label class="block text-sm font-semibold text-gray-700 mb-2">항목별 추천 성향</label>
                         <div id="dynamicTraits" class="flex flex-wrap gap-2 mb-4"></div>
@@ -159,63 +173,112 @@
 
                     <div class="grid grid-cols-2 gap-4">
                         <div>
-                            <label class="block text-sm font-semibold text-gray-700 mb-1"
-                                id="detailNameLabel">과목명</label>
-                            <input type="text" id="detailName"
-                                class="w-full px-4 py-2 border rounded-lg text-sm outline-none" placeholder="예: 수학">
+                            <label class="block text-sm font-semibold text-gray-700 mb-1" id="detailNameLabel">과목명</label>
+                            <input type="text" id="detailName" class="w-full px-4 py-2 border rounded-lg text-sm outline-none" placeholder="예: 수학">
                         </div>
                         <div id="dateInputContainer" class="hidden">
                             <label class="block text-sm font-semibold text-gray-700 mb-1">날짜 (YYYY.MM.DD.)</label>
-                            <input type="text" id="activityDate"
-                                class="w-full px-4 py-2 border rounded-lg text-sm outline-none border-blue-200"
-                                placeholder="2026.05.14.">
+                            <input type="text" id="activityDate" class="w-full px-4 py-2 border rounded-lg text-sm outline-none border-blue-200" placeholder="2026.05.14.">
                         </div>
                     </div>
 
                     <div id="achievementStandardContainer">
-                        <label class="block text-sm font-semibold text-gray-700 mb-1">성취기준 <span
-                                class="text-xs text-blue-400">(교과세특용)</span></label>
-                        <textarea id="achievementStandard" rows="2"
-                            class="w-full px-4 py-2 border rounded-lg text-sm bg-blue-50 outline-none"
-                            placeholder="성취기준을 입력하세요."></textarea>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">성취기준 <span class="text-xs text-blue-400">(교과세특용)</span></label>
+                        <textarea id="achievementStandard" rows="2" class="w-full px-4 py-2 border rounded-lg text-sm bg-blue-50 outline-none" placeholder="성취기준을 입력하세요."></textarea>
                     </div>
 
                     <div>
                         <label class="block text-sm font-semibold text-gray-700 mb-1">핵심 활동 내용</label>
-                        <textarea id="activityContent" rows="3"
-                            class="w-full px-4 py-2 border rounded-lg text-sm outline-none"
-                            placeholder="활동 내용을 상세히 적어주세요."></textarea>
+                        <textarea id="activityContent" rows="3" class="w-full px-4 py-2 border rounded-lg text-sm outline-none" placeholder="학생의 구체적인 활동 내용을 적어주세요."></textarea>
                     </div>
                     
-                    <!-- 새로 추가된 요구 사항 입력란 -->
                     <div>
                         <label class="block text-sm font-semibold text-gray-700 mb-1">추가 요구 사항 <span class="text-xs text-gray-400 font-normal">(선택)</span></label>
-                        <textarea id="additionalRequirements" rows="2"
-                            class="w-full px-4 py-2 border rounded-lg text-sm bg-gray-50 outline-none focus:border-blue-500"
-                            placeholder="예: 리더십을 특히 강조해줘, 특정 책 이름 포함 등"></textarea>
+                        <textarea id="additionalRequirements" rows="2" class="w-full px-4 py-2 border rounded-lg text-sm bg-gray-50 outline-none focus:border-blue-500" placeholder="예: 리더십을 특히 강조해줘, 특정 책 이름 포함 등"></textarea>
                     </div>
 
-                    <button id="generateBtn"
-                        class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg transition active:scale-[0.98]">문구
-                        생성하기</button>
+                    <button id="generateBtn" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg transition active:scale-[0.98]">문구 생성하기 (5개 버전)</button>
                 </div>
+
+                <!-- [모드 2] 엑셀 업로드 폼 -->
+                <div id="excelMode" class="space-y-5 hidden">
+                    <div class="bg-blue-50 p-4 rounded-lg text-sm border border-blue-200 shadow-inner">
+                        <div class="flex justify-between items-center mb-2">
+                            <p class="font-bold text-blue-900 flex items-center gap-2">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                                엑셀 파일 양식 준수 <span class="text-xs font-normal ml-2 bg-blue-100 px-2 py-0.5 rounded text-blue-700">현재 선택된 영역에 맞춰 양식이 변경됩니다</span>
+                            </p>
+                            <button id="downloadTemplateBtn" class="text-xs bg-white text-blue-700 border border-blue-300 hover:bg-blue-100 px-3 py-1.5 rounded-md flex items-center gap-1 transition shadow-sm font-semibold">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                                맞춤 양식 다운로드
+                            </button>
+                        </div>
+                        <p class="text-blue-800 mb-2">첫 번째 행의 헤더 이름이 반드시 아래와 일치해야 합니다. (이름 대신 학번 등 식별자 사용)</p>
+                        <ul id="excelHeadersList" class="list-disc pl-5 mt-1 text-blue-700 space-y-1 bg-white p-2 rounded border border-blue-100 font-mono text-xs">
+                            <!-- JS를 통해 동적으로 헤더 목록이 삽입됩니다 -->
+                        </ul>
+                        <p class="text-[10px] text-gray-500 mt-2">* 엑셀 일괄 생성 시에는 토큰 및 속도 최적화를 위해 학생당 <strong>1개의 최종 버전</strong>만 생성됩니다.</p>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">엑셀 파일(.xlsx, .xls) 업로드</label>
+                        <input type="file" id="excelFileInput" accept=".xlsx, .xls" class="w-full px-3 py-2 border rounded-lg text-sm outline-none bg-white file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
+                        <div id="excelPreviewInfo" class="mt-2 text-xs text-green-600 font-semibold hidden"></div>
+                    </div>
+
+                    <div class="flex gap-2">
+                        <button id="generateExcelBtn" class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-lg transition active:scale-[0.98] opacity-50 cursor-not-allowed" disabled>엑셀 데이터로 일괄 생성 시작</button>
+                        <button id="stopExcelBtn" class="hidden px-6 bg-red-500 hover:bg-red-600 text-white font-bold py-3 rounded-lg transition active:scale-[0.98]">중지</button>
+                    </div>
+                </div>
+
             </div>
         </div>
 
+        <!-- 오른쪽 출력 패널 -->
         <div class="lg:col-span-7">
-            <div class="bg-white rounded-2xl p-6 container-card border border-gray-100 min-h-[600px] flex flex-col">
+            <div class="bg-white rounded-2xl p-6 container-card border border-gray-100 min-h-[600px] flex flex-col h-full">
                 <div class="flex justify-between items-center border-b pb-4 mb-4">
-                    <h2 class="text-xl font-bold text-gray-900">생성 결과</h2>
-                    <button id="copyAllBtn"
-                        class="hidden text-sm bg-gray-100 px-3 py-1.5 rounded-md hover:bg-gray-200">전체 복사</button>
+                    <h2 class="text-xl font-bold text-gray-900" id="resultTitle">생성 결과</h2>
+                    <button id="copyAllBtn" class="hidden text-sm bg-gray-100 px-3 py-1.5 rounded-md hover:bg-gray-200 font-semibold transition active:bg-gray-300">전체 복사</button>
                 </div>
-                <div id="outputArea" class="space-y-4 text-center py-20 text-gray-400">데이터를 입력하고 버튼을 누르세요.</div>
+                <!-- 결과 출력 영역 (스크롤 가능하도록 수정) -->
+                <div id="outputArea" class="flex-1 space-y-4 overflow-y-auto pr-2 pb-10">
+                    <div class="text-center py-40 text-gray-400 flex flex-col items-center">
+                        <svg class="w-12 h-12 mb-3 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"></path></svg>
+                        데이터를 입력하고 버튼을 누르세요.
+                    </div>
+                </div>
             </div>
         </div>
     </div>
 
     <script>
         let geminiApiKey = null;
+        let parsedExcelData = [];
+        let isProcessingExcel = false;
+        let isCancelled = false; // 일괄 생성 중지 플래그
+
+        // 알림 메시지 함수 (alert 대체)
+        function showMessage(text, isError = true) {
+            const msgBox = document.getElementById('msgBox');
+            const msgText = document.getElementById('msgText');
+            msgText.textContent = text;
+            if(isError) {
+                msgBox.classList.remove('bg-green-500');
+                msgBox.classList.add('bg-red-500');
+            } else {
+                msgBox.classList.remove('bg-red-500');
+                msgBox.classList.add('bg-green-500');
+            }
+            msgBox.classList.remove('opacity-0');
+            setTimeout(() => {
+                msgBox.classList.add('opacity-0');
+            }, 3000);
+        }
+
+        // 지연 함수 (Rate Limit 방어용)
+        const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
         const traitsData = {
             "교과세특": ["지적호기심", "논리적추론", "개념응용력", "메타인지", "비판적분석", "탐구주도성", "학업적끈기", "융합적사고", "의사소통역량", "자료분석력"],
@@ -234,6 +297,32 @@
         const achievementStandardContainer = document.getElementById('achievementStandardContainer');
         const modelSelect = document.getElementById('modelSelect');
         const customModelInput = document.getElementById('customModel');
+        const outputArea = document.getElementById('outputArea');
+        const copyAllBtn = document.getElementById('copyAllBtn');
+
+        // 탭 UI 전환 로직
+        const tabManual = document.getElementById('tabManual');
+        const tabExcel = document.getElementById('tabExcel');
+        const manualMode = document.getElementById('manualMode');
+        const excelMode = document.getElementById('excelMode');
+
+        tabManual.addEventListener('click', () => {
+            tabManual.classList.add('active', 'text-blue-600', 'font-bold', 'bg-white');
+            tabManual.classList.remove('text-gray-500');
+            tabExcel.classList.remove('active', 'text-blue-600', 'font-bold', 'bg-white');
+            tabExcel.classList.add('text-gray-500');
+            manualMode.classList.remove('hidden');
+            excelMode.classList.add('hidden');
+        });
+
+        tabExcel.addEventListener('click', () => {
+            tabExcel.classList.add('active', 'text-blue-600', 'font-bold', 'bg-white');
+            tabExcel.classList.remove('text-gray-500');
+            tabManual.classList.remove('active', 'text-blue-600', 'font-bold', 'bg-white');
+            tabManual.classList.add('text-gray-500');
+            excelMode.classList.remove('hidden');
+            manualMode.classList.add('hidden');
+        });
 
         modelSelect.onchange = () => {
             customModelInput.classList.toggle('hidden', modelSelect.value !== 'custom');
@@ -258,32 +347,82 @@
             document.getElementById('detailNameLabel').textContent = val === '교과세특' ? '과목명' : (val === '동아리활동' ? '동아리명' : '활동명');
             document.getElementById('dateInputContainer').classList.toggle('hidden', !['자율활동', '진로활동'].includes(val));
             achievementStandardContainer.classList.toggle('hidden', val !== '교과세특');
+            updateExcelInstructions(); // 엑셀 양식 안내도 함께 업데이트
         };
+
+        // 엑셀 동적 양식 안내 업데이트 함수
+        function updateExcelInstructions() {
+            const cat = categorySelect.value;
+            const ul = document.getElementById('excelHeadersList');
+            let html = `<li><span class="font-bold">학생_식별자</span> (필수, 예: 1반 1번, 10101 등)</li>`;
+            
+            if (cat === '교과세특') {
+                html += `<li><span class="font-bold">과목명</span> (필수)</li>`;
+                html += `<li><span class="font-bold">성취기준</span> (선택)</li>`;
+            } else if (cat === '동아리활동') {
+                html += `<li><span class="font-bold">동아리명</span> (필수)</li>`;
+            } else {
+                html += `<li><span class="font-bold">활동명</span> (필수)</li>`;
+                if (['자율활동', '진로활동'].includes(cat)) {
+                    html += `<li><span class="font-bold">날짜</span> (선택, YYYY.MM.DD.)</li>`;
+                }
+            }
+            
+            html += `<li><span class="font-bold">활동내용</span> (필수)</li>`;
+            html += `<li><span class="font-bold">성향키워드</span> (선택, 쉼표 구분)</li>`;
+            html += `<li><span class="font-bold">추가요구사항</span> (선택)</li>`;
+            ul.innerHTML = html;
+        }
 
         charLimitSlider.oninput = (e) => charLimitDisplay.textContent = e.target.value;
         renderTraits();
+        updateExcelInstructions(); // 초기 로드 시 엑셀 안내문 렌더링
 
+        // 모달 관리
         const apiModal = document.getElementById('apiModal');
-        document.getElementById('openModalBtn').onclick = () => apiModal.style.display = 'block';
-        document.getElementById('closeModalBtn').onclick = () => apiModal.style.display = 'none';
+        document.getElementById('openModalBtn').onclick = () => {
+            apiModal.classList.remove('hidden');
+        }
+        document.getElementById('closeModalBtn').onclick = () => {
+            apiModal.classList.add('hidden');
+        }
+        document.getElementById('closeModalBg').onclick = () => {
+            apiModal.classList.add('hidden');
+        }
 
-        document.getElementById('generateBtn').onclick = async () => {
+        // 공통 API Key 및 모델 가져오기
+        function getApiSettings() {
             const currentKeyInput = document.getElementById('apiKey').value.trim();
             if (currentKeyInput) {
                 geminiApiKey = currentKeyInput;
-                document.getElementById('apiKey').value = "";
+                document.getElementById('apiKey').value = ""; // 보안상 지워줌
             }
 
-            if (!geminiApiKey) return alert('API Key를 입력하세요.');
+            if (!geminiApiKey) {
+                showMessage('API Key를 입력하세요.');
+                return null;
+            }
 
             let selectedModel = modelSelect.value;
             if (selectedModel === 'custom') {
                 selectedModel = customModelInput.value.trim();
-                if (!selectedModel) return alert('모델명을 입력해 주세요.');
+                if (!selectedModel) {
+                    showMessage('모델명을 입력해 주세요.');
+                    return null;
+                }
             }
+            return { key: geminiApiKey, model: selectedModel };
+        }
+
+        // [모드 1] 직접 입력 - 생성 로직
+        document.getElementById('generateBtn').onclick = async () => {
+            const settings = getApiSettings();
+            if(!settings) return;
 
             const detailName = document.getElementById('detailName').value;
             const content = document.getElementById('activityContent').value;
+            if(!content) return showMessage('핵심 활동 내용을 입력해주세요.');
+
             const cat = categorySelect.value;
             const charLimit = charLimitSlider.value;
             const traits = Array.from(document.querySelectorAll('.trait-tag.selected')).map(t => t.dataset.value);
@@ -297,55 +436,48 @@
             let achievementVal = document.getElementById('achievementStandard').value.trim();
             let achievementInstruction = achievementVal ? `\n[성취기준]\n${achievementVal}\n\n[성취기준 반영 지침]\n- 대괄호[]로 묶인 성취기준 코드(예: [9과17-02] 등)는 결과물에 절대 포함하지 말 것.\n- '성취기준을 성취함', '도달함'과 같은 직접적인 언급은 철저히 배제할 것.\n- 성취기준의 수준을 벗어나지 않고 학생의 구체적인 활동과 행동 속에 자연스러운 역량으로 녹여낼 것.` : "";
 
-            // 새로 추가된 요구 사항 변수 가져오기
             const additionalReq = document.getElementById('additionalRequirements').value.trim();
             let additionalInstruction = additionalReq ? `\n[추가 요구 사항]\n- 사용자의 특별 요청: ${additionalReq}\n- 이 요청을 최우선으로 반영하여 문맥에 자연스럽게 녹여낼 것.` : "";
 
-            const outputArea = document.getElementById('outputArea');
-            outputArea.innerHTML = `<div class="py-20 text-blue-600 animate-pulse text-center w-full">데이터를 분석하여 문구를 생성 중입니다...<br><span class="text-xs text-gray-400">요청 모델: ${selectedModel}</span></div>`;
+            outputArea.innerHTML = `<div class="py-20 text-blue-600 animate-pulse text-center w-full">데이터를 분석하여 문구를 생성 중입니다...<br><span class="text-xs text-gray-400">요청 모델: ${settings.model}</span></div>`;
+            copyAllBtn.classList.add('hidden');
+            document.getElementById('resultTitle').textContent = "생성 결과 (5개 버전)";
 
-            // 프롬프트에 additionalInstruction 추가 반영
             const promptText = `너는 중고등학교 교사야. 아래 조건들을 모두 종합적으로 취합하여 생활기록부 ${cat} 영역 서술형 문구를 작성해. 특히 선택된 학생 성향과 교우관계 키워드가 활동 내용과 자연스럽게 연결되도록 해.
 
-            [대상 활동/과목] ${detailName}
-            [선택된 성향 및 키워드] ${traits.join(', ')}
-            [핵심 활동 내용] ${content}
-            ${achievementInstruction}
-            ${additionalInstruction}
-            
-            [규정 및 작성 지침]
-            1. 모든 문장은 '~함', '~임', '~돋보임', '모습을 보임', '~보임' 형태의 **관찰자 시점**의 **명사형 종결 어미**를 사용함.
-            2. 추상적인 찬사보다는 구체적인 활동 사례와 그에 따른 학생의 변화 및 성장을 객관적으로 기술함.
-            3. 선택된 성향(${traits.join(', ')})이 문구 속에 자연스럽게 녹아들어 해당 역량이 드러나도록 작성함.
-            4. 교외 수상, 사교육 요소, 부모 정보, 소논문 단어 기재는 절대 불가함.
-            5. **분량 엄수**: 공백 포함 반드시 **${charLimit}자 내외** (최소 ${charLimit - 50}자 이상)로 충분한 분량을 확보하여 구체적으로 작성함.
-            6. 서로 다른 강조점(예: 역량 중심, 인성 중심, 활동 과정 중심 등)을 가진 5가지 버전을 생성함.
-            ${formatInstruction}
-            
-            [응답 형식]
-            반드시 아래의 JSON 구조로만 답변해 (마크다운 코드블록 없이 순수 JSON만 출력):
-            {"versions": [
-                {"title": "버전 명칭 1", "content": "내용", "review": "검토평"},
-                {"title": "버전 명칭 2", "content": "내용", "review": "검토평"},
-                {"title": "버전 명칭 3", "content": "내용", "review": "검토평"},
-                {"title": "버전 명칭 4", "content": "내용", "review": "검토평"},
-                {"title": "버전 명칭 5", "content": "내용", "review": "검토평"}
-            ]}`;
+[대상 활동/과목] ${detailName}
+[선택된 성향 및 키워드] ${traits.join(', ')}
+[핵심 활동 내용] ${content}
+${achievementInstruction}
+${additionalInstruction}
+
+[규정 및 작성 지침]
+1. 모든 문장은 '~함', '~임', '~돋보임', '모습을 보임', '~보임' 형태의 **관찰자 시점**의 **명사형 종결 어미**를 사용함.
+2. 추상적인 찬사보다는 구체적인 활동 사례와 그에 따른 학생의 변화 및 성장을 객관적으로 기술함.
+3. 선택된 성향(${traits.join(', ')})이 문구 속에 자연스럽게 녹아들어 해당 역량이 드러나도록 작성함.
+4. 교외 수상, 사교육 요소, 부모 정보, 소논문 단어 기재는 절대 불가함.
+5. **분량 엄수**: 공백 포함 반드시 **${charLimit}자 내외** (최소 ${charLimit - 50}자 이상)로 충분한 분량을 확보하여 구체적으로 작성함.
+6. 서로 다른 강조점(예: 역량 중심, 인성 중심, 활동 과정 중심 등)을 가진 5가지 버전을 생성함.
+${formatInstruction}
+
+[응답 형식]
+반드시 아래의 JSON 구조로만 답변해 (마크다운 코드블록 없이 순수 JSON만 출력):
+{"versions": [
+    {"title": "버전 명칭 1", "content": "내용", "review": "검토평"},
+    {"title": "버전 명칭 2", "content": "내용", "review": "검토평"},
+    {"title": "버전 명칭 3", "content": "내용", "review": "검토평"},
+    {"title": "버전 명칭 4", "content": "내용", "review": "검토평"},
+    {"title": "버전 명칭 5", "content": "내용", "review": "검토평"}
+]}`;
 
             try {
-                // API 호출 부분 유지
-                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${selectedModel}:generateContent?key=${geminiApiKey}`;
-                
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${settings.model}:generateContent?key=${settings.key}`;
                 const res = await fetch(apiUrl, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         contents: [{ parts: [{ text: promptText }] }],
-                        generationConfig: {
-                            responseMimeType: "application/json",
-                            temperature: 0.8,
-                            maxOutputTokens: 2048
-                        }
+                        generationConfig: { responseMimeType: "application/json", temperature: 0.8, maxOutputTokens: 2048 }
                     })
                 });
 
@@ -355,64 +487,408 @@
                 }
 
                 const data = await res.json();
-                renderResult(data);
+                renderManualResult(data);
             } catch (e) {
-                outputArea.innerHTML = `<div class="text-red-500 py-10 px-4 text-center">
-                    <strong class="text-lg">연결 오류 발생</strong><br>
-                    <div class="mt-2 text-sm bg-red-50 p-3 rounded border border-red-100 text-left overflow-auto max-h-40 font-mono">
-                        ${e.message}
-                    </div>
-                    <div class="mt-4 text-xs text-gray-600 space-y-1">
-                        <p>1. API 키가 유효한지 다시 확인해 주세요.</p>
-                        <p>2. 모델 명칭(예: gemini-2.5-flash)이 정확한지 확인해 주세요.</p>
-                        <p>3. AI Studio에서 해당 모델의 권한이 있는지 확인해 주세요.</p>
-                    </div>
-                </div>`;
-            }
-
-            function renderResult(data) {
-                try {
-                    let responseText = data.candidates[0].content.parts[0].text;
-
-                    const jsonStart = responseText.indexOf('{');
-                    const jsonEnd = responseText.lastIndexOf('}');
-                    if (jsonStart !== -1 && jsonEnd !== -1) {
-                        responseText = responseText.substring(jsonStart, jsonEnd + 1);
-                    }
-
-                    const parsed = JSON.parse(responseText);
-                    outputArea.innerHTML = parsed.versions.map(v => `
-                        <div class="p-5 border rounded-2xl bg-white text-left mb-4 shadow-sm animate-in fade-in duration-500">
-                            <div class="flex justify-between items-start mb-2">
-                                <div class="text-xs font-bold text-blue-600">${v.title}</div>
-                                <div class="text-[10px] text-gray-400">공백포함: ${v.content.length}자</div>
-                            </div>
-                            <div class="text-sm leading-relaxed mb-3 whitespace-pre-wrap text-gray-800">${v.content}</div>
-                            <div class="text-[10px] text-green-600 bg-green-50 p-2 rounded">✓ ${v.review}</div>
-                        </div>
-                    `).join('');
-                    document.getElementById('copyAllBtn').classList.remove('hidden');
-                } catch (err) {
-                    console.error("Parsing error:", err);
-                    outputArea.innerHTML = `<div class="text-red-500 py-10 px-4 text-center">
-                        <strong class="text-lg">답변 해석 오류 발생</strong><br>
-                        <div class="mt-2 text-sm text-gray-600">AI의 응답을 JSON으로 변환하는 중 오류가 발생했습니다. 다시 시도해 주세요.</div>
-                    </div>`;
-                }
+                renderError(e.message, settings.model);
             }
         };
 
-        document.getElementById('copyAllBtn').onclick = () => {
-            const contents = Array.from(document.querySelectorAll('.p-5 div.text-sm')).map(el => el.innerText).join('\n\n---\n\n');
+        // [모드 2] 엑셀 처리 로직
+        const excelFileInput = document.getElementById('excelFileInput');
+        const excelPreviewInfo = document.getElementById('excelPreviewInfo');
+        const generateExcelBtn = document.getElementById('generateExcelBtn');
+        const stopExcelBtn = document.getElementById('stopExcelBtn'); // 중지 버튼
+        const downloadTemplateBtn = document.getElementById('downloadTemplateBtn');
+
+        downloadTemplateBtn.onclick = () => {
+            const cat = categorySelect.value;
+            const wb = XLSX.utils.book_new();
+            
+            // 영역별 동적 헤더 및 예시 데이터 생성
+            let headers = ["학생_식별자"];
+            let sampleRow1 = ["1-1"];
+            let sampleRow2 = ["1-2"];
+            let colsWidth = [{ wch: 15 }]; // 학생_식별자 너비
+
+            if (cat === '교과세특') {
+                headers.push("과목명", "성취기준");
+                sampleRow1.push("수학", "[9수01-01] 개념 이해");
+                sampleRow2.push("영어", "");
+                colsWidth.push({ wch: 15 }, { wch: 25 });
+            } else if (cat === '동아리활동') {
+                headers.push("동아리명");
+                sampleRow1.push("과학탐구부");
+                sampleRow2.push("방송부");
+                colsWidth.push({ wch: 15 });
+            } else {
+                headers.push("활동명");
+                sampleRow1.push(cat === '자율활동' ? "학급회의" : (cat === '진로활동' ? "진로특강" : "인성교육"));
+                sampleRow2.push("체육대회");
+                colsWidth.push({ wch: 15 });
+                if (['자율활동', '진로활동'].includes(cat)) {
+                    headers.push("날짜");
+                    sampleRow1.push("2026.05.14.");
+                    sampleRow2.push("");
+                    colsWidth.push({ wch: 15 });
+                }
+            }
+
+            headers.push("활동내용", "성향키워드", "추가요구사항");
+            sampleRow1.push("주도적으로 활동에 참여하여 긍정적인 성과를 냄.", "리더십, 책임감", "구체적인 사례 강조");
+            sampleRow2.push("친구들과 협력하여 문제를 해결함.", "협업능력", "");
+            colsWidth.push({ wch: 50 }, { wch: 20 }, { wch: 25 });
+            
+            const wsData = [headers, sampleRow1, sampleRow2];
+            const ws = XLSX.utils.aoa_to_sheet(wsData);
+            
+            // 엑셀 컬럼 너비 적용
+            ws['!cols'] = colsWidth;
+
+            XLSX.utils.book_append_sheet(wb, ws, "생기부입력양식");
+            
+            // 파일 다운로드 실행
+            XLSX.writeFile(wb, `생기부_일괄생성_${cat}_양식.xlsx`);
+            showMessage(`[${cat}] 맞춤 엑셀 양식이 다운로드되었습니다.`, false);
+        };
+
+        excelFileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) {
+                parsedExcelData = [];
+                generateExcelBtn.disabled = true;
+                generateExcelBtn.classList.add('opacity-50', 'cursor-not-allowed');
+                excelPreviewInfo.classList.add('hidden');
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = (evt) => {
+                try {
+                    const bstr = evt.target.result;
+                    const wb = XLSX.read(bstr, { type: 'binary' });
+                    const wsname = wb.SheetNames[0]; // 첫 번째 시트 사용
+                    const ws = wb.Sheets[wsname];
+                    
+                    // JSON 변환 (첫 행을 키로 사용)
+                    const data = XLSX.utils.sheet_to_json(ws);
+                    
+                    if(data.length === 0) {
+                        showMessage("엑셀 파일에 데이터가 없습니다.");
+                        return;
+                    }
+
+                    // 필수 헤더 검증 (이름 -> 학생_식별자로 변경)
+                    const firstRow = data[0];
+                    if(!('학생_식별자' in firstRow) || !('활동내용' in firstRow)) {
+                        showMessage("엑셀 헤더에 '학생_식별자'와 '활동내용' 열이 반드시 있어야 합니다. 양식을 다시 확인해주세요.");
+                        return;
+                    }
+
+                    parsedExcelData = data;
+                    excelPreviewInfo.textContent = `총 ${parsedExcelData.length}명의 학생 데이터가 인식되었습니다.`;
+                    excelPreviewInfo.classList.remove('hidden');
+                    
+                    generateExcelBtn.disabled = false;
+                    generateExcelBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                } catch(err) {
+                    showMessage("엑셀 파일을 읽는 중 오류가 발생했습니다.");
+                    console.error(err);
+                }
+            };
+            reader.readAsBinaryString(file);
+        });
+
+        generateExcelBtn.onclick = async () => {
+            if(isProcessingExcel) {
+                showMessage("이미 작업이 진행 중입니다.");
+                return;
+            }
+
+            const settings = getApiSettings();
+            if(!settings) return;
+
+            if(parsedExcelData.length === 0) {
+                showMessage("엑셀 데이터가 없습니다.");
+                return;
+            }
+
+            isProcessingExcel = true;
+            isCancelled = false; // 시작 시 중지 플래그 초기화
+            generateExcelBtn.classList.add('hidden');
+            stopExcelBtn.classList.remove('hidden');
+            stopExcelBtn.textContent = "중지";
+            stopExcelBtn.disabled = false;
+            stopExcelBtn.classList.replace('bg-red-400', 'bg-red-500'); // 스타일 복구
+
+            copyAllBtn.classList.add('hidden');
+            document.getElementById('resultTitle').textContent = `엑셀 일괄 생성 결과 (총 ${parsedExcelData.length}명)`;
+            
+            // 결과 영역 초기화
+            outputArea.innerHTML = `<div class="bg-blue-50 border border-blue-200 text-blue-800 p-4 rounded-lg mb-4 text-sm font-semibold flex items-center justify-between">
+                <span>작업 진행 상태</span>
+                <span id="progressText">0 / ${parsedExcelData.length} 명 완료</span>
+            </div>
+            <div id="batchResults" class="space-y-4"></div>`;
+
+            const batchResultsContainer = document.getElementById('batchResults');
+            const cat = categorySelect.value;
+            const charLimit = charLimitSlider.value;
+
+            for (let i = 0; i < parsedExcelData.length; i++) {
+                if (isCancelled) {
+                    showMessage("사용자에 의해 일괄 생성이 중지되었습니다.", true);
+                    break; // 중지 버튼 클릭 시 루프 탈출
+                }
+
+                const row = parsedExcelData[i];
+                const studentId = row['학생_식별자'] || `학생${i+1}`;
+                
+                // 동적 헤더 지원 (과목명, 동아리명, 활동명 중 있는 것 사용)
+                const subject = row['과목명'] || row['동아리명'] || row['활동명'] || '';
+                const actDate = row['날짜'] || '';
+                
+                const content = row['활동내용'] || '';
+                const traits = row['성향키워드'] ? row['성향키워드'].split(',').map(s=>s.trim()) : [];
+                const achievementVal = row['성취기준'] || '';
+                const additionalReq = row['추가요구사항'] || '';
+
+                if(!content) {
+                    appendBatchResult(batchResultsContainer, studentId, "활동 내용이 비어있어 건너뛰었습니다.", false);
+                    updateProgress(i + 1, parsedExcelData.length);
+                    continue;
+                }
+
+                // UI에 현재 처리중인 학생 표시 (로딩 스피너 카드)
+                const loadingCardId = `loading_${i}`;
+                batchResultsContainer.insertAdjacentHTML('beforeend', `
+                    <div id="${loadingCardId}" class="p-4 border rounded-xl bg-white shadow-sm flex items-center gap-3">
+                        <svg class="animate-spin h-5 w-5 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        <span class="text-sm font-bold text-gray-700">식별자 [${studentId}] 데이터 생성 중...</span>
+                    </div>
+                `);
+                // 스크롤 맨 아래로 이동
+                outputArea.scrollTop = outputArea.scrollHeight;
+
+                let achievementInstruction = achievementVal ? `\n[성취기준]\n${achievementVal}\n\n[성취기준 반영 지침]\n- 대괄호[] 코드 절대 포함 금지.\n- '성취기준을 성취함' 직접 언급 배제.` : "";
+                let additionalInstruction = additionalReq ? `\n[추가 요구 사항]\n- ${additionalReq}` : "";
+                
+                let formatInstruction = "";
+                if (['자율활동', '진로활동'].includes(cat) && actDate) {
+                    formatInstruction = `\n3. **반드시 첫 문장의 시작은 '${subject}(${actDate})'로 할 것.**`;
+                }
+
+                // 엑셀 일괄 처리용 프롬프트 (빠른 속도를 위해 1개 버전만 요청)
+                const promptText = `너는 중고등학교 교사야. 아래 조건들을 모두 종합하여 생활기록부 ${cat} 영역 서술형 문구를 작성해.
+
+[학생 식별자] ${studentId} (참고용 개인정보 대체 식별자이므로 결과 문구에 식별자나 '이 학생은' 등의 단어를 직접 기재하지 말 것)
+[대상 활동/과목] ${subject}
+[성향 및 키워드] ${traits.join(', ')}
+[활동 내용] ${content}
+${achievementInstruction}
+${additionalInstruction}
+
+[규정 및 작성 지침]
+1. 모든 문장은 '~함', '~임', '~돋보임' 형태의 **관찰자 시점**의 **명사형 종결 어미**를 사용, '~이해함', '~노력함'와 같이 교사가 관찰하기 어려운 어미는 사용하지 말것.
+2. 교외 수상, 사교육 요소 절대 기재 불가.${formatInstruction}
+4. 분량 엄수: 공백 포함 반드시 **${charLimit}자 내외**로 작성.
+5. 학생별로 서로 다른 문장으로 만들어줘. 맞춤법 준수하고, 한번 더 검토해줘.
+6. 외국어, 외래어는 표기하지 않음.
+7. 어미는 모두 과거형말고 현재형으로 작성.
+
+[응답 형식]
+가장 완성도 높은 **단 1개의 버전**만 아래 JSON 구조로 답변해 (마크다운 없이 순수 JSON만 출력):
+{
+    "content": "최종 완성된 생기부 내용 텍스트"
+}`;
+
+                try {
+                    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${settings.model}:generateContent?key=${settings.key}`;
+                    const res = await fetch(apiUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            contents: [{ parts: [{ text: promptText }] }],
+                            generationConfig: { responseMimeType: "application/json", temperature: 0.7 }
+                        })
+                    });
+
+                    if (!res.ok) {
+                         if(res.status === 429) throw new Error("429 Too Many Requests: 요청 한도를 초과했습니다. 잠시 후 다시 시도해야 합니다.");
+                         throw new Error(`API 오류 (${res.status})`);
+                    }
+
+                    const data = await res.json();
+                    let responseText = data.candidates[0].content.parts[0].text;
+                    const jsonStart = responseText.indexOf('{');
+                    const jsonEnd = responseText.lastIndexOf('}');
+                    if (jsonStart !== -1 && jsonEnd !== -1) responseText = responseText.substring(jsonStart, jsonEnd + 1);
+                    
+                    const parsed = JSON.parse(responseText);
+                    
+                    // 로딩 카드 제거 및 결과 추가
+                    document.getElementById(loadingCardId).remove();
+                    appendBatchResult(batchResultsContainer, studentId, parsed.content, true, subject);
+
+                } catch (e) {
+                    document.getElementById(loadingCardId).remove();
+                    appendBatchResult(batchResultsContainer, studentId, `오류 발생: ${e.message}`, false);
+                    
+                    // 429 에러 발생 시 루프 중단 (선택적)
+                    if(e.message.includes('429')) {
+                        showMessage("API 요청 한도 초과로 일괄 작업을 중단합니다.", true);
+                        break; 
+                    }
+                }
+
+                updateProgress(i + 1, parsedExcelData.length);
+                
+                // 무료 API Rate Limit 방어를 위한 강제 지연 (마지막 항목 제외)
+                if (i < parsedExcelData.length - 1 && !isCancelled) {
+                    await delay(4500); // 4.5초 대기
+                }
+            }
+
+            isProcessingExcel = false;
+            generateExcelBtn.classList.remove('hidden');
+            generateExcelBtn.disabled = false;
+            stopExcelBtn.classList.add('hidden');
+            
+            if (!isCancelled) {
+                copyAllBtn.classList.remove('hidden');
+                showMessage("엑셀 일괄 생성이 완료되었습니다.", false);
+            } else {
+                // 중지되었더라도 지금까지 생성된 결과는 복사할 수 있도록 버튼 활성화
+                copyAllBtn.classList.remove('hidden');
+            }
+        };
+
+        // 중지 버튼 클릭 이벤트
+        stopExcelBtn.onclick = () => {
+            if (isProcessingExcel) {
+                isCancelled = true;
+                stopExcelBtn.textContent = "중지 중...";
+                stopExcelBtn.disabled = true;
+                stopExcelBtn.classList.replace('bg-red-500', 'bg-red-400');
+            }
+        };
+
+        function updateProgress(current, total) {
+            const el = document.getElementById('progressText');
+            if(el) el.textContent = `${current} / ${total} 명 완료`;
+        }
+
+        function appendBatchResult(container, name, content, isSuccess, subject = "") {
+            const statusColor = isSuccess ? 'text-gray-800' : 'text-red-500 font-semibold';
+            const subjectTag = subject ? `<span class="bg-gray-100 text-gray-500 text-[10px] px-2 py-0.5 rounded-full ml-2">${subject}</span>` : '';
+            const lengthInfo = isSuccess ? `<div class="text-[10px] text-gray-400">공백포함: ${content.length}자</div>` : '';
+
+            container.insertAdjacentHTML('beforeend', `
+                <div class="p-5 border rounded-xl bg-white shadow-sm mb-3 text-left batch-result-card" data-student-id="${name}">
+                    <div class="flex justify-between items-center mb-3 pb-2 border-b border-gray-50">
+                        <div class="font-bold text-blue-700 text-sm flex items-center">
+                            👤 <span>${name}</span> ${subjectTag}
+                        </div>
+                        ${lengthInfo}
+                    </div>
+                    <div class="text-sm leading-relaxed whitespace-pre-wrap ${statusColor} content-body">${content}</div>
+                </div>
+            `);
+        }
+
+        function renderManualResult(data) {
+            try {
+                let responseText = data.candidates[0].content.parts[0].text;
+                const jsonStart = responseText.indexOf('{');
+                const jsonEnd = responseText.lastIndexOf('}');
+                if (jsonStart !== -1 && jsonEnd !== -1) {
+                    responseText = responseText.substring(jsonStart, jsonEnd + 1);
+                }
+
+                const parsed = JSON.parse(responseText);
+                outputArea.innerHTML = parsed.versions.map(v => `
+                    <div class="p-5 border rounded-2xl bg-white text-left mb-4 shadow-sm animate-in fade-in duration-500">
+                        <div class="flex justify-between items-start mb-2">
+                            <div class="text-xs font-bold text-blue-600">${v.title}</div>
+                            <div class="text-[10px] text-gray-400">공백포함: ${v.content.length}자</div>
+                        </div>
+                        <div class="text-sm leading-relaxed mb-3 whitespace-pre-wrap text-gray-800 content-body">${v.content}</div>
+                        <div class="text-[10px] text-green-600 bg-green-50 p-2 rounded">✓ ${v.review}</div>
+                    </div>
+                `).join('');
+                copyAllBtn.classList.remove('hidden');
+            } catch (err) {
+                console.error("Parsing error:", err);
+                outputArea.innerHTML = `<div class="text-red-500 py-10 px-4 text-center">
+                    <strong class="text-lg">답변 해석 오류 발생</strong><br>
+                    <div class="mt-2 text-sm text-gray-600">AI의 응답을 JSON으로 변환하는 중 오류가 발생했습니다. 다시 시도해 주세요.</div>
+                </div>`;
+            }
+        }
+
+        function renderError(message, modelName) {
+            outputArea.innerHTML = `<div class="text-red-500 py-10 px-4 text-center">
+                <strong class="text-lg">연결 오류 발생</strong><br>
+                <div class="mt-2 text-sm bg-red-50 p-3 rounded border border-red-100 text-left overflow-auto max-h-40 font-mono">
+                    ${message}
+                </div>
+                <div class="mt-4 text-xs text-gray-600 space-y-1">
+                    <p>1. API 키가 유효한지 다시 확인해 주세요.</p>
+                    <p>2. 요청 모델(${modelName}) 권한을 확인해주세요.</p>
+                    <p>3. 429 에러의 경우 1분 정도 대기 후 다시 시도해 주세요.</p>
+                </div>
+            </div>`;
+        }
+
+        // 전체 복사 로직 (직접 입력 5개 버전 or 엑셀 일괄 결과 모두 대응)
+        copyAllBtn.onclick = () => {
+            const isExcelMode = document.getElementById('tabExcel').classList.contains('active');
+            let contents = "";
+
+            if (isExcelMode) {
+                const batchCards = Array.from(document.querySelectorAll('.batch-result-card'));
+                if(batchCards.length === 0) return;
+                
+                // 엑셀 일괄 생성 모드: 식별자와 내용을 탭(\t)으로 구분하여 한 행에 한 명씩 복사
+                contents = batchCards.map(card => {
+                    // 화면 UI텍스트(이모티콘 등) 제외하고 순수 식별자만 가져옴
+                    const studentId = card.getAttribute('data-student-id') || '알수없음';
+                    const contentEl = card.querySelector('.content-body');
+                    let contentText = contentEl ? contentEl.innerText.trim() : '';
+                    
+                    // ★핵심: 내용에 줄바꿈이 있더라도 엑셀의 [한 셀(B열)]에 모두 들어가도록 큰따옴표 처리
+                    // 기존 텍스트 내의 쌍따옴표는 두 개("")로 이스케이프하여 엑셀 오류 방지
+                    let escapedContent = '"' + contentText.replace(/"/g, '""') + '"';
+                    
+                    // [식별자] (탭) [생기부내용] 형식 (엑셀에서 2개의 열로 나뉨)
+                    return `${studentId}\t${escapedContent}`;
+                }).join('\n');
+            } else {
+                const contentElements = Array.from(document.querySelectorAll('.content-body'));
+                if(contentElements.length === 0) return;
+
+                // 직접 입력 모드: 각 버전을 엑셀의 한 셀에 쏙 들어가게 복사
+                contents = contentElements.map(el => {
+                    let text = el.innerText.trim();
+                    return '"' + text.replace(/"/g, '""') + '"';
+                }).join('\n');
+            }
+
             const textArea = document.createElement("textarea");
             textArea.value = contents;
             document.body.appendChild(textArea);
             textArea.select();
             document.execCommand('copy');
             document.body.removeChild(textArea);
-            alert('복사되었습니다.');
+            
+            if (isExcelMode) {
+                showMessage('엑셀용 복사 완료! (첫 번째 열을 클릭 후 붙여넣기 하세요)', false);
+            } else {
+                showMessage('모든 결과가 클립보드에 복사되었습니다.', false);
+            }
         };
     </script>
 </body>
-
 </html>
