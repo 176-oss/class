@@ -213,6 +213,10 @@ body {
     background: linear-gradient(135deg, #0ea5e9, #10b981);
 }
 
+.card-icon-wrapper.attendance {
+    background: linear-gradient(135deg, #1f2d5c, #2f5bd3);
+}
+
 .card-icon-wrapper.pending {
     background: #e2e8f0;
     color: #94a3b8;

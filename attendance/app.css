@@ -1,0 +1,91 @@
+/* 앱 전용 보충 스타일. 색·간격·반경은 tokens.css 변수만 사용 */
+
+[hidden] { display: none !important; }
+
+.skip-link {
+  position: absolute; left: var(--sp-2); top: -60px; z-index: 100;
+  padding: var(--sp-2) var(--sp-3); border-radius: var(--r-md);
+  background: var(--color-surface); color: var(--color-primary); font-weight: var(--fw-semibold);
+}
+.skip-link:focus { top: var(--sp-2); }
+
+.appbar .row { gap: 0; }
+.appbar a.icon-btn { text-decoration: none; }
+.appbar-title { display: flex; align-items: baseline; }
+body.is-setup .main { padding-bottom: var(--sp-8); }
+body.has-overlay { overflow: hidden; }
+
+/* 동기화 상태 */
+.icon-btn { position: relative; }
+.icon-btn.has-alert::after {
+  content: ""; position: absolute; top: 9px; right: 9px; width: 8px; height: 8px;
+  border-radius: 50%; background: var(--color-danger); box-shadow: 0 0 0 2px var(--color-primary);
+}
+.icon-btn.is-spinning .icon { animation: ah-spin 1s linear infinite; }
+@keyframes ah-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .icon-btn.is-spinning .icon { animation: none; } }
+
+.flip { transform: scaleX(-1); }
+
+/* 3칸 필터 */
+.grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-2); }
+
+/* 요약 4칸 */
+.stats-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--sp-2); }
+.stats-4 .stat { padding: var(--sp-3); text-align: center; }
+
+/* 눌러서 여는 목록 행 */
+.list-row.is-clickable { cursor: pointer; }
+.list-row.is-clickable:hover { background: var(--color-accent-soft); }
+.list-row.is-clickable:focus-visible { outline-offset: -2px; }
+
+.card-note { padding: var(--sp-3) var(--sp-4) var(--sp-4); margin: 0; }
+.card-flush .card-note.stack-sm { border-top: 1px solid var(--color-divider); }
+
+/* 학생 번호 격자: 기록 있는 번호 */
+.num-grid .chip-num { min-width: 0; }
+.chip-num.has-rec { border-color: var(--color-primary); font-weight: var(--fw-bold); }
+.chip-num.has-rec[aria-pressed="true"] { border-color: var(--color-accent); }
+
+.storage-note { text-align: center; margin: 0; }
+
+.guide-list { margin: 0; padding-left: var(--sp-5); display: flex; flex-direction: column; gap: var(--sp-1); color: var(--color-text); }
+.guide-list strong { font-weight: var(--fw-semibold); margin-right: var(--sp-1); }
+
+/* 시트 안 삭제 버튼 */
+.sheet-actions .btn-danger-outline { flex: 1; }
+
+/* 서비스 워커 갱신 등 위로 겹치는 토스트가 시트 위에 보이도록 */
+#toast-root .toast { z-index: 60; }
+
+/* 넓은 화면: 탭바도 본문 폭에 맞춤 */
+@media (min-width: 720px) {
+  .tabbar { padding-left: calc((100% - 640px) / 2); padding-right: calc((100% - 640px) / 2); }
+  .appbar { padding-left: calc((100% - 640px) / 2 + var(--sp-4)); padding-right: calc((100% - 640px) / 2 + var(--sp-2)); }
+}
+@media (max-width: 360px) {
+  .grid-3 { grid-template-columns: 1fr 1fr; }
+  .stats-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* 동기화 안내 배너 (헤더 아래 고정) */
+.sync-banner-wrap { position: sticky; top: var(--header-h); z-index: 9; }
+.sync-banner {
+  display: flex; align-items: center; gap: var(--sp-2); width: 100%;
+  min-height: var(--touch-min); padding: var(--sp-2) var(--sp-4);
+  border: 0; border-bottom: 1px solid var(--color-danger-line);
+  background: var(--color-danger-bg); color: var(--color-danger);
+  font-size: var(--fs-sm); text-align: left;
+}
+.sync-banner span { flex: 1; color: var(--color-text); }
+.sync-banner strong { color: var(--color-danger); font-weight: var(--fw-bold); }
+.sync-banner.is-quiet { background: var(--color-info-bg); color: var(--color-primary); border-bottom-color: var(--color-accent-line); }
+@media (min-width: 720px) {
+  .sync-banner { padding-left: calc((100% - 640px) / 2 + var(--sp-4)); padding-right: calc((100% - 640px) / 2 + var(--sp-4)); }
+}
+
+/* 검수 L3: 세그먼트·칩 터치 영역 44px (디자인 --touch-min) */
+.seg-item, .chip { min-height: var(--touch-min); }
+
+/* 검수 L8: 목록 제목·보조 줄은 잘리지 않게 줄바꿈 */
+.list-meta, .list-title { white-space: normal; word-break: keep-all; overflow-wrap: anywhere; }
