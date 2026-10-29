@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>출결관리 도우미 사용 안내</title>
+<meta name="theme-color" content="#1f2d5c">
+<link rel="icon" href="icons/icon-192.png" type="image/png">
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="components.css">
+<style>
+  body { margin: 0; background: var(--color-bg); color: var(--color-text); font-family: var(--font-sans); line-height: var(--lh-normal); }
+  .g-top { background: var(--color-primary); color: var(--color-on-primary); }
+  .g-top-inner { max-width: 760px; margin: 0 auto; padding: var(--sp-4) var(--sp-5); display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); }
+  .g-top a { color: var(--color-on-primary); text-decoration: none; font-size: var(--fs-sm); font-weight: var(--fw-medium); opacity: 0.9; }
+  .g-top a:hover { opacity: 1; text-decoration: underline; }
+  .g-brand { font-size: var(--fs-lg); font-weight: var(--fw-bold); margin: 0; }
+  .g-main { max-width: 760px; margin: 0 auto; padding: var(--sp-5); display: flex; flex-direction: column; gap: var(--sp-4); }
+  .g-hero h1 { font-size: var(--fs-2xl); margin: 0 0 var(--sp-2); color: var(--color-primary); }
+  .g-hero p { margin: 0; color: var(--color-text-muted); font-size: var(--fs-md); }
+  .g-actions { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-top: var(--sp-4); }
+  .g-actions .btn { text-decoration: none; }
+  .g-toc { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: var(--sp-2); }
+  .g-toc a { display: block; padding: var(--sp-3); border: 1px solid var(--color-border); border-radius: var(--r-md, 10px); background: var(--color-surface); color: var(--color-primary); text-decoration: none; font-size: var(--fs-sm); font-weight: var(--fw-semibold); }
+  .g-toc a span { display: block; color: var(--color-text-muted); font-weight: var(--fw-regular); margin-top: 2px; }
+  .g-toc a:hover { border-color: var(--color-accent-line); background: var(--color-accent-soft); }
+  .card h2 { font-size: var(--fs-xl); margin: 0 0 var(--sp-1); color: var(--color-primary); }
+  .card h3 { font-size: var(--fs-md); margin: var(--sp-4) 0 var(--sp-2); }
+  .g-lead { margin: 0 0 var(--sp-3); color: var(--color-text-muted); font-size: var(--fs-md); }
+  .g-ol { margin: 0; padding-left: 1.4em; font-size: var(--fs-md); }
+  .g-ol li { margin: var(--sp-2) 0; }
+  .g-ol li::marker { color: var(--color-accent); font-weight: var(--fw-bold); }
+  .g-table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); margin: var(--sp-2) 0; }
+  .g-table th, .g-table td { text-align: left; padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--color-divider); vertical-align: top; }
+  .g-table th:first-child, .g-table td:first-child { white-space: nowrap; }
+  .g-table th { color: var(--color-text-muted); font-weight: var(--fw-semibold); background: var(--color-bg); }
+  code, .g-code { font-family: var(--font-sans); background: var(--color-accent-soft); color: var(--color-primary); padding: 1px 6px; border-radius: 4px; font-size: 0.93em; word-break: break-all; }
+  .g-copy { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; margin: var(--sp-2) 0; }
+  .g-note { font-size: var(--fs-sm); color: var(--color-text-muted); margin: var(--sp-2) 0 0; }
+  details.card summary { cursor: pointer; font-size: var(--fs-lg); font-weight: var(--fw-bold); color: var(--color-primary); }
+  details.card[open] summary { margin-bottom: var(--sp-3); }
+  .g-foot { text-align: center; color: var(--color-text-muted); font-size: var(--fs-sm); padding: var(--sp-5) 0 var(--sp-6, 32px); }
+  .g-foot a { color: var(--color-accent); }
+  @media (max-width: 520px) { .g-main { padding: var(--sp-4); } .g-hero h1 { font-size: var(--fs-xl); } }
+</style>
+</head>
+<body>
+<header class="g-top">
+  <div class="g-top-inner">
+    <p class="g-brand">출결관리 도우미</p>
+    <a href="../index.html">스마트 도구함으로</a>
+  </div>
+</header>
+
+<main class="g-main">
+  <section class="card g-hero">
+    <h1>사용 안내</h1>
+    <p>휴대폰·태블릿·PC 어디서나 출결과 증빙서류를 기록하고, 학교 PC에서 나이스 일일출결관리(담임용)에 반자동으로 옮깁니다. 학부모확인서 월 2회, 생리통 월 1회 한도도 자동으로 확인합니다.</p>
+    <div class="g-actions">
+      <a class="btn btn-primary" href="./">앱 열기</a>
+      <a class="btn btn-secondary" href="attendance-extension.zip" download>학교 PC 확장프로그램 받기</a>
+    </div>
+  </section>
+
+  <nav class="g-toc" aria-label="목차">
+    <a href="#app">1. 기록 앱 설치<span>휴대폰·태블릿</span></a>
+    <a href="#ext">2. 확장프로그램 설치<span>학교 PC</span></a>
+    <a href="#first">3. 처음 시험하기<span>나이스에서 한 명만</span></a>
+    <a href="#sync">4. 기기 사이 동기화<span>구글 드라이브</span></a>
+  </nav>
+
+  <section class="card" id="app">
+    <h2>1. 기록 앱 설치 (휴대폰·태블릿)</h2>
+    <p class="g-lead">앱스토어 없이 홈 화면에 추가하면 일반 앱처럼 열립니다.</p>
+    <ol class="g-ol">
+      <li>휴대폰에서 <a href="./">앱 주소</a>를 엽니다.</li>
+      <li>아이폰: Safari 아래쪽 공유 버튼 → <b>홈 화면에 추가</b></li>
+      <li>안드로이드: 크롬 오른쪽 위 메뉴 → <b>앱 설치</b> (또는 홈 화면에 추가)</li>
+      <li>처음 열면 학년도, 학년, 반, 학생 수를 입력합니다.</li>
+    </ol>
+    <h3>기록하는 법</h3>
+    <table class="g-table">
+      <thead><tr><th>종류</th><th>교시 입력</th><th>예</th></tr></thead>
+      <tbody>
+        <tr><td>결석</td><td>없음</td><td>하루 전체 없음</td></tr>
+        <tr><td>지각</td><td>몇 교시까지 없었는지</td><td>지각 3교시 = 조회~3교시 없음</td></tr>
+        <tr><td>조퇴</td><td>몇 교시부터 없었는지</td><td>조퇴 2교시 = 2교시~종례 없음</td></tr>
+        <tr><td>결과</td><td>빠진 교시를 모두 선택</td><td>4, 5교시만 없음</td></tr>
+      </tbody>
+    </table>
+    <p class="g-note">자주 쓰는 사유(복통, 감기, 몸살, 생리통, 교외체험학습)를 누르면 구분과 필요한 서류가 자동으로 선택됩니다.</p>
+  </section>
+
+  <section class="card" id="ext">
+    <h2>2. 확장프로그램 설치 (학교 PC)</h2>
+    <p class="g-lead">나이스 화면 옆에 사이드 패널로 열려, 기록을 나이스에 옮겨 줍니다.</p>
+    <div class="g-actions" style="margin: 0 0 var(--sp-3);">
+      <a class="btn btn-secondary btn-sm" href="attendance-extension.zip" download>attendance-extension.zip 받기</a>
+    </div>
+    <ol class="g-ol">
+      <li>받은 파일의 압축을 풀어 지우지 않을 곳(예: 문서 폴더)에 둡니다. 폴더를 지우면 확장도 사라집니다.</li>
+      <li>크롬 주소창에 <code>chrome://extensions</code> 를 입력합니다.</li>
+      <li>오른쪽 위 <b>개발자 모드</b>를 켭니다.</li>
+      <li><b>압축해제된 확장 프로그램을 로드합니다</b> → 압축을 푼 <code>attendance-extension</code> 폴더를 선택합니다.</li>
+      <li>퍼즐 모양 아이콘에서 '출결관리 도우미 - 나이스 연동'을 고정합니다.</li>
+      <li>나이스를 이미 열어 두었다면 새로고침(F5)합니다. 아이콘을 누르면 오른쪽에 사이드 패널이 열립니다.</li>
+    </ol>
+    <div class="alert alert-info" style="margin-top: var(--sp-3);">
+      <div class="alert-body">
+        <span class="alert-title">확장프로그램이 하는 일과 하지 않는 일</span>
+        날짜 이동, 학생 찾기, 출결마감구분 팝업 채우기, 교시 칸 표시까지 합니다. 팝업 <b>[적용]</b>과 <b>[저장]</b>은 선생님이 직접 누릅니다. 출결마감, 마감취소, 장기결석 버튼은 절대 누르지 않습니다.
+      </div>
+    </div>
+    <p class="g-note">학교 PC에서 개발자 모드가 막혀 있으면 정보 담당 선생님께 문의해 주세요.</p>
+  </section>
+
+  <section class="card" id="first">
+    <h2>3. 학교에서 처음 시험하기</h2>
+    <p class="g-lead">처음에는 <b>한 명만</b> 시험하고, <b>저장하지 않고 되돌립니다.</b></p>
+    <ol class="g-ol">
+      <li>앱에 시험용 기록 1건을 입력합니다. (예: 오늘, 1번, 질병 조퇴 5교시, 감기)</li>
+      <li>나이스 → 학급담임 → 출결관리 → <b>일일출결관리(담임용)</b>을 엽니다. 사이드 패널에 '나이스 화면 감지됨'이 보이는지 확인합니다.</li>
+      <li>사이드 패널 [명단] → <b>나이스에서 명단 불러오기</b> → 번호와 이름을 확인합니다.</li>
+      <li>[나이스 입력] → 그 날짜의 <b>이 날짜 입력 시작</b></li>
+      <li>팝업에 구분·종류·사유가 맞게 채워졌는지 확인하고 <b>[적용]</b>을 누릅니다.</li>
+      <li>5교시~종례가 자동으로 표시되는지 확인합니다.</li>
+      <li><b>[저장]을 누르지 말고</b> 나이스 <b>[조회]</b>를 눌러 표가 원래대로 돌아왔는지 확인합니다.</li>
+    </ol>
+    <p class="g-note">언제든 팝업 [닫기]나 나이스 [조회]로 되돌릴 수 있습니다. [저장] 전에는 나이스에 기록되지 않습니다. 이상한 점이 있으면 사이드 패널 [작업 기록 보기]를 캡처해 두세요.</p>
+  </section>
+
+  <section class="card" id="sync">
+    <h2>4. 기기 사이 동기화 (구글 드라이브)</h2>
+    <p class="g-lead">구글 연결 없이도 '이 기기에만 저장' 모드로 바로 쓸 수 있습니다. 휴대폰 기록을 학교 PC로 옮기려면 둘 중 하나를 씁니다.</p>
+    <table class="g-table">
+      <thead><tr><th>방법</th><th>하는 법</th></tr></thead>
+      <tbody>
+        <tr><td>구글 드라이브 연결</td><td>앱 [설정] → 구글 드라이브 연결, 확장 사이드 패널 [설정] → 구글 연결. 같은 구글 계정으로 로그인하면 자동으로 맞춰집니다.</td></tr>
+        <tr><td>백업 파일</td><td>앱 [설정] → 백업 파일 내보내기 → 학교 PC 사이드 패널 [설정] → 백업 파일 가져오기</td></tr>
+      </tbody>
+    </table>
+    <div class="alert alert-info" style="margin-top: var(--sp-3);">
+      <div class="alert-body">
+        <span class="alert-title">개인정보</span>
+        온라인(구글 드라이브)에는 학생 <b>번호만</b> 저장되고 이름은 저장되지 않습니다. 이름은 학교 PC가 나이스에서 불러와 그 PC 안에만 보관합니다. 사유는 저장되므로 학교 개인정보 지침을 확인해 주세요. 기록은 각 선생님 본인 구글 드라이브의 숨은 앱 전용 공간에 저장되며, 제작자에게 전달되지 않습니다.
+      </div>
+    </div>
+  </section>
+
+  <details class="card">
+    <summary>관리자용: 구글 연결 설정 (제작자만)</summary>
+    <ol class="g-ol">
+      <li>console.cloud.google.com → 새 프로젝트 → <b>Google Drive API</b> 사용 설정</li>
+      <li>OAuth 동의 화면: 사용자 유형 외부, 범위 <code>https://www.googleapis.com/auth/drive.appdata</code>, 테스트 사용자에 사용할 계정 추가</li>
+      <li>사용자 인증 정보 → OAuth 클라이언트 ID → <b>웹 애플리케이션</b></li>
+      <li>승인된 JavaScript 원본:
+        <div class="g-copy"><span class="g-code" id="origin">https://176-oss.github.io</span><button class="btn btn-ghost btn-sm" type="button" data-copy="origin">복사</button></div>
+      </li>
+      <li>승인된 리디렉션 URI (확장프로그램용):
+        <div class="g-copy"><span class="g-code" id="redirect">https://haggfghmeonbdphfkoedookicmgofnlm.chromiumapp.org/</span><button class="btn btn-ghost btn-sm" type="button" data-copy="redirect">복사</button></div>
+      </li>
+      <li>발급된 클라이언트 ID를 <code>attendance/config.js</code>와 확장프로그램의 <code>config.js</code> 두 곳의 <code>GOOGLE_CLIENT_ID</code>에 넣습니다. 확장프로그램 zip도 다시 만들어 올립니다.</li>
+    </ol>
+    <p class="g-note">구글 앱이 '테스트' 상태이면 테스트 사용자로 등록한 계정(최대 100명)만 로그인할 수 있습니다. 처음 로그인할 때 '확인되지 않은 앱' 화면이 나오면 [고급] → [출결관리 도우미(으)로 이동]을 누릅니다.</p>
+  </details>
+
+  <p class="g-foot"><a href="../index.html">스마트 도구함으로 돌아가기</a></p>
+</main>
+
+<script>
+  document.querySelectorAll('[data-copy]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var text = document.getElementById(btn.dataset.copy).textContent;
+      var done = function () { var t = btn.textContent; btn.textContent = '복사됨'; setTimeout(function () { btn.textContent = t; }, 1500); };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done, function () {});
+      }
+    });
+  });
+</script>
+</body>
+</html>
