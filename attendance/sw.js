@@ -1,6 +1,6 @@
 // 출결관리 도우미 서비스 워커: 앱 셸 캐시, 오프라인 동작
 // 배포할 때 VERSION을 올리면 이전 캐시를 지운다 (version.js의 APP_VERSION과 맞출 것).
-const VERSION = '0.2.1';
+const VERSION = '0.2.2';
 const CACHE = `ah-app-${VERSION}`;
 const SHELL = [
   './',
