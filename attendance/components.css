@@ -55,7 +55,10 @@ button { cursor: pointer; }
 .row { display: flex; align-items: center; gap: var(--sp-2); }
 .row-between { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); }
 .grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-3); }
-.grid-2 > *, input[type="date"].input { min-width: 0; }   /* iOS 날짜칸이 내용 폭만큼 커져 옆 칸을 덮는 것 방지 */
+.grid-2 > * { min-width: 0; }
+/* iOS 사파리는 날짜칸을 내용 폭만큼 키워 옆 칸을 덮는다: 기본 모양을 끄고 폭을 칸에 가둔다 */
+input[type="date"].input { -webkit-appearance: none; appearance: none; display: block; min-width: 0; max-width: 100%; }
+input[type="date"].input::-webkit-date-and-time-value { min-width: 0; text-align: left; }
 .field { display: flex; flex-direction: column; }
 .section-title {
   font-size: var(--fs-sm); font-weight: var(--fw-semibold); color: var(--color-text-muted);
