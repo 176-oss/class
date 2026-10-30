@@ -1,5 +1,5 @@
 // 로컬 저장 + 구글 드라이브 동기화
-import { STORAGE_KEY, LOCAL_SETTINGS_KEY, normalizeData, mergeData, createRecord } from './shared/model.js';
+import { STORAGE_KEY, LOCAL_SETTINGS_KEY, normalizeData, mergeData, createRecord, diffRemoteChanges } from './shared/model.js';
 import * as drive from './drive.js';
 
 const listeners = new Set();
@@ -7,6 +7,8 @@ export const store = {
   data: null,          // 전체 데이터 (contract 2절)
   local: { driveConnected: false, fileId: null, lastSyncAt: null },
   sync: { status: 'local', message: '' }, // local | idle | syncing | error | auth | offline
+  poll: { lastCheckAt: null, stamp: null }, // 자동 확인: 마지막 확인 시각, 마지막으로 맞춘 원격 파일 version|modifiedTime
+  lastRemote: null, // 자동 확인으로 반영한 변경 (diffRemoteChanges 결과)
 };
 
 export function subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); }
@@ -161,6 +163,7 @@ export async function syncNow({ interactive = false, silent = false } = {}) {
   if (!navigator.onLine) { setSync('offline'); return false; }
   if (syncing) return syncing;
   syncing = (async () => {
+    if (checking) await checking.catch(() => {});
     try {
       if (!drive.hasToken()) {
         if (interactive) await drive.requestToken();
@@ -190,7 +193,9 @@ export async function syncNow({ interactive = false, silent = false } = {}) {
       store.data = merged;
       writeLocal();
       emit('data');
-      fileId = await drive.uploadFile(fileId, merged);
+      const up = await drive.uploadFile(fileId, merged);
+      fileId = up.id;
+      store.poll.stamp = up.stamp;
       store.local = { ...store.local, fileId, lastSyncAt: new Date().toISOString() };
       writeLocalSettings();
       setSync('idle');
@@ -202,6 +207,7 @@ export async function syncNow({ interactive = false, silent = false } = {}) {
       return false;
     } finally {
       syncing = null;
+      if (!pollTimer) schedulePoll(); // 연결·첫 동기화 뒤 자동 확인 시작
     }
   })();
   return syncing;
@@ -223,13 +229,82 @@ export async function disconnectDrive() {
   setSync('local');
 }
 
+// ---------- 자동 확인 (계약 5절) ----------
+// 화면이 보이는 동안 일정 간격으로 원격 파일의 version|modifiedTime만 확인하고, 바뀌었을 때만 내려받아 병합한다.
+// 토큰이 없거나 만료되었으면 조용히 건너뛴다 (이 경로에서는 구글 로그인·조용한 재요청을 하지 않는다).
+export const POLL_DEFAULT_MS = 20000;
+export function pollMs() {
+  const v = Number(window.__AH_POLL_MS) || Number((() => { try { return localStorage.getItem('ah.pollMs'); } catch { return 0; } })());
+  return v >= 200 ? v : POLL_DEFAULT_MS;
+}
+export const autoCheckOn = () => drive.driveConfigured() && !!store.local.driveConnected && !!store.data;
+const visible = () => document.visibilityState === 'visible';
+
+let checking = null;
+export function checkRemote() {
+  if (!autoCheckOn() || !visible() || !navigator.onLine || !drive.hasToken() || !store.local.fileId) return Promise.resolve(false);
+  if (syncing || checking) return Promise.resolve(false);
+  checking = (async () => {
+    try {
+      const meta = await drive.getMeta(store.local.fileId);
+      store.poll.lastCheckAt = new Date().toISOString();
+      const stamp = drive.metaStamp(meta);
+      if (stamp && stamp === store.poll.stamp) { emit('poll'); return false; }
+      const remote = await drive.downloadFile(store.local.fileId);
+      if (syncing) return false; // 그 사이 동기화가 시작됨: 동기화가 처리
+      const localPending = dirtySinceSync || pendingCount() > 0;
+      const before = store.data;
+      const merged = mergeData(store.data, remote);
+      const diff = diffRemoteChanges(before, merged);
+      store.data = merged;
+      writeLocal();
+      store.poll.stamp = stamp;
+      // 이 기기에 올리지 않은 변경이 없으면 원격과 같아졌으므로 동기화한 것으로 본다
+      if (!localPending) { store.local = { ...store.local, lastSyncAt: new Date().toISOString() }; writeLocalSettings(); }
+      else scheduleSync(500);
+      store.lastRemote = diff;
+      emit('data');
+      if (diff.changed) emit('remote');
+      emit('poll');
+      return diff.changed > 0;
+    } catch (e) {
+      if (e instanceof drive.AuthError) setSync('auth', e.message);
+      return false; // 그 밖의 오류(네트워크 등)는 다음 확인에서 다시 시도
+    } finally {
+      checking = null;
+    }
+  })();
+  return checking;
+}
+
+let pollTimer = null;
+let lastKick = 0;
+function schedulePoll() {
+  clearTimeout(pollTimer);
+  pollTimer = null;
+  if (!autoCheckOn() || !visible()) return;
+  pollTimer = setTimeout(async () => { pollTimer = null; await checkRemote(); schedulePoll(); }, pollMs());
+}
+// 화면이 다시 보이거나 창에 포커스가 오면 바로 1회 확인 후 간격 재개 (짧은 시간에 겹치면 1회만)
+function kickCheck() {
+  if (!autoCheckOn() || !visible()) return;
+  if (Date.now() - lastKick < 1500) return;
+  lastKick = Date.now();
+  clearTimeout(pollTimer);
+  pollTimer = null;
+  checkRemote().finally(schedulePoll);
+}
+export function startAutoCheck() { schedulePoll(); }
+
 window.addEventListener('online', () => { refreshSyncStatus(); emit('sync'); syncNow({ silent: true }); });
 // 화면이 다시 보일 때 (휴대폰에서 앱으로 돌아옴)
 let lastVisibleSync = 0;
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState !== 'visible' || !store.local.driveConnected || !store.data) return;
-  if (Date.now() - lastVisibleSync < 30000) return;
+  if (!visible()) { clearTimeout(pollTimer); pollTimer = null; return; }
+  if (!store.local.driveConnected || !store.data) return;
+  if (Date.now() - lastVisibleSync < 30000) { kickCheck(); return; }
   lastVisibleSync = Date.now();
-  syncNow({ silent: true });
+  syncNow({ silent: true }).finally(schedulePoll);
 });
+window.addEventListener('focus', kickCheck);
 window.addEventListener('offline', () => { if (store.local.driveConnected) setSync('offline'); });

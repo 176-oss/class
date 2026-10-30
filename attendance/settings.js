@@ -1,6 +1,6 @@
 // 설정 화면과 첫 실행 화면
 import { DIVS, defaultSettings, createEmptyData, normalizeData, compactDate, todayStr } from './shared/model.js';
-import { store, updateSettings, importData, initData, connectDrive, disconnectDrive, syncNow } from './store.js';
+import { store, updateSettings, importData, initData, connectDrive, disconnectDrive, syncNow, pollMs, autoCheckOn } from './store.js';
 import { driveConfigured } from './drive.js';
 import { APP_VERSION } from './version.js';
 import { countParentNotes, countPeriodPain } from './shared/rules.js';
@@ -45,11 +45,12 @@ const PRIVACY = '온라인에는 학생 번호만 저장됩니다. 사유도 저
 
 // 사유 구분 선택지: div 또는 div:tag
 const REASON_TYPES = [
-  ['ill', '질병'], ['sago', '미인정'], ['etc', '기타'], ['injung', '출석인정'],
+  ['ill', '질병'], ['sago', '미인정'], ['etc', '기타'], ['injung', '출석인정'], ['undecided', '미정'],
+  ['keep', '구분 그대로 (사유만 채움)'],
   ['injung:periodPain', '출석인정 (생리통, 월 한도)'],
   ['injung:fieldTrip:absent', '출석인정 결석 (교외체험학습, 서류 2개)'],
 ];
-const reasonTypeKey = (q) => [q.div, q.tag, q.tag === 'fieldTrip' ? (q.kind || 'absent') : null].filter(Boolean).join(':');
+const reasonTypeKey = (q) => [q.div || 'keep', q.tag, q.tag === 'fieldTrip' ? (q.kind || 'absent') : null].filter(Boolean).join(':');
 const reasonTypeLabel = (q) => (REASON_TYPES.find(([k]) => k === reasonTypeKey(q)) || [null, DIVS[q.div]?.ko || ''])[1];
 
 const installGuide = `
@@ -143,12 +144,21 @@ function syncStatusHtml() {
   return { badge, text };
 }
 
+// 자동 확인 안내: '자동 확인 켜짐 (20초마다) · 마지막 확인 14:05'
+function autoCheckText() {
+  const sec = Math.max(1, Math.round(pollMs() / 1000));
+  const at = store.poll.lastCheckAt ? new Date(store.poll.lastCheckAt) : null;
+  const hhmm = at ? `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}` : '';
+  return `자동 확인 켜짐 (${sec}초마다)${hhmm ? ` · 마지막 확인 ${hhmm}` : ''}`;
+}
+
 // ---------- 설정 ----------
 export const settingsView = {
   title: '설정',
   mount(main) {
     const s = store.data.settings;
-    main.innerHTML = `
+    // 태블릿 이상에서는 카드를 2열로 흘려 배치 (app.css .masonry)
+    main.innerHTML = `<div class="masonry">
       <section class="card stack" aria-labelledby="cls-title">
         <h2 class="card-title" id="cls-title">학급</h2>
         ${classFields(s)}
@@ -186,6 +196,7 @@ export const settingsView = {
 
       <div class="alert alert-info">${icon('info')}<div class="alert-body"><strong class="alert-title">개인정보 안내</strong>${PRIVACY}</div></div>
       ${installGuide}
+      </div>
       <p class="tiny muted" style="text-align:center; margin:0"><a href="guide.html">사용 안내</a> · <a href="../index.html">스마트 도구함</a></p>
       <p class="tiny muted" style="text-align:center; margin:0">출결관리 도우미 버전 <span class="num" id="app-version">${APP_VERSION}</span></p>`;
     main.addEventListener('click', (e) => this.onClick(e));
@@ -204,6 +215,11 @@ export const settingsView = {
     this.renderDrive();
   },
   update(kind) {
+    if (kind === 'poll') {
+      const el = document.getElementById('auto-check');
+      if (el) el.textContent = autoCheckText(); else this.renderDrive();
+      return;
+    }
     if (kind === 'sync') { this.renderDrive(); return; }
     this.renderReasons();
     this.renderDrive();
@@ -233,6 +249,7 @@ export const settingsView = {
     el.innerHTML = `
       <div class="row-between"><h2 class="card-title" id="drive-title">구글 드라이브</h2>${badge}</div>
       <p class="small muted" style="margin:0" aria-live="polite">${esc(text)}</p>
+      ${connected && autoCheckOn() ? `<p class="tiny muted num" style="margin:0" id="auto-check">${esc(autoCheckText())}</p>` : ''}
       ${!driveConfigured() ? `<button type="button" class="btn btn-secondary btn-block" data-act="drive-help">구글 드라이브 연결</button>`
         : connected ? `<div class="grid-2">
             <button type="button" class="btn btn-primary" data-act="sync"${store.sync.status === 'syncing' ? ' disabled' : ''}>${icon('sync')}지금 동기화</button>
@@ -270,7 +287,8 @@ export const settingsView = {
         if (!label) { input.focus(); throw new Error('사유를 입력하세요.'); }
         if (store.data.settings.quickReasons.some((q) => q.label === label)) throw new Error('이미 있는 사유입니다.');
         const [div, tag, kind] = root.querySelector('#qr-type').value.split(':');
-        const q = { label, div };
+        const q = { label };
+        if (div !== 'keep') q.div = div; // 'keep' = 사유만 채우고 구분은 바꾸지 않음
         if (kind) q.kind = kind;
         if (tag) q.tag = tag;
         updateSettings({ quickReasons: [...store.data.settings.quickReasons, q] });

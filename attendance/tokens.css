@@ -5,6 +5,13 @@
 @import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css");
 
 :root {
+  /* ---------- 크기 기준 ----------
+     모든 크기는 --u(기준 글자 크기의 1/15) 배수. html 글자 크기가 15px이면 1u = 1px로 예전 px 값과 같다.
+     앱은 app.css에서 html 글자 크기를 화면 폭에 따라 15~18px로 바꿔 전체를 비례 확대한다.
+     사이드 패널 등 이 값을 바꾸지 않는 화면은 15px 그대로. */
+  font-size: 15px;
+  --u: calc(1rem / 15);
+
   /* ---------- 기본 팔레트 (남색 계열 3색 + 보조) ---------- */
   --c-navy-900: #1f2d5c;  /* 주 색: 헤더, 주 버튼, 제목 */
   --c-navy-800: #283a73;  /* 주 버튼 눌림/hover */
@@ -68,30 +75,30 @@
   --fw-semibold: 600;
   --fw-bold: 700;
 
-  --fs-xs: 12px;   /* 배지, 보조 설명 */
-  --fs-sm: 13px;   /* 라벨, 목록 보조 */
-  --fs-md: 15px;   /* 본문, 입력, 버튼 */
-  --fs-lg: 17px;   /* 카드 제목, 헤더 */
-  --fs-xl: 20px;   /* 화면 제목 */
-  --fs-2xl: 24px;  /* 큰 숫자 */
+  --fs-xs: calc(12 * var(--u));   /* 배지, 보조 설명 */
+  --fs-sm: calc(13 * var(--u));   /* 라벨, 목록 보조 */
+  --fs-md: calc(15 * var(--u));   /* 본문, 입력, 버튼 */
+  --fs-lg: calc(17 * var(--u));   /* 카드 제목, 헤더 */
+  --fs-xl: calc(20 * var(--u));   /* 화면 제목 */
+  --fs-2xl: calc(24 * var(--u));  /* 큰 숫자 */
 
   --lh-tight: 1.3;
   --lh-normal: 1.5;
 
   /* ---------- 간격: 4px 단위 ---------- */
-  --sp-1: 4px;
-  --sp-2: 8px;
-  --sp-3: 12px;
-  --sp-4: 16px;
-  --sp-5: 20px;
-  --sp-6: 24px;
-  --sp-8: 32px;
-  --sp-10: 40px;
+  --sp-1: calc(4 * var(--u));
+  --sp-2: calc(8 * var(--u));
+  --sp-3: calc(12 * var(--u));
+  --sp-4: calc(16 * var(--u));
+  --sp-5: calc(20 * var(--u));
+  --sp-6: calc(24 * var(--u));
+  --sp-8: calc(32 * var(--u));
+  --sp-10: calc(40 * var(--u));
 
   /* ---------- 반경 ---------- */
-  --r-sm: 6px;
-  --r-md: 10px;
-  --r-lg: 14px;
+  --r-sm: calc(6 * var(--u));
+  --r-md: calc(10 * var(--u));
+  --r-lg: calc(14 * var(--u));
   --r-full: 999px;
 
   /* ---------- 그림자 (아주 약하게) ---------- */
@@ -99,9 +106,9 @@
   --shadow-2: 0 4px 16px rgba(24, 32, 58, 0.10);
 
   /* ---------- 크기 ---------- */
-  --touch-min: 44px;
-  --control-sm: 36px;
-  --header-h: 56px;
-  --tabbar-h: 60px;
+  --touch-min: max(44px, calc(44 * var(--u)));
+  --control-sm: max(36px, calc(36 * var(--u)));
+  --header-h: calc(56 * var(--u));
+  --tabbar-h: calc(60 * var(--u));
   --panel-w: 400px;
 }
