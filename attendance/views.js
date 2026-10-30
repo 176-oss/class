@@ -1,7 +1,7 @@
 // 오늘 · 기록 · 서류 · 학생 화면
 import {
   KINDS, KIND_ORDER, describeKind, describeRecord, docLabel, formatDateKo, formatRangeKo, todayStr,
-  yearMonthOf, toDateStr,
+  yearMonthOf, toDateStr, neisBlockReason,
 } from './shared/model.js';
 import { missingDocs, countParentNotes, countPeriodPain } from './shared/rules.js';
 import { store, deleteRecord, restoreRecord, setDocsSubmitted } from './store.js';
@@ -17,6 +17,14 @@ const shiftMonth = (ym, n) => {
 };
 const sortRecords = (list) => list.slice().sort((a, b) => (a.date === b.date ? a.no - b.no || (a.createdAt < b.createdAt ? -1 : 1) : a.date < b.date ? 1 : -1));
 const missingOf = (r) => (r.docs || []).some((d) => !d.submitted);
+
+// 나이스 입력 전에 정해야 할 것 (구분 미정, 기타 사유 없음)
+function blockBadge(r) {
+  if (r.neis?.done) return '';
+  if (r.div === 'undecided') return '<span class="badge badge-info">구분 미정</span>';
+  const why = neisBlockReason(r);
+  return why ? '<span class="badge badge-info">사유 필요</span>' : '';
+}
 
 function neisBadge(r) {
   return r.neis?.done
@@ -38,7 +46,7 @@ export function recordRow(r, { showDate = false } = {}) {
       <div class="list-title">${esc(title)}</div>
       ${meta ? `<div class="list-meta num">${esc(meta)}</div>` : ''}
     </div>
-    <div class="list-side">${neisBadge(r)}${missingOf(r) ? '<span class="badge badge-missing">미제출</span>' : ''}</div>
+    <div class="list-side">${blockBadge(r) || neisBadge(r)}${missingOf(r) ? '<span class="badge badge-missing">미제출</span>' : ''}</div>
   </li>`;
 }
 
@@ -52,6 +60,7 @@ function bindOpen(root) {
 }
 
 // ---------- 기록 수정 시트 ----------
+let editing = null; // 열려 있는 수정 시트 {id, form, sheet}
 export function openEditSheet(record) {
   const sheet = openSheet(`
     <div class="sheet-head">
@@ -60,12 +69,14 @@ export function openEditSheet(record) {
     </div>
     <p class="small muted num" style="margin: 0 0 var(--sp-3)">${esc(formatDateKo(record.date))} · ${record.neis?.done ? '나이스 입력 완료' : '나이스 대기'}</p>
     ${record.neis?.done ? `<div class="alert alert-info" style="margin-bottom: var(--sp-4)">${icon('info')}<div class="alert-body">나이스에 이미 입력한 기록입니다. 여기서 고치면 나이스에서도 직접 고쳐야 합니다.</div></div>` : ''}
+    <div id="edit-remote"></div>
     <form class="stack" id="edit-form" novalidate></form>
     <div class="sheet-actions">
       <button type="button" class="btn btn-danger-outline" data-delete>${icon('trash')}삭제</button>
-    </div>`);
+    </div>`, { onClose: () => { editing = null; } });
   const form = new RecordForm(sheet.querySelector('#edit-form'), { prefix: 'e', record, onDone: () => closeSheet() });
   form.render();
+  editing = { id: record.id, form, sheet };
   sheet.querySelector('[data-close]').addEventListener('click', () => closeSheet());
   sheet.querySelector('[data-delete]').addEventListener('click', () => {
     const copy = structuredClone(record);
@@ -78,17 +89,46 @@ export function openEditSheet(record) {
   });
 }
 
+// 자동 확인으로 수정 중인 기록이 바뀌면 시트 위에 안내 (작성 중 내용은 그대로, 누르면 새 내용으로)
+export function notifyEditSheet(diff) {
+  if (!editing || !editing.sheet.isConnected || !diff.kinds[editing.id]) return;
+  const box = editing.sheet.querySelector('#edit-remote');
+  const removed = diff.kinds[editing.id] === 'removed' || !store.data.records.some((r) => r.id === editing.id);
+  box.innerHTML = `<div class="alert alert-info" role="status" data-testid="remote-changed" style="margin-bottom: var(--sp-4)">${icon('info')}<div class="alert-body">
+    <strong class="alert-title">${removed ? '다른 기기에서 이 기록이 삭제되었습니다' : '다른 기기에서 이 기록이 바뀌었습니다'}</strong>
+    ${removed ? '이 기록은 더 고칠 수 없습니다.' : '지금 저장하면 이 화면의 내용으로 덮어씁니다.'}
+    <div class="alert-actions">${removed
+      ? '<button type="button" class="btn btn-secondary btn-sm" data-remote-close>닫기</button>'
+      : '<button type="button" class="btn btn-secondary btn-sm" data-remote-reload>새 내용 불러오기</button>'}</div></div></div>`;
+  const cur = editing;
+  box.querySelector('[data-remote-close]')?.addEventListener('click', () => closeSheet());
+  box.querySelector('[data-remote-reload]')?.addEventListener('click', () => {
+    const rec = store.data.records.find((r) => r.id === cur.id);
+    if (!rec) { closeSheet(); return; }
+    cur.form.state = cur.form.fromRecord(rec);
+    cur.form.showErrors = false;
+    cur.form.render();
+    box.innerHTML = '';
+    toast('새 내용을 불러왔습니다');
+  });
+}
+
 // ---------- 오늘 ----------
 export const todayView = {
   title: '오늘',
   mount(main) {
-    main.innerHTML = `
-      <section class="card">
-        <h2 class="sr-only">출결 입력</h2>
-        <form class="stack" id="today-form" novalidate aria-label="출결 입력"></form>
-      </section>
-      <section class="card card-flush" id="today-list" aria-live="polite"></section>
-      <p class="tiny muted storage-note" id="storage-note"></p>`;
+    // 넓은 화면(1024px 이상)에서는 왼쪽 입력, 오른쪽 오늘 기록 2단 (app.css .cols)
+    main.innerHTML = `<div class="cols cols-today">
+      <div class="col">
+        <section class="card">
+          <h2 class="sr-only">출결 입력</h2>
+          <form class="stack" id="today-form" novalidate aria-label="출결 입력"></form>
+        </section>
+      </div>
+      <div class="col col-sticky">
+        <section class="card card-flush" id="today-list" aria-live="polite"></section>
+        <p class="tiny muted storage-note" id="storage-note"></p>
+      </div></div>`;
     this.form = new RecordForm(main.querySelector('#today-form'), { prefix: 't' });
     this.form.render();
     bindOpen(main.querySelector('#today-list'));
@@ -126,12 +166,12 @@ export function storageText() {
 }
 
 // ---------- 기록 ----------
-const recFilter = { month: '', no: '', kind: '', neisWait: false };
+const recFilter = { month: '', no: '', kind: '', neisWait: false, undecided: false };
 export const recordsView = {
   title: '기록',
   mount(main) {
     if (!recFilter.month) recFilter.month = yearMonthOf(todayStr());
-    main.innerHTML = `
+    main.innerHTML = `<div class="cols cols-side"><div class="col col-sticky">
       <section class="card stack-sm" aria-label="필터">
         <div class="grid-3">
           <div class="field"><label class="label" for="flt-month">월</label><select class="select" id="flt-month"></select></div>
@@ -139,14 +179,16 @@ export const recordsView = {
           <div class="field"><label class="label" for="flt-kind">종류</label><select class="select" id="flt-kind"></select></div>
         </div>
         <label class="check"><input type="checkbox" id="flt-neis"${recFilter.neisWait ? ' checked' : ''}><span class="check-box"></span><span class="check-label">나이스 미입력만</span></label>
-      </section>
-      <div id="records-body" class="stack"></div>`;
+        <label class="check"><input type="checkbox" id="flt-undecided"${recFilter.undecided ? ' checked' : ''}><span class="check-box"></span><span class="check-label">구분 미정만</span></label>
+      </section></div>
+      <div id="records-body" class="col"></div></div>`;
     main.querySelector('section').addEventListener('change', (e) => {
       const id = e.target.id;
       if (id === 'flt-month') recFilter.month = e.target.value;
       if (id === 'flt-no') recFilter.no = e.target.value;
       if (id === 'flt-kind') recFilter.kind = e.target.value;
       if (id === 'flt-neis') recFilter.neisWait = e.target.checked;
+      if (id === 'flt-undecided') recFilter.undecided = e.target.checked;
       this.update();
     });
     bindOpen(main.querySelector('#records-body'));
@@ -168,7 +210,8 @@ export const recordsView = {
       (recFilter.month === 'all' || yearMonthOf(r.date) === recFilter.month) &&
       (!recFilter.no || r.no === Number(recFilter.no)) &&
       (!recFilter.kind || r.kind === recFilter.kind) &&
-      (!recFilter.neisWait || !r.neis?.done)));
+      (!recFilter.neisWait || !r.neis?.done) &&
+      (!recFilter.undecided || r.div === 'undecided')));
     const body = document.getElementById('records-body');
     if (!list.length) {
       body.innerHTML = `<div class="card"><div class="empty">${icon('list')}<div class="empty-title">기록이 없습니다</div><div class="empty-text">조건을 바꾸거나 오늘 탭에서 기록을 입력하세요.</div></div></div>`;
@@ -247,7 +290,7 @@ export const docsView = {
     }
     usage.sort((a, b) => b.used / b.limit - a.used / a.limit || a.no - b.no);
 
-    body.innerHTML = `
+    body.innerHTML = `<div class="cols cols-tablet"><div class="col">
       <div class="stats">
         <div class="stat"><div class="stat-label">미제출 서류</div><div class="stat-value num${missing.length ? ' is-danger' : ''}">${missing.length}건</div></div>
         <div class="stat"><div class="stat-label">이번 달 제출 완료</div><div class="stat-value num">${thisMonthDone}건</div></div>
@@ -267,7 +310,8 @@ export const docsView = {
             </div>
           </li>`).join('')}</ul>`
         : `<div class="empty">${icon('doc')}<div class="empty-title">미제출 서류가 없습니다</div><div class="empty-text">서류가 필요한 기록을 저장하면 여기에 표시됩니다.</div></div>`}
-      </section>
+      </section></div>
+      <div class="col">
       <section class="card card-flush" aria-labelledby="usage-title">
         <div class="card-head"><h2 class="card-title" id="usage-title">이번 달 사용 현황</h2></div>
         ${usage.length ? `<ul class="list">${usage.map((u) => `
@@ -290,7 +334,7 @@ export const docsView = {
             <span class="badge badge-done">제출</span>
           </li>`).join('')}</ul>`
         : '<p class="small muted card-note">아직 제출된 서류가 없습니다.</p>'}
-      </section>`;
+      </section></div></div>`;
   },
 };
 
@@ -300,7 +344,7 @@ export const studentsView = {
   title: '학생',
   mount(main) {
     if (!stuState.ym) stuState.ym = yearMonthOf(todayStr());
-    main.innerHTML = `
+    main.innerHTML = `<div class="cols cols-side"><div class="col col-sticky">
       <section class="card">
         <div class="row-between" style="margin-bottom: var(--sp-3)">
           <button type="button" class="icon-btn" data-month="-1" aria-label="이전 달">${icon('chev', 'icon flip')}</button>
@@ -309,8 +353,8 @@ export const studentsView = {
         </div>
         <div class="num-grid" id="stu-grid" role="group" aria-label="번호 선택"></div>
         <p class="tiny muted" style="margin: var(--sp-3) 0 0">진한 테두리 번호는 이 달에 기록이 있습니다.</p>
-      </section>
-      <div id="stu-body" class="stack"></div>`;
+      </section></div>
+      <div id="stu-body" class="col"></div></div>`;
     main.addEventListener('click', (e) => {
       const m = e.target.closest('[data-month]');
       if (m) { stuState.ym = shiftMonth(stuState.ym, Number(m.dataset.month)); this.update(); return; }
@@ -342,6 +386,7 @@ export const studentsView = {
     const no = stuState.no;
     const mine = sortRecords(monthRecs.filter((r) => r.no === no));
     const cnt = (k) => mine.filter((r) => r.kind === k).length;
+    const undecided = mine.filter((r) => r.div === 'undecided').sort((a, b) => (a.date < b.date ? -1 : 1));
     const pUsed = countParentNotes(store.data.records, no, ym);
     const ppUsed = countPeriodPain(store.data.records, no, ym);
     const miss = missingDocs(store.data.records, todayStr()).filter((m) => m.no === no && yearMonthOf(m.startDate) <= ym && yearMonthOf(m.endDate) >= ym);
@@ -354,6 +399,7 @@ export const studentsView = {
         <ul class="list">
           <li class="list-row"><div class="list-main"><div class="list-title">학부모확인서</div></div>${quota(pUsed, Number(set.parentNoteLimit), `${pUsed}/${set.parentNoteLimit}회`)}</li>
           <li class="list-row"><div class="list-main"><div class="list-title">생리통 출석인정</div></div>${quota(ppUsed, Number(set.periodPainLimit), `${ppUsed}/${set.periodPainLimit}회`)}</li>
+          ${undecided.length ? `<li class="list-row"><div class="list-main"><div class="list-title">구분 미정</div><div class="list-meta num">${esc(undecided.map((r) => formatDateKo(r.date, false)).join(', '))} · 나이스 입력 전에 정해야 합니다</div></div><span class="badge badge-info num">${undecided.length}건</span></li>` : ''}
           <li class="list-row"><div class="list-main"><div class="list-title">미제출 서류</div>${miss.length ? `<div class="list-meta">${esc(miss.map((m) => m.docLabel).join(', '))}</div>` : ''}</div>${miss.length ? `<span class="badge badge-missing num">${miss.length}건</span>` : '<span class="badge badge-done">없음</span>'}</li>
         </ul>
       </section>

@@ -99,6 +99,13 @@ export async function findFile() {
   return json.files?.[0] || null;
 }
 
+// 파일이 바뀌었는지 가볍게 확인 (본문 없이 메타데이터만). 자동 확인용
+export const metaStamp = (m) => (m && (m.version || m.modifiedTime) ? `${m.version || ''}|${m.modifiedTime || ''}` : null);
+export async function getMeta(id) {
+  const res = await api(`${API}/${encodeURIComponent(id)}?fields=id,modifiedTime,version`);
+  return res.json();
+}
+
 export async function downloadFile(id) {
   const res = await api(`${API}/${encodeURIComponent(id)}?alt=media`);
   const text = await res.text();
@@ -114,13 +121,17 @@ function multipartBody(metadata, data) {
   return { body, type: `multipart/related; boundary=${boundary}` };
 }
 
+// 반환: {id, stamp} (stamp: 올린 뒤 파일의 version|modifiedTime, 자동 확인의 기준)
 export async function uploadFile(id, data) {
+  const fields = 'fields=id,modifiedTime,version';
+  let res;
   if (id) {
     const { body, type } = multipartBody({}, data);
-    const res = await api(`${UPLOAD}/${encodeURIComponent(id)}?uploadType=multipart&fields=id`, { method: 'PATCH', headers: { 'Content-Type': type }, body });
-    return (await res.json()).id;
+    res = await api(`${UPLOAD}/${encodeURIComponent(id)}?uploadType=multipart&${fields}`, { method: 'PATCH', headers: { 'Content-Type': type }, body });
+  } else {
+    const { body, type } = multipartBody({ name: DATA_FILE_NAME, parents: ['appDataFolder'], mimeType: 'application/json' }, data);
+    res = await api(`${UPLOAD}?uploadType=multipart&${fields}`, { method: 'POST', headers: { 'Content-Type': type }, body });
   }
-  const { body, type } = multipartBody({ name: DATA_FILE_NAME, parents: ['appDataFolder'], mimeType: 'application/json' }, data);
-  const res = await api(`${UPLOAD}?uploadType=multipart&fields=id`, { method: 'POST', headers: { 'Content-Type': type }, body });
-  return (await res.json()).id;
+  const j = await res.json();
+  return { id: j.id, stamp: metaStamp(j) };
 }

@@ -193,7 +193,7 @@ export class RecordForm {
     }).join('');
 
     return `
-      <div class="grid-2">
+      <div class="grid-2 form-top">
         <div class="field">
           <div class="label-row"><label class="label" for="${this.id('date')}">${s.range ? '시작일' : '날짜'}</label><span class="tiny muted">${isDateStr(s.date) ? `(${weekdayKo(s.date)})` : ''}</span></div>
           <input id="${this.id('date')}" class="input num" type="date" data-f="date" value="${esc(s.date)}" required>
@@ -310,6 +310,10 @@ export class RecordForm {
     }
     if (s.div === 'sago') {
       return `<div class="field"><span class="label">증빙서류</span><div class="hint" style="margin-top:0">미인정은 증빙서류가 없습니다.</div></div>`;
+    }
+    if (s.div === 'undecided') {
+      // 구분 미정: 서류 영역 대신 안내 (spec 13.1)
+      return `<div class="alert alert-info" id="${this.id('undecided-note')}">${icon('info')}<div class="alert-body">나이스 입력 전에 구분을 정해야 합니다. 학교 PC 확장프로그램에서도 정할 수 있습니다.</div></div>`;
     }
     // 기타, 출석인정(태그 없음)
     const d = s.docs[0] || { name: '' };

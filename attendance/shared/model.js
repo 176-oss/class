@@ -25,8 +25,12 @@ export const DIVS = {
   sago:   { ko: '미인정',   neis: 'sago' },
   etc:    { ko: '기타',     neis: 'etc' },
   injung: { ko: '출석인정', neis: 'injung' },
+  // 미정: 앱에서만 쓰는 임시 구분. 나이스에 없으므로 입력 전에 정해야 함 (spec 13.1)
+  undecided: { ko: '미정', neis: null },
 };
-export const DIV_ORDER = ['ill', 'sago', 'etc', 'injung'];
+export const DIV_ORDER = ['ill', 'sago', 'etc', 'injung', 'undecided'];
+// 나이스에 그대로 넣을 수 있는 구분
+export const NEIS_DIVS = ['ill', 'sago', 'etc', 'injung'];
 
 // 나이스 일괄 콤보 cmbAtteScCd 코드 (참고용, neis-structure.md 7절)
 const DIV_CODE = { ill: 0, sago: 1, etc: 2, injung: 3 };
@@ -36,9 +40,23 @@ export function neisComboCode(div, kind) {
   return String(KIND_CODE[kind]) + String(DIV_CODE[div] + 1);
 }
 
-// 나이스 표 chulgyulGb 기대 문자열 (예: "질병결과")
+// 나이스 표 chulgyulGb 기대 문자열 (예: "질병결과"). 구분 미정이면 null
 export function chulgyulGb(div, kind) {
-  return (DIVS[div]?.ko || '') + (KINDS[kind]?.ko || '');
+  if (!DIVS[div]?.neis || !KINDS[kind]) return null;
+  return DIVS[div].ko + KINDS[kind].ko;
+}
+
+// 나이스 자동 입력을 막는 이유 (없으면 null)
+//  - 구분 미정: 나이스에 없는 구분
+//  - 기타인데 사유 없음: 나이스가 기타결석 등은 사유 없이 저장하지 않음 (neis-structure 10절)
+export function neisBlockReason(record) {
+  if (!record) return '기록이 없습니다.';
+  if (!DIVS[record.div]?.neis) return '구분이 정해지지 않았습니다.';
+  if (record.div === 'etc' && !String(record.reason || '').trim()) return '기타는 사유가 필요합니다.';
+  return null;
+}
+export function isNeisReady(record) {
+  return neisBlockReason(record) === null;
 }
 
 export const TAGS = {
@@ -66,7 +84,9 @@ export function docLabel(doc, short = false) {
 }
 
 // ---------- 기본 설정 ----------
+// div가 없는 사유(미정)는 사유 칸만 채우고 구분은 바꾸지 않음
 export const DEFAULT_QUICK_REASONS = [
+  { label: '미정' },
   { label: '복통', div: 'ill' },
   { label: '감기', div: 'ill' },
   { label: '몸살', div: 'ill' },
@@ -311,7 +331,8 @@ export function sanitizeSettings(s, base = defaultSettings()) {
     for (const k of SETTINGS_KEYS) if (s[k] !== undefined && s[k] !== null && s[k] !== '') out[k] = k === 'updatedAt' ? s[k] : Number(s[k]);
     if (Array.isArray(s.quickReasons)) {
       out.quickReasons = s.quickReasons.filter((q) => q && q.label).map((q) => {
-        const o = { label: String(q.label), div: RECORD_DIVS.has(q.div) ? q.div : 'ill' };
+        const o = { label: String(q.label) };
+        if (RECORD_DIVS.has(q.div)) o.div = q.div; // div 없음 = 구분은 그대로
         if (RECORD_KINDS.has(q.kind)) o.kind = q.kind;
         if (q.tag === 'periodPain' || q.tag === 'fieldTrip') o.tag = q.tag;
         return o;
@@ -405,4 +426,29 @@ export function mergeData(local, remote) {
     records,
     deleted: [...deletedMap.values()],
   };
+}
+
+// 원격 반영 전후 비교 (자동 확인, 계약 5절). 화면 안내용: 무엇이 몇 건 바뀌었는지.
+//  - kinds[id]: 'added' | 'removed' | 'body'(본문) | 'docs'(서류 제출만) | 'neis'(나이스 입력 완료만)
+//  - neisOnly: 바뀐 기록이 모두 나이스 입력 완료만 바뀐 경우
+//  - 시각 값(updatedAt 등)만 다르고 내용이 같으면 바뀐 것으로 보지 않는다
+const DIFF_BODY_KEYS = ['date', 'no', 'kind', 'div', 'period', 'periods', 'reason', 'tag', 'groupId'];
+const sameJson = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+const docsShape = (r) => (r.docs || []).map((d) => [d.type, d.name || '']);
+const docsState = (r) => (r.docs || []).map((d) => !!d.submitted);
+const neisState = (r) => [!!(r.neis && r.neis.done), (r.neis && r.neis.doneAt) || null];
+export function diffRemoteChanges(before, after) {
+  const B = new Map(((before && before.records) || []).map((r) => [r.id, r]));
+  const A = new Map(((after && after.records) || []).map((r) => [r.id, r]));
+  const kinds = {};
+  for (const [id, a] of A) {
+    const b = B.get(id);
+    if (!b) { kinds[id] = 'added'; continue; }
+    if (DIFF_BODY_KEYS.some((k) => !sameJson(a[k], b[k])) || !sameJson(docsShape(a), docsShape(b))) kinds[id] = 'body';
+    else if (!sameJson(docsState(a), docsState(b))) kinds[id] = 'docs';
+    else if (!sameJson(neisState(a), neisState(b))) kinds[id] = 'neis';
+  }
+  for (const id of B.keys()) if (!A.has(id)) kinds[id] = 'removed';
+  const ids = Object.keys(kinds);
+  return { changed: ids.length, neisOnly: ids.length > 0 && ids.every((id) => kinds[id] === 'neis'), ids, kinds };
 }

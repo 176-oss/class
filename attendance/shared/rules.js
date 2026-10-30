@@ -6,6 +6,10 @@ import {
 } from './model.js';
 
 const hasDoc = (r, type) => Array.isArray(r.docs) && r.docs.some((d) => d.type === type);
+// 한도 계산에서 구분 미정 기록은 뺀다 (spec 13.1)
+const counted = (r) => r.div !== 'undecided';
+const isParentNote = (r) => counted(r) && hasDoc(r, 'parentNote');
+const isPeriodPain = (r) => counted(r) && r.tag === 'periodPain';
 // today(YYYY-MM-DD)를 주면 같은 달은 '이번 달', 아니면 '10월'
 const monthWordOf = (ym, today) => (today && yearMonthOf(today) === ym ? '이번 달' : `${Number(ym.slice(5, 7))}월`);
 
@@ -22,7 +26,7 @@ export function parentNoteRecords(records, no, yearMonth, excludeId) {
     Number(r.no) === Number(no) &&
     yearMonthOf(r.date) === yearMonth &&
     !ex.has(r.id) &&
-    hasDoc(r, 'parentNote'),
+    isParentNote(r),
   ).sort((a, b) => (a.date < b.date ? -1 : 1));
 }
 
@@ -39,7 +43,7 @@ export function checkParentNoteLimit(records, draftRecords, settings = {}, today
   const limit = Number(settings.parentNoteLimit ?? 2);
   return checkLimit({
     records, draftRecords, limit, today,
-    match: (r) => hasDoc(r, 'parentNote'),
+    match: isParentNote,
     blocking: true,
     message: (ctx) => ctx.used >= ctx.limit
       ? `${ctx.monthWord} 학부모확인서 ${ctx.limit}회를 모두 사용했습니다. 처방전·진료확인서를 받거나 미인정으로 처리하세요.`
@@ -51,7 +55,7 @@ export function checkParentNoteLimit(records, draftRecords, settings = {}, today
 export function countPeriodPain(records, no, yearMonth, excludeId) {
   const ex = toSet(excludeId);
   return (records || []).filter((r) =>
-    Number(r.no) === Number(no) && yearMonthOf(r.date) === yearMonth && !ex.has(r.id) && r.tag === 'periodPain',
+    Number(r.no) === Number(no) && yearMonthOf(r.date) === yearMonth && !ex.has(r.id) && isPeriodPain(r),
   ).length;
 }
 
@@ -60,7 +64,7 @@ export function checkPeriodPainLimit(records, draftRecords, settings = {}, today
   const limit = Number(settings.periodPainLimit ?? 1);
   return checkLimit({
     records, draftRecords, limit, today,
-    match: (r) => r.tag === 'periodPain',
+    match: isPeriodPain,
     blocking: false,
     message: (ctx) => `${ctx.monthWord} 생리통 출석인정 ${ctx.limit}회를 이미 사용했습니다.`,
   });
@@ -112,7 +116,7 @@ export function requiredDocs(div, tag) {
       { type: 'tripReport', submitted: false, submittedAt: null },
     ];
   }
-  if (tag === 'periodPain') return [];
+  if (tag === 'periodPain' || div === 'undecided') return [];
   if (div === 'ill') return [{ type: 'parentNote', submitted: false, submittedAt: null }];
   if (div === 'etc' || div === 'injung') return [{ type: 'other', name: '', submitted: false, submittedAt: null }];
   return []; // 미인정
@@ -185,7 +189,9 @@ export function expandRange(startDate, endDate) {
 // ---------- 나이스 기대값 ----------
 // 결석: 조회+전 교시+종례 "/" (실제 자동 표시 형태 미확인 — 비교 시 chulgyulGb만 엄격, 교시는 경고)
 // 지각 N: 조회 + 1~N교시 / 조퇴 N: N~마지막 교시 + 종례 / 결과: 고른 교시만
+// 구분 미정이면 null (나이스에 넣을 수 없음)
 export function expectedNeisMarks(record, totMax = 7) {
+  if (!chulgyulGb(record.div, record.kind)) return null;
   const tot = Number(totMax) || 7;
   const gyo = {};
   for (let i = 1; i <= tot; i++) gyo[i] = '';
@@ -211,5 +217,7 @@ export function validateRecord(record, settings = {}) {
   const errs = validate(record, settings);
   if (record && record.tag === 'fieldTrip' && record.div !== 'injung') errs.push('교외체험학습은 출석인정으로 입력하세요.');
   if (record && record.div === 'sago' && (record.docs || []).length) errs.push('미인정은 증빙서류가 없습니다.');
+  if (record && record.div === 'undecided' && (record.docs || []).length) errs.push('구분 미정은 증빙서류가 없습니다.');
+  if (record && record.div === 'etc' && !String(record.reason || '').trim()) errs.push('기타는 나이스에서 사유가 꼭 필요합니다. 모르면 [미정]을 누르세요.');
   return errs;
 }

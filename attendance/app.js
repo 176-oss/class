@@ -3,7 +3,7 @@ import { todayStr } from './shared/model.js';
 import { missingDocs } from './shared/rules.js';
 import { store, loadLocal, subscribe, syncNow, refreshSyncStatus, pendingCount } from './store.js';
 import { driveConfigured } from './drive.js';
-import { todayView, recordsView, docsView, studentsView, storageText } from './views.js';
+import { todayView, recordsView, docsView, studentsView, storageText, notifyEditSheet } from './views.js';
 import { settingsView, setupView } from './settings.js';
 import { esc, icon, toast } from './ui.js';
 
@@ -129,6 +129,17 @@ window.addEventListener('hashchange', show);
 
 subscribe((kind) => {
   if (!store.data || current === 'setup') return;
+  // 자동 확인 시각만 바뀜: 설정 화면의 동기화 영역만 다시 그림
+  if (kind === 'poll') { if (current === 'settings') VIEWS.settings.update('poll'); return; }
+  // 다른 기기에서 바뀐 기록 반영 (목록·배지는 'data'에서 이미 다시 그림)
+  if (kind === 'remote') {
+    const d = store.lastRemote;
+    if (d && d.changed) {
+      toast(d.neisOnly ? `나이스 입력 완료 ${d.changed}건을 반영했습니다` : `학교 PC에서 바뀐 기록 ${d.changed}건을 반영했습니다`);
+      notifyEditSheet(d);
+    }
+    return;
+  }
   const name = route();
   renderAppbar(name);
   renderTabbar(name);
