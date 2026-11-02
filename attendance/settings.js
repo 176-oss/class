@@ -5,6 +5,27 @@ import { driveConfigured } from './drive.js';
 import { APP_VERSION } from './version.js';
 import { countParentNotes, countPeriodPain } from './shared/rules.js';
 import { esc, icon, toast, confirmDialog, openSheet, closeSheet } from './ui.js';
+import { ext, onExtChange, needsUpdate, downloadZip, checkExtension } from './ext.js';
+
+// 학교 PC 확장프로그램 카드 (최신 버전, 이 PC에 설치된 버전, 내려받기)
+function extCardHtml() {
+  const latest = ext.latest;
+  const installed = ext.installed;
+  let badge = '';
+  if (needsUpdate()) badge = '<span class="badge badge-missing">업데이트 필요</span>';
+  else if (installed && latest) badge = '<span class="badge badge-done">최신 버전</span>';
+  const latestText = latest ? `${latest.version}${latest.date ? ` (${Number(latest.date.slice(5, 7))}월 ${Number(latest.date.slice(8, 10))}일)` : ''}` : (ext.failed ? '확인하지 못했습니다' : '확인 중');
+  const installedText = installed || (ext.detected ? '설치 안 됨 또는 확인 불가' : '확인 중');
+  return `
+    <div class="row-between"><h2 class="card-title" id="ext-title">학교 PC 확장프로그램</h2>${badge}</div>
+    <p class="small muted" style="margin:0">확장프로그램은 학교 PC 크롬에서 받습니다. 나이스 화면 옆 사이드 패널에서 기록을 나이스에 옮깁니다.</p>
+    <div class="row-between small"><span class="muted">최신 버전</span><span class="num strong" id="ext-latest">${esc(latestText)}</span></div>
+    <div class="row-between small"><span class="muted">이 PC에 설치된 버전</span><span class="num strong" id="ext-installed">${esc(installedText)}</span></div>
+    ${needsUpdate() ? '<p class="tiny muted" style="margin:0">내려받은 압축 파일을 기존 폴더에 덮어쓰고 chrome://extensions 에서 새로고침하세요. [제거]는 누르지 마세요.</p>' : ''}
+    <button type="button" class="btn btn-primary btn-block" data-act="ext-download"${latest ? '' : ' disabled'}>확장프로그램 내려받기</button>
+    <a class="btn btn-secondary btn-block" href="guide.html#ext" id="ext-guide">설치·업데이트 방법</a>`;
+}
+onExtChange(() => settingsView.renderExt());
 
 // 가져온 뒤 한도를 넘은 학생·달 목록 (가져오기는 막지 않고 알림)
 function overLimitList(data) {
@@ -17,7 +38,7 @@ function overLimitList(data) {
     seen.add(key);
     const ym = r.date.slice(0, 7);
     const m = `${Number(ym.slice(5))}월`;
-    const p = countParentNotes(data.records, r.no, ym);
+    const p = countParentNotes(data.records, r.no, ym, null, s);
     if (p > Number(s.parentNoteLimit)) out.push(`${r.no}번 ${m} 학부모확인서 ${p}/${s.parentNoteLimit}회`);
     const pp = countPeriodPain(data.records, r.no, ym);
     if (pp > Number(s.periodPainLimit)) out.push(`${r.no}번 ${m} 생리통 출석인정 ${pp}/${s.periodPainLimit}회`);
@@ -166,6 +187,13 @@ export const settingsView = {
           ${numField('set-pn', '학부모확인서 월 한도', s.parentNoteLimit, 0, 10, '초과하면 저장을 막습니다.')}
           ${numField('set-pp', '생리통 월 한도', s.periodPainLimit, 0, 10, '초과하면 확인 후 저장합니다.')}
         </div>
+        <div class="field">
+          <label class="switch">
+            <input type="checkbox" id="set-pp-pn"${s.periodPainCountsParentNote ? ' checked' : ''}>
+            <span class="switch-track"></span><span class="small strong">생리통 학부모확인서도 월 ${esc(s.parentNoteLimit)}회 한도에 포함</span>
+          </label>
+          <div class="hint">끄면 생리통 학부모확인서는 생리통 월 한도로만 셉니다.</div>
+        </div>
         <button type="button" class="btn btn-primary btn-block" data-act="save-settings">설정 저장</button>
       </section>
 
@@ -183,6 +211,8 @@ export const settingsView = {
       </section>
 
       <section class="card stack-sm" aria-labelledby="drive-title" id="drive-card"></section>
+
+      <section class="card stack-sm" aria-labelledby="ext-title" id="ext-card"></section>
 
       <section class="card stack-sm" aria-labelledby="backup-title">
         <h2 class="card-title" id="backup-title">백업</h2>
@@ -213,6 +243,12 @@ export const settingsView = {
     });
     this.renderReasons();
     this.renderDrive();
+    this.renderExt();
+    if (!ext.detected || !ext.latest) checkExtension();
+  },
+  renderExt() {
+    const el = document.getElementById('ext-card');
+    if (el) el.innerHTML = extCardHtml();
   },
   update(kind) {
     if (kind === 'poll') {
@@ -230,6 +266,8 @@ export const settingsView = {
       const el = document.getElementById(id);
       if (el && el !== document.activeElement && el.value !== String(v)) el.value = v;
     }
+    const pp = document.getElementById('set-pp-pn');
+    if (pp && pp !== document.activeElement) pp.checked = !!s.periodPainCountsParentNote;
   },
   renderReasons() {
     const el = document.getElementById('qr-list');
@@ -279,6 +317,7 @@ export const settingsView = {
         const v = readClassFields(root);
         v.parentNoteLimit = readNum(root, 'set-pn', 0, 10, '학부모확인서 한도');
         v.periodPainLimit = readNum(root, 'set-pp', 0, 10, '생리통 한도');
+        v.periodPainCountsParentNote = !!root.querySelector('#set-pp-pn')?.checked;
         updateSettings(v);
         toast('설정을 저장했습니다');
       } else if (act === 'add-reason') {
@@ -294,6 +333,9 @@ export const settingsView = {
         updateSettings({ quickReasons: [...store.data.settings.quickReasons, q] });
         input.value = '';
         toast(`'${label}' 사유를 추가했습니다`);
+      } else if (act === 'ext-download') {
+        downloadZip();
+        toast('확장프로그램 압축 파일을 내려받습니다');
       } else if (act === 'export') {
         exportBackup();
       } else if (act === 'import') {

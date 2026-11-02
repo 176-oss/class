@@ -6,6 +6,7 @@ import { driveConfigured } from './drive.js';
 import { todayView, recordsView, docsView, studentsView, storageText, notifyEditSheet } from './views.js';
 import { settingsView, setupView } from './settings.js';
 import { esc, icon, toast } from './ui.js';
+import { startExtensionWatch } from './ext.js';
 
 const VIEWS = { today: todayView, records: recordsView, docs: docsView, students: studentsView, settings: settingsView };
 const TABS = [
@@ -70,8 +71,26 @@ function renderBanner() {
 function renderTabbar(name) {
   const missing = store.data ? missingDocs(store.data.records, todayStr()).length : 0;
   tabbar.innerHTML = TABS.map(([key, label, ic]) => `
-    <a class="tab" href="#${key}"${key === name ? ' aria-current="page"' : ''}>${icon(ic)}${label}${key === 'docs' && missing ? `<span class="dot num" aria-label="미제출 ${missing}건">${missing}</span>` : ''}</a>`).join('');
+    <a class="tab" href="#${key}"${key === name ? ' aria-current="page"' : ''}>${icon(ic)}${label}${key === 'docs' && missing ? `<span class="dot num" aria-label="미제출 ${missing}건">${missing}</span>` : ''}</a>`).join('')
+    // 넓은 화면(PC)에서만 보이는 확장프로그램 바로가기 (설정의 확장프로그램 카드로 이동)
+    + `<a class="tab tab-ext" href="#settings" data-goto="ext" id="nav-ext">${icon('ext')}확장프로그램</a>`;
 }
+
+let pendingExtScroll = false;
+function scrollToExtCard() {
+  const card = document.getElementById('ext-card');
+  if (!card) return;
+  card.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  card.setAttribute('tabindex', '-1');
+  card.focus({ preventScroll: true });
+}
+tabbar.addEventListener('click', (e) => {
+  if (!e.target.closest('[data-goto="ext"]')) return;
+  e.preventDefault();
+  if (route() === 'settings' && current === 'settings') { scrollToExtCard(); return; }
+  pendingExtScroll = true;
+  location.hash = '#settings';
+});
 
 function show() {
   if (!store.data) return showSetup();
@@ -90,6 +109,7 @@ function show() {
     VIEWS[name].mount(fresh);
     window.scrollTo(0, 0);
   }
+  if (pendingExtScroll && name === 'settings') { pendingExtScroll = false; requestAnimationFrame(scrollToExtCard); }
   document.title = `${VIEWS[name].title} - 출결관리 도우미`;
 }
 
@@ -156,6 +176,9 @@ if (store.data && store.local.driveConnected) {
   // 토큰이 남아 있으면 바로 동기화, 없으면 조용한 재요청 시도. 막히면 배너 표시
   syncNow({ silent: true });
 }
+
+// 학교 PC 확장프로그램 버전 확인·업데이트 알림 (확장이 감지될 때만 팝업)
+startExtensionWatch();
 
 // 서비스 워커 (오프라인)
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {

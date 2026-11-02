@@ -49,7 +49,7 @@ body.has-overlay { overflow: hidden; }
 
 .storage-note { text-align: center; margin: 0; }
 
-.guide-list { margin: 0; padding-left: var(--sp-5); display: flex; flex-direction: column; gap: var(--sp-1); color: var(--color-text); }
+.guide-list { word-break: keep-all; margin: 0; padding-left: var(--sp-5); display: flex; flex-direction: column; gap: var(--sp-1); color: var(--color-text); }
 .guide-list strong { font-weight: var(--fw-semibold); margin-right: var(--sp-1); }
 
 /* 시트 안 삭제 버튼 */
@@ -139,6 +139,7 @@ body.has-overlay { overflow: hidden; }
 @media (max-height: 500px) and (orientation: landscape) {
   :root { --header-h: calc(44 * var(--u)); --tabbar-h: calc(48 * var(--u)); }
   .tab { flex-direction: row; gap: var(--sp-2); font-size: var(--fs-sm); }
+  .tab.tab-ext { display: flex; margin-top: auto; font-size: var(--fs-sm); color: var(--color-text-muted); }
   .tab .dot { position: static; margin-left: 2px; }
   .tab[aria-current="page"]::before { left: 25%; right: 25%; }
 }
@@ -162,6 +163,10 @@ body.has-overlay { overflow: hidden; }
   .sheet { border-radius: var(--r-lg); max-width: calc(560 * var(--u)); }
   .sheet-handle { display: none; }
 }
+
+/* 확장프로그램 바로가기: 넓은 화면(1024px~) 왼쪽 메뉴에서만. 카드로 이동할 때 상단 바에 가리지 않게 */
+#ext-card { scroll-margin-top: calc(var(--header-h) + env(safe-area-inset-top) + var(--sp-4)); }
+.tab.tab-ext { display: none; }
 
 /* ---------- 1024px~: 2단 + 왼쪽 세로 메뉴 ---------- */
 @media (min-width: 1024px) {
@@ -189,6 +194,7 @@ body.has-overlay { overflow: hidden; }
   .tab[aria-current="page"]::before, .tab.is-active::before {
     top: 22%; bottom: 22%; left: 0; right: auto; width: 3px; height: auto; border-radius: 0 3px 3px 0;
   }
+  .tab.tab-ext { display: flex; margin-top: auto; font-size: var(--fs-sm); color: var(--color-text-muted); }
   .tab .dot { position: static; margin-left: auto; min-width: calc(20 * var(--u)); height: calc(20 * var(--u)); line-height: calc(20 * var(--u)); font-size: var(--fs-xs); }
   .toast { bottom: var(--sp-6); left: calc(50% + var(--nav-w) / 2); }
 

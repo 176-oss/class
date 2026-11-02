@@ -106,6 +106,7 @@ export function defaultSettings(today = new Date()) {
     periodsPerDay: 7,
     parentNoteLimit: 2,
     periodPainLimit: 1,
+    periodPainCountsParentNote: false, // 생리통 학부모확인서도 학부모확인서 월 한도에 포함 (기본 끔)
     quickReasons: DEFAULT_QUICK_REASONS.map((q) => ({ ...q })),
   };
 }
@@ -324,11 +325,13 @@ export function sanitizeRecord(r) {
 }
 
 const SETTINGS_KEYS = ['schoolYear', 'grade', 'classNo', 'studentCount', 'periodsPerDay', 'parentNoteLimit', 'periodPainLimit', 'updatedAt'];
+const SETTINGS_BOOL_KEYS = ['periodPainCountsParentNote'];
 export function sanitizeSettings(s, base = defaultSettings()) {
   const out = { ...base };
   delete out.updatedAt;
   if (s && typeof s === 'object') {
     for (const k of SETTINGS_KEYS) if (s[k] !== undefined && s[k] !== null && s[k] !== '') out[k] = k === 'updatedAt' ? s[k] : Number(s[k]);
+    for (const k of SETTINGS_BOOL_KEYS) if (typeof s[k] === 'boolean') out[k] = s[k];
     if (Array.isArray(s.quickReasons)) {
       out.quickReasons = s.quickReasons.filter((q) => q && q.label).map((q) => {
         const o = { label: String(q.label) };
@@ -451,4 +454,18 @@ export function diffRemoteChanges(before, after) {
   for (const id of B.keys()) if (!A.has(id)) kinds[id] = 'removed';
   const ids = Object.keys(kinds);
   return { changed: ids.length, neisOnly: ids.length > 0 && ids.every((id) => kinds[id] === 'neis'), ids, kinds };
+}
+
+// ---------- 버전 ----------
+// '0.4.10' 같은 점 구분 숫자 버전 비교. a<b → -1, 같으면 0, a>b → 1. 숫자가 아닌 조각은 0으로 본다.
+export function compareVersions(a, b) {
+  const pa = String(a == null ? '' : a).trim().split('.').map((x) => parseInt(x, 10) || 0);
+  const pb = String(b == null ? '' : b).trim().split('.').map((x) => parseInt(x, 10) || 0);
+  const n = Math.max(pa.length, pb.length);
+  for (let i = 0; i < n; i++) {
+    const x = pa[i] || 0;
+    const y = pb[i] || 0;
+    if (x !== y) return x < y ? -1 : 1;
+  }
+  return 0;
 }

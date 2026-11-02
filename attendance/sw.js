@@ -1,6 +1,6 @@
 // 출결관리 도우미 서비스 워커: 앱 셸 캐시, 오프라인 동작
 // 배포할 때 VERSION을 올리면 이전 캐시를 지운다 (version.js의 APP_VERSION과 맞출 것).
-const VERSION = '0.3.4';
+const VERSION = '0.3.3';
 const CACHE = `ah-app-${VERSION}`;
 const SHELL = [
   './',
@@ -15,6 +15,7 @@ const SHELL = [
   './settings.js',
   './store.js',
   './drive.js',
+  './ext.js',
   './config.js',
   './version.js',
   './shared/model.js',
@@ -25,6 +26,8 @@ const SHELL = [
   './icons/icon-512-maskable.png',
   './icons/apple-touch-icon.png',
 ];
+
+const NO_CACHE = /\/(extension-version\.json|[^/]+\.zip)$/;
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -49,6 +52,8 @@ self.addEventListener('fetch', (event) => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
+  // 확장프로그램 최신 버전 정보와 압축 파일은 캐시하지 않고 항상 네트워크로 (업데이트 알림이 늦지 않도록)
+  if (NO_CACHE.test(url.pathname)) return;
   event.respondWith(networkFirst(req));
 });
 
