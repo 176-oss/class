@@ -235,3 +235,6 @@ body.has-overlay { overflow: hidden; }
   :root { --nav-w: calc(176 * var(--u)); }
   .cols-today .seg[data-seg="div"] .seg-item { font-size: var(--fs-sm); }
 }
+
+/* 두 칸 버튼 줄: 칸이 좁으면 글자를 줄바꿈 (iOS 날짜칸 수정으로 칸이 내용보다 좁아질 수 있음) */
+.grid-2 > .btn { white-space: normal; word-break: keep-all; line-height: 1.25; text-align: center; }
