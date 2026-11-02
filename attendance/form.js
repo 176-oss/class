@@ -7,8 +7,10 @@ import {
   requiredDocs, checkParentNoteLimit, checkPeriodPainLimit, countParentNotes, parentNoteRecords,
   countPeriodPain, expandRange, validateRecord,
 } from './shared/rules.js';
+import { searchStudents } from './shared/model.js';
 import { store, addRecords, updateRecord } from './store.js';
-import { esc, icon, seg, quota, toast } from './ui.js';
+import { esc, icon, seg, quota, toast, josa } from './ui.js';
+import { getRoster, rosterOn, nameFor, stuLabel } from './roster.js';
 
 // 교시 안내: 고르기 전에는 규칙, 고른 뒤에는 실제로 표시될 범위
 function periodHint(kind, period, periods, n) {
@@ -33,9 +35,13 @@ export function monthWord(date) {
 }
 
 export class RecordForm {
-  constructor(el, { prefix = 't', record = null, onDone = null, keepNo = false } = {}) {
+  constructor(el, { prefix = 't', record = null, onDone = null, keepNo = false, search = false } = {}) {
     this.el = el;
     this.p = prefix;
+    this.search = search; // 번호 또는 이름 검색칸 (오늘 탭 입력 폼만)
+    this.q = '';          // 검색어 (입력 중 글자는 상태로만 두고 입력칸은 다시 그리지 않음)
+    this.sIdx = -1;       // 결과 목록에서 방향키로 고른 항목
+    this.live = '';       // 화면 읽기용 안내 (검색 결과 수, 선택한 학생)
     this.onDone = onDone;
     this.keepNo = keepNo;
     this.editId = record?.id || null;
@@ -46,7 +52,13 @@ export class RecordForm {
     el.addEventListener('change', (e) => this.onChange(e));
     el.addEventListener('submit', (e) => { e.preventDefault(); this.save(); });
     el.addEventListener('keydown', (e) => {
+      if (e.target.matches('[data-f="nsearch"]')) { this.onSearchKey(e); return; }
       if (e.key === 'Enter' && e.target.matches('input[type=text], input[inputmode]')) { e.preventDefault(); e.target.blur(); }
+    });
+    // 휴대폰에서 검색칸을 누르면 키보드가 결과를 가리지 않도록 입력칸을 위쪽으로
+    el.addEventListener('focusin', (e) => {
+      if (!e.target.matches('[data-f="nsearch"]') || !window.matchMedia('(max-width: 1023px)').matches) return;
+      setTimeout(() => { if (e.target.isConnected) (e.target.closest('.combo-field') || e.target).scrollIntoView({ block: 'start', behavior: 'smooth' }); }, 50);
     });
   }
 
@@ -131,12 +143,136 @@ export class RecordForm {
     return `${when} 이미 ${kinds} 기록이 있습니다. 나이스에는 한 가지 구분만 입력됩니다. 그래도 저장할까요?`;
   }
 
+  // ---------- 번호 또는 이름 검색 ----------
+  // 학생 수를 넘는 번호는 고를 수 없으므로 결과에서 뺀다
+  searchResults() {
+    const r = getRoster();
+    const max = Number(this.settings.studentCount) || 99;
+    return searchStudents({ students: (r ? r.students : []).filter((st) => st.no <= max) }, this.q, 8);
+  }
+
+  resultsHtml() {
+    const q = this.q.trim();
+    const res = q ? this.searchResults() : [];
+    const lid = this.id('sres');
+    const opts = res.map((st, i) => `<li role="option" class="combo-opt${i === this.sIdx ? ' is-active' : ''}" id="${this.id('sopt-' + st.no)}" data-pick="${st.no}" aria-selected="${i === this.sIdx}">
+        <span class="combo-no num">${st.no}번</span><span class="combo-name">${esc(st.name)}</span></li>`).join('');
+    return `<ul class="combo-list" role="listbox" id="${lid}" aria-label="검색 결과"${res.length ? '' : ' hidden'}>${opts}</ul>
+      ${q && !res.length ? '<div class="hint" data-testid="search-empty">일치하는 학생이 없습니다. 번호를 직접 입력할 수도 있습니다.</div>' : ''}`;
+  }
+
+  // 결과 영역과 입력칸의 접근성 속성만 갱신 (입력칸은 다시 그리지 않아 한글 입력이 끊기지 않음)
+  updateSearch() {
+    const wrap = this.el.querySelector(`#${this.id('swrap')}`);
+    const input = this.el.querySelector(`#${this.id('search')}`);
+    if (!wrap || !input) return;
+    wrap.innerHTML = this.resultsHtml();
+    this.syncCombo(input);
+    const n = this.q.trim() ? this.searchResults().length : 0;
+    this.say(this.q.trim() ? (n ? `검색 결과 ${n}명` : '일치하는 학생이 없습니다') : '');
+    this.ensureVisible(wrap, input);
+  }
+
+  syncCombo(input) {
+    const res = this.q.trim() ? this.searchResults() : [];
+    input.setAttribute('aria-expanded', String(res.length > 0));
+    const cur = res[this.sIdx];
+    if (cur) input.setAttribute('aria-activedescendant', this.id('sopt-' + cur.no)); else input.removeAttribute('aria-activedescendant');
+  }
+
+  say(msg) {
+    this.live = msg;
+    const el = this.el.querySelector(`#${this.id('slive')}`);
+    if (el) el.textContent = msg;
+  }
+
+  // 결과 목록이 화면(키보드를 뺀 보이는 영역) 아래로 넘치면 입력칸이 가려지지 않는 선에서 위로 스크롤
+  ensureVisible(wrap, input) {
+    requestAnimationFrame(() => {
+      const list = wrap.querySelector('[role=listbox]');
+      if (!list || list.hidden || !input.isConnected) return;
+      const vv = window.visualViewport;
+      const vh = vv ? vv.height : window.innerHeight;
+      const bottom = list.getBoundingClientRect().bottom;
+      const over = bottom - (vh - 8);
+      if (over <= 0) return;
+      const head = (document.getElementById('appbar')?.offsetHeight || 56) + 8;
+      const room = input.getBoundingClientRect().top - head;
+      if (room > 0) window.scrollBy({ top: Math.min(over, room), behavior: 'auto' });
+    });
+  }
+
+  setActive(i) {
+    const res = this.q.trim() ? this.searchResults() : [];
+    if (!res.length) { this.sIdx = -1; return; }
+    this.sIdx = (i + res.length) % res.length;
+    this.el.querySelectorAll('.combo-opt').forEach((o, k) => {
+      const on = k === this.sIdx;
+      o.classList.toggle('is-active', on);
+      o.setAttribute('aria-selected', String(on));
+      if (on) o.scrollIntoView({ block: 'nearest' });
+    });
+    this.syncCombo(this.el.querySelector(`#${this.id('search')}`));
+  }
+
+  pick(no, { keepFocus = false } = {}) {
+    const s = this.state;
+    s.no = Number(no);
+    s.confirmPain = false; s.confirmDup = false;
+    this.q = '';
+    this.sIdx = -1;
+    this.live = `${josa(stuLabel(s.no), '을', '를')} 선택했습니다`;
+    this.render();
+    if (keepFocus) document.getElementById(this.id('search'))?.focus({ preventScroll: true });
+  }
+
+  onSearchKey(e) {
+    if (e.isComposing || e.keyCode === 229) return; // 한글 조합 중에는 건드리지 않음
+    const res = this.q.trim() ? this.searchResults() : [];
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      if (!res.length) return;
+      e.preventDefault();
+      this.setActive(this.sIdx < 0 ? (e.key === 'ArrowDown' ? 0 : res.length - 1) : this.sIdx + (e.key === 'ArrowDown' ? 1 : -1));
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      const cur = res[this.sIdx] || res[0];
+      if (cur) this.pick(cur.no, { keepFocus: true });
+    } else if (e.key === 'Escape' && this.q) {
+      e.preventDefault();
+      e.stopPropagation();
+      this.q = ''; this.sIdx = -1;
+      e.target.value = '';
+      this.updateSearch();
+    }
+  }
+
+  // 학생 선택 칩 ('7번 홍길동'). 명단에 이름이 있을 때만
+  chipHtml() {
+    const n = nameFor(this.state.no);
+    return n ? `<div class="stu-chip" id="${this.id('chip')}" data-testid="stu-chip"><span class="num">${esc(this.state.no)}번</span><span class="stu-chip-name">${esc(n)}</span></div>` : '';
+  }
+
+  searchHtml() {
+    if (!rosterOn()) return '';
+    const input = this.search ? `<div class="field combo-field">
+        <label class="label" for="${this.id('search')}">번호 또는 이름</label>
+        <input id="${this.id('search')}" class="input combo-input" type="text" role="combobox" aria-autocomplete="list" aria-expanded="false"
+          aria-controls="${this.id('sres')}" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="done"
+          data-f="nsearch" value="${esc(this.q)}" placeholder="번호 또는 이름, 초성도 가능">
+        <div id="${this.id('swrap')}">${this.resultsHtml()}</div>
+        <p class="sr-only" role="status" aria-live="polite" id="${this.id('slive')}">${esc(this.live)}</p>
+      </div>` : '';
+    return `${input}${this.chipHtml()}`;
+  }
+
   // ---------- 렌더 ----------
   render() {
     const active = document.activeElement;
     const focusId = active && this.el.contains(active) ? active.id : null;
     const selStart = focusId && 'selectionStart' in active ? safeSel(active) : null;
     this.el.innerHTML = this.html();
+    const sInput = this.el.querySelector(`#${this.id('search')}`);
+    if (sInput) this.syncCombo(sInput);
     if (focusId) {
       const again = document.getElementById(focusId);
       if (again) {
@@ -196,6 +332,7 @@ export class RecordForm {
     }).join('');
 
     return `
+      ${this.searchHtml()}
       <div class="grid-2 form-top">
         <div class="field">
           <div class="label-row"><label class="label" for="${this.id('date')}">${s.range ? '시작일' : '날짜'}</label><span class="tiny muted">${isDateStr(s.date) ? `(${weekdayKo(s.date)})` : ''}</span></div>
@@ -343,6 +480,8 @@ export class RecordForm {
 
   // ---------- 이벤트 ----------
   onClick(e) {
+    const opt = e.target.closest('[data-pick]');
+    if (opt && this.el.contains(opt)) { this.pick(opt.dataset.pick); return; }
     const t = e.target.closest('button');
     if (!t || !this.el.contains(t)) return;
     const s = this.state;
@@ -443,6 +582,10 @@ export class RecordForm {
         const q = this.settings.quickReasons[Number(b.dataset.qr)];
         b.setAttribute('aria-pressed', String(s.reason.trim() === q.label && (q.tag || null) === (s.tag || null)));
       });
+    } else if (f === 'nsearch') {
+      this.q = e.target.value;
+      this.sIdx = -1;
+      this.updateSearch();
     } else if (f === 'no') {
       const digits = e.target.value.replace(/\D/g, '').slice(0, 3);
       s.no = digits ? Number(digits) : '';
@@ -482,7 +625,7 @@ export class RecordForm {
     if (dup.length && !this.state.confirmDup) { this.render(); return; }
     const failMsg = '이 기기에 저장하지 못했습니다. 저장 공간을 확인하세요.';
     const first = drafts[0];
-    const label = `${first.no}번 ${describeKind(first)}`;
+    const label = `${stuLabel(first.no)} ${describeKind(first)}`;
     if (this.editId) {
       const { id, createdAt, groupId, neis, ...fields } = first;
       if (!updateRecord(this.editId, fields)) { toast(failMsg, { danger: true }); return; }
@@ -496,6 +639,7 @@ export class RecordForm {
     if (!addRecords(drafts)) { toast(failMsg, { danger: true }); return; }
     toast(drafts.length > 1 ? `${label} ${drafts.length}일 기록을 저장했습니다` : `${label} 기록을 저장했습니다`);
     this.state = this.blank(this.state);
+    this.q = ''; this.sIdx = -1; this.live = '';
     this.showErrors = false;
     this.render();
     this.onDone?.('added', drafts);

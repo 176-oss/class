@@ -2,8 +2,9 @@
 // 설정 화면에는 한 줄 요약만 두고, 목록은 시트(휴대폰 바텀시트, 600px 이상 가운데 대화상자)에서 편집한다.
 // 시트 안에서 바꾼 내용은 [완료]를 누를 때 한 번에 저장(settings.updatedAt 1회).
 // [취소]·닫기·바깥 누르기·Esc·뒤로 가기는 저장하지 않으며, 바뀐 것이 있으면 먼저 확인한다.
-import { DIVS, DIV_ORDER, orderedDivs } from './shared/model.js';
-import { store, updateSettings } from './store.js';
+import { DIVS, DIV_ORDER, orderedDivs, parseRosterText, cleanStudentName, hasRoster, ROSTER_MAX, ROSTER_NO_MAX } from './shared/model.js';
+import { store, updateSettings, setRoster, clearRoster } from './store.js';
+import { getRoster } from './roster.js';
 import { esc, icon, toast, openSheet, closeSheet, josa } from './ui.js';
 
 // ---------- 사유 구분 선택지 ----------
@@ -72,8 +73,10 @@ function listSheet(spec) {
       <button type="button" class="icon-btn" data-close aria-label="닫기">${icon('close')}</button>
     </div>
     <p class="small muted" style="margin: 0 0 var(--sp-3)">${esc(spec.lead)}</p>
+    ${spec.pre || ''}
     <div class="list-box" data-list></div>
     ${spec.extra || ''}
+    <div class="error-text" role="alert" data-error></div>
     <p class="sr-only" role="status" aria-live="polite" data-status></p>
     <div data-confirm></div>
     <div class="sheet-actions" data-actions>
@@ -133,6 +136,11 @@ function listSheet(spec) {
 
   ctx.sheet = sheet;
   ctx.status = (msg) => { const el = sheet.querySelector('[data-status]'); el.textContent = ''; requestAnimationFrame(() => { el.textContent = msg; }); };
+  // 저장 전 검사에서 걸린 문제: 오류 문구를 보이고 해당 칸으로 초점
+  ctx.error = (msg, focusSel) => {
+    sheet.querySelector('[data-error]').textContent = msg || '';
+    if (focusSel) { const el = sheet.querySelector(focusSel); if (el) { el.setAttribute('aria-invalid', 'true'); el.focus(); el.scrollIntoView({ block: 'nearest' }); } }
+  };
   ctx.render = () => {
     sheet.querySelector('[data-list]').innerHTML = spec.list(ctx.draft);
     spec.after?.(ctx);
@@ -154,10 +162,14 @@ function listSheet(spec) {
     if (t.matches('[data-discard]')) { ctx.closing = true; closeSheet(); return; }
     if (t.matches('[data-done]')) {
       const changed = dirty();
+      if (changed && spec.validate) {
+        const bad = spec.validate(ctx.draft);
+        if (bad) { ctx.error(bad.message, bad.focus); return; }
+      }
       if (changed) spec.save(ctx.draft);
       ctx.closing = true;
       closeSheet();
-      if (changed) toast(spec.savedMsg);
+      if (changed) toast(typeof spec.savedMsg === 'function' ? spec.savedMsg(ctx.draft) : spec.savedMsg);
       return;
     }
     if (t.matches('[data-move]')) {
@@ -268,4 +280,159 @@ export function openReasonsSheet() {
     save: (draft) => updateSettings({ quickReasons: draft.map((q) => ({ ...q })) }),
     savedMsg: '자주 쓰는 사유를 저장했습니다',
   });
+}
+
+// ---------- 학생 명단 ----------
+// 요약 행에서 [편집]으로 연다. 붙여넣기로 한 번에 등록하거나 줄마다 번호·이름을 고친다.
+// [완료]를 눌러야 저장되고 roster.updatedAt 만 갱신한다 (settings.updatedAt 은 건드리지 않음). 저장하면 source 는 'manual'.
+const rosterRowHtml = (st, i) => {
+  const who = st.name ? `${st.no || ''}번 ${st.name}`.trim() : `${i + 1}번째 줄`;
+  return `<li class="list-row roster-row" data-row="${i}">
+    <input class="input num roster-no" inputmode="numeric" pattern="[0-9]*" maxlength="2" autocomplete="off" data-rno="${i}" value="${esc(st.no)}" aria-label="${esc(who)} 번호" placeholder="번호">
+    <input class="input roster-name" type="text" maxlength="20" autocomplete="off" spellcheck="false" data-rname="${i}" value="${esc(st.name)}" aria-label="${esc(who)} 이름" placeholder="이름">
+    <button type="button" class="icon-btn" data-rdel="${i}" aria-label="${esc(who)} 삭제">${icon('trash')}</button>
+  </li>`;
+};
+
+function validateRoster(draft) {
+  const seen = new Map();
+  for (let i = 0; i < draft.length; i++) {
+    const st = draft[i];
+    const no = Number(st.no);
+    if (!Number.isInteger(no) || no < 1 || no > ROSTER_NO_MAX) return { message: `번호는 1~${ROSTER_NO_MAX} 사이로 입력하세요.`, focus: `[data-rno="${i}"]` };
+    if (!cleanStudentName(st.name)) return { message: `${no}번의 이름을 1~20자로 입력하거나 줄을 지우세요.`, focus: `[data-rname="${i}"]` };
+    if (seen.has(no)) return { message: `${no}번이 두 줄에 있습니다. 하나만 남기세요.`, focus: `[data-rno="${i}"]` };
+    seen.set(no, i);
+  }
+  if (draft.length > ROSTER_MAX) return { message: `학생은 ${ROSTER_MAX}명까지 등록할 수 있습니다.` };
+  return null;
+}
+
+export function openRosterSheet() {
+  const current = getRoster();
+  return listSheet({
+    id: 'roster',
+    title: '학생 명단',
+    lead: '번호와 이름을 등록하면 입력, 기록, 서류, 학생 화면에서 이름으로 찾을 수 있습니다. 이름은 내 구글 드라이브 앱 전용 폴더에만 저장됩니다.',
+    initial: hasRoster(current) ? current.students.map((s) => ({ no: s.no, name: s.name })) : [],
+    pre: `<div class="field" style="margin-bottom: var(--sp-4)">
+        <label class="label" for="roster-paste">명단 붙여넣기</label>
+        <textarea class="textarea" id="roster-paste" rows="4" spellcheck="false" autocomplete="off" aria-describedby="roster-preview" placeholder="한 줄에 한 명씩&#10;1 구세인&#10;2. 김가온&#10;3&#9;이서연"></textarea>
+        <div class="hint" id="roster-preview" aria-live="polite">엑셀·한글 표에서 번호와 이름 두 칸을 복사해 붙여넣을 수 있습니다. 생년월일은 읽지 않습니다.</div>
+        <ul class="guide-list tiny" id="roster-errors" aria-label="인식하지 못한 줄" hidden></ul>
+        <button type="button" class="btn btn-secondary btn-block" data-apply-paste disabled style="margin-top: var(--sp-2)">붙여넣은 명단 적용</button>
+      </div>
+      <div class="label-row"><span class="label">학생 목록</span><span class="tiny muted num" id="roster-count" aria-live="polite"></span></div>`,
+    items: (draft) => draft,
+    nameOf: (st) => st.name,
+    list: (draft) => draft.length
+      ? `<ul class="list order-list" data-testid="roster-list">${draft.map(rosterRowHtml).join('')}</ul>`
+      : '<ul class="list" data-testid="roster-list"><li class="list-row"><span class="small muted">등록된 학생이 없습니다. 위에 붙여넣거나 [학생 추가]를 누르세요.</span></li></ul>',
+    after: (ctx) => {
+      const n = ctx.draft.length;
+      ctx.sheet.querySelector('#roster-count').textContent = n ? `${n}명` : '';
+      const clr = ctx.sheet.querySelector('[data-roster-clear]');
+      if (clr) clr.disabled = !hasRoster(getRoster());
+    },
+    extra: `<div class="stack-sm" style="margin-top: var(--sp-3)">
+        <button type="button" class="btn btn-secondary btn-block" data-add-row>${icon('plus')}학생 추가</button>
+        <button type="button" class="btn btn-danger-outline btn-block" data-roster-clear>명단 모두 지우기</button>
+        <div data-roster-confirm></div>
+      </div>`,
+    validate: validateRoster,
+    onClick: (t, ctx) => {
+      const sheet = ctx.sheet;
+      const focusRow = (i, sel) => sheet.querySelector(`[data-${sel}="${i}"]`)?.focus();
+      if (t.matches('[data-add-row]')) {
+        const used = new Set(ctx.draft.map((x) => Number(x.no)));
+        let next = 1;
+        while (used.has(next) && next < ROSTER_NO_MAX) next++;
+        if (ctx.draft.length >= ROSTER_MAX) { ctx.error(`학생은 ${ROSTER_MAX}명까지 등록할 수 있습니다.`); return; }
+        ctx.error('');
+        ctx.draft.push({ no: next, name: '' });
+        ctx.render();
+        focusRow(ctx.draft.length - 1, 'rname');
+        ctx.status(`${next}번 줄을 추가했습니다. 이름을 입력하세요.`);
+      } else if (t.matches('[data-rdel]')) {
+        const i = Number(t.dataset.rdel);
+        const [removed] = ctx.draft.splice(i, 1);
+        ctx.error('');
+        ctx.render();
+        const next = sheet.querySelector(`[data-rdel="${Math.min(i, ctx.draft.length - 1)}"]`);
+        (next || sheet.querySelector('[data-add-row]')).focus();
+        ctx.status(`${[removed.no ? `${removed.no}번` : '', removed.name].filter(Boolean).join(' ') || '빈'} 줄을 지웠습니다. [완료]를 누르면 저장됩니다.`);
+      } else if (t.matches('[data-apply-paste]')) {
+        const parsed = parseRosterText(sheet.querySelector('#roster-paste').value);
+        if (!parsed.students.length) return;
+        ctx.draft.splice(0, ctx.draft.length, ...parsed.students.map((x) => ({ no: x.no, name: x.name })));
+        sheet.querySelector('#roster-paste').value = '';
+        refreshPreview(sheet);
+        ctx.error('');
+        ctx.render();
+        sheet.querySelector('[data-done]').focus();
+        ctx.status(`${parsed.students.length}명을 적용했습니다. 오류 ${parsed.errors.length}줄. [완료]를 누르면 저장됩니다.`);
+      } else if (t.matches('[data-roster-clear]')) {
+        const box = sheet.querySelector('[data-roster-confirm]');
+        box.innerHTML = `<div class="alert alert-block" role="alertdialog" aria-labelledby="roster-clear-t" style="margin-top: var(--sp-2)">${icon('alert')}
+          <div class="alert-body"><strong class="alert-title" id="roster-clear-t">명단을 모두 지울까요?</strong>
+          이 기기와 구글 드라이브의 학생 명단이 지워집니다. 출결 기록은 그대로입니다.
+          <div class="alert-actions"><button type="button" class="btn btn-secondary" data-clear-cancel>취소</button>
+          <button type="button" class="btn btn-danger" data-clear-ok>모두 지우기</button></div></div></div>`;
+        box.querySelector('[data-clear-cancel]').focus();
+        box.scrollIntoView({ block: 'nearest' });
+      } else if (t.matches('[data-clear-cancel]')) {
+        sheet.querySelector('[data-roster-confirm]').innerHTML = '';
+        sheet.querySelector('[data-roster-clear]').focus();
+      } else if (t.matches('[data-clear-ok]')) {
+        clearRoster();
+        ctx.closing = true;
+        closeSheet();
+        toast('학생 명단을 지웠습니다');
+      }
+    },
+    bind: (ctx) => {
+      const sheet = ctx.sheet;
+      sheet.addEventListener('input', (e) => {
+        const el = e.target;
+        if (el.matches('#roster-paste')) { refreshPreview(sheet); return; }
+        if (el.dataset.rno != null) {
+          const digits = el.value.replace(/\D/g, '').slice(0, 2);
+          if (digits !== el.value) el.value = digits;
+          ctx.draft[Number(el.dataset.rno)].no = digits ? Number(digits) : '';
+          el.removeAttribute('aria-invalid');
+        } else if (el.dataset.rname != null) {
+          ctx.draft[Number(el.dataset.rname)].name = el.value;
+          el.removeAttribute('aria-invalid');
+        } else return;
+        sheet.querySelector('[data-error]').textContent = '';
+      });
+      // 이름칸에서 Enter: 다음 줄 이름칸으로 (폼 전송 없음)
+      sheet.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter' || e.isComposing || e.keyCode === 229 || !e.target.matches('.roster-row input')) return;
+        e.preventDefault();
+        const next = e.target.closest('.roster-row')?.nextElementSibling?.querySelector('.roster-name');
+        (next || sheet.querySelector('[data-add-row]')).focus();
+      });
+    },
+    save: (draft) => setRoster(draft.map((x) => ({ no: Number(x.no), name: x.name })), 'manual'),
+    savedMsg: (draft) => (draft.length ? `학생 명단 ${draft.length}명을 저장했습니다` : '학생 명단을 지웠습니다'),
+  });
+}
+
+// 붙여넣은 글 미리보기: 인식 N명 · 오류 M줄
+function refreshPreview(sheet) {
+  const text = sheet.querySelector('#roster-paste').value;
+  const out = sheet.querySelector('#roster-preview');
+  const errs = sheet.querySelector('#roster-errors');
+  const btn = sheet.querySelector('[data-apply-paste]');
+  if (!text.trim()) {
+    out.textContent = '엑셀·한글 표에서 번호와 이름 두 칸을 복사해 붙여넣을 수 있습니다. 생년월일은 읽지 않습니다.';
+    errs.hidden = true; errs.innerHTML = ''; btn.disabled = true;
+    return;
+  }
+  const r = parseRosterText(text);
+  out.innerHTML = `<strong class="num">인식 ${r.students.length}명</strong> · <span class="num${r.errors.length ? ' danger-text' : ''}">오류 ${r.errors.length}줄</span>${r.duplicates.length ? ` · 같은 번호 ${r.duplicates.length}개는 뒤의 줄을 씁니다` : ''}`;
+  errs.hidden = !r.errors.length;
+  errs.innerHTML = r.errors.slice(0, 5).map((x) => `<li>${x.line ? `${x.line}번째 줄` : ''} ${esc(x.reason)}${x.text ? ` (${esc(x.text)})` : ''}</li>`).join('') + (r.errors.length > 5 ? `<li>그 밖에 ${r.errors.length - 5}줄</li>` : '');
+  btn.disabled = !r.students.length;
 }

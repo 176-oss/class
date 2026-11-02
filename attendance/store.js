@@ -1,5 +1,5 @@
 // 로컬 저장 + 구글 드라이브 동기화
-import { STORAGE_KEY, LOCAL_SETTINGS_KEY, normalizeData, mergeData, createRecord, diffRemoteChanges } from './shared/model.js';
+import { STORAGE_KEY, LOCAL_SETTINGS_KEY, normalizeData, mergeData, createRecord, diffRemoteChanges, makeRoster } from './shared/model.js';
 import * as drive from './drive.js';
 
 const listeners = new Set();
@@ -126,7 +126,14 @@ export function addMissingPainDocs(ids) {
 export function updateSettings(settings) {
   return commit((d) => { d.settings = { ...d.settings, ...settings, updatedAt: new Date().toISOString() }; });
 }
-// 백업 파일 합치기. 계약 외 필드(이름 등)는 mergeData가 제거. 반환: 새로 들어온 기록 수
+// 학생 명단 저장 (students 를 비우면 '명단 비우기'). settings.updatedAt 이 아니라 roster.updatedAt 을 갱신
+export function setRoster(students, source = 'manual') {
+  return commit((d) => { d.roster = makeRoster(students, source); });
+}
+export function clearRoster() {
+  return setRoster([], 'manual');
+}
+// 백업 파일 합치기. 계약 외 필드(기록 안의 이름 등)는 mergeData가 제거. 반환: 새로 들어온 기록 수
 export function importData(incoming) {
   const before = new Set(store.data.records.map((r) => r.id));
   const merged = mergeData(store.data, incoming);
@@ -150,6 +157,7 @@ export function pendingCount() {
   }
   n += store.data.deleted.filter((d) => !last || after(d.deletedAt)).length;
   if (store.data.settings.updatedAt && after(store.data.settings.updatedAt)) n++;
+  if (store.data.roster && store.data.roster.updatedAt && after(store.data.roster.updatedAt)) n++;
   return n;
 }
 
@@ -280,7 +288,7 @@ export function checkRemote() {
       else scheduleSync(500);
       store.lastRemote = diff;
       emit('data');
-      if (diff.changed) emit('remote');
+      if (diff.changed || diff.roster) emit('remote');
       emit('poll');
       return diff.changed > 0;
     } catch (e) {

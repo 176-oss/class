@@ -341,6 +341,179 @@ export function sanitizeRecord(r) {
   return out;
 }
 
+// ---------- 학생 명단 (roster, spec 14.4) ----------
+// 기록(records)에는 이름을 넣지 않는다. 이름은 최상위 선택 필드 roster 에만 있다.
+//   roster = { students: [{no, name}], updatedAt: ISO, source: 'neis' | 'manual' }
+// 명단 비우기는 students: [] + 새 updatedAt 으로 표현한다 (다른 기기에서도 비워짐).
+export const ROSTER_MAX = 80;
+export const ROSTER_NAME_MAX = 20;
+export const ROSTER_NO_MAX = 99;
+
+// 이름 정리: 제어문자 제거, 공백 정리. 비었거나 20자 초과면 null (잘라서 틀린 이름을 만들지 않는다)
+const isBlockedChar = (c) => c < 0x20 || (c >= 0x7f && c <= 0x9f) || (c >= 0x200b && c <= 0x200f) || (c >= 0x2028 && c <= 0x202e) || (c >= 0x2066 && c <= 0x2069) || c === 0xfeff;
+export function cleanStudentName(name) {
+  if (typeof name !== 'string') return null;
+  // 제어문자·보이지 않는 글자(너비 0 공백, 방향 표시 등)는 지우고, 줄바꿈·탭은 공백으로
+  const s = [...name].map((c) => (isBlockedChar(c.codePointAt(0)) ? (/\s/.test(c) ? ' ' : '') : c)).join('').replace(/\s+/g, ' ').trim();
+  if (!s || [...s].length > ROSTER_NAME_MAX) return null;
+  return s;
+}
+
+// 학생 한 명: no/name 두 키만 남김 (생년월일 등 다른 키는 모두 제거). 올바르지 않으면 null
+export function sanitizeStudent(st) {
+  if (!st || typeof st !== 'object') return null;
+  const no = typeof st.no === 'string' && /^\d+$/.test(st.no.trim()) ? Number(st.no) : st.no;
+  if (!Number.isInteger(no) || no < 1 || no > ROSTER_NO_MAX) return null;
+  const name = cleanStudentName(st.name);
+  return name ? { no, name } : null;
+}
+
+// 명단 정리. 번호 중복은 마지막 것, 최대 80명, 번호 오름차순.
+// roster 가 없거나 형식이 아니면 null. students 가 비어도 updatedAt 이 있으면 '비움' 표시로 남긴다.
+export function sanitizeRoster(r) {
+  if (!r || typeof r !== 'object' || Array.isArray(r)) return null;
+  const map = new Map();
+  if (Array.isArray(r.students)) for (const st of r.students) { const s = sanitizeStudent(st); if (s) map.set(s.no, s); }
+  const students = [...map.values()].sort((a, b) => a.no - b.no).slice(0, ROSTER_MAX);
+  const updatedAt = Number.isFinite(Date.parse(r.updatedAt || '')) ? new Date(Date.parse(r.updatedAt)).toISOString() : null;
+  if (!students.length && !updatedAt) return null;
+  return { students, updatedAt, source: r.source === 'neis' ? 'neis' : 'manual' };
+}
+
+// 새 명단 만들기 (updatedAt = now). students 를 비우면 '명단 비우기' 표시
+export function makeRoster(students, source = 'manual', now = new Date().toISOString()) {
+  return sanitizeRoster({ students, updatedAt: now, source }) || { students: [], updatedAt: now, source: 'manual' };
+}
+
+// 두 명단 병합: updatedAt 이 늦은 쪽을 통째로. 한쪽만 있으면 그쪽. 같으면 a(이 기기)
+export function mergeRoster(a, b) {
+  const A = sanitizeRoster(a), B = sanitizeRoster(b);
+  if (!A) return B;
+  if (!B) return A;
+  return ts(B.updatedAt) > ts(A.updatedAt) ? B : A;
+}
+
+export const hasRoster = (roster) => !!(roster && Array.isArray(roster.students) && roster.students.length);
+
+// 번호로 이름 찾기 (없으면 ''). 모든 화면의 이름 표시는 이 함수를 통한다.
+export function nameOf(roster, no) {
+  if (!hasRoster(roster)) return '';
+  const n = Number(no);
+  const st = roster.students.find((s) => Number(s.no) === n);
+  return st ? st.name : '';
+}
+
+// ---- 한글 초성 검색 ----
+const CHO = ['ㄱ', 'ㄲ', 'ㄴ', 'ㄷ', 'ㄸ', 'ㄹ', 'ㅁ', 'ㅂ', 'ㅃ', 'ㅅ', 'ㅆ', 'ㅇ', 'ㅈ', 'ㅉ', 'ㅊ', 'ㅋ', 'ㅌ', 'ㅍ', 'ㅎ'];
+const CHO_SET = new Set(CHO);
+// 완성형 한글 글자의 초성 (한글 음절이 아니면 null)
+function choOf(ch) {
+  const c = ch.charCodeAt(0) - 0xac00;
+  return c >= 0 && c <= 11171 ? CHO[Math.floor(c / 588)] : null;
+}
+// 질의 글자 q 가 이름 글자 n 과 맞는가 (질의가 초성이면 n 의 초성과, 아니면 같은 글자)
+function charMatch(q, n) {
+  if (CHO_SET.has(q)) return choOf(n) === q || n === q;
+  return q === n;
+}
+// 이름 안에서 질의가 처음 맞는 위치 (없으면 -1)
+function indexOfQuery(name, q) {
+  const nc = [...name.toLowerCase().replace(/\s+/g, '')];
+  const qc = [...q];
+  for (let i = 0; i + qc.length <= nc.length; i++) {
+    let ok = true;
+    for (let j = 0; j < qc.length; j++) if (!charMatch(qc[j], nc[i + j])) { ok = false; break; }
+    if (ok) return i;
+  }
+  return -1;
+}
+const cleanQuery = (q) => String(q == null ? '' : q).normalize('NFC').toLowerCase().replace(/\s+/g, '');
+// '7', '07', '7번' → 7 (숫자 질의가 아니면 null)
+function numberQuery(q) {
+  const m = /^(\d{1,3})번?$/.exec(q);
+  return m ? Number(m[1]) : null;
+}
+
+// 번호 또는 이름으로 학생 찾기 (순수 함수).
+//  - 숫자 질의: 번호 일치가 먼저, 그다음 번호 접두 일치(예 '1' → 1, 10~19)
+//  - 문자 질의: 이름 부분 일치 + 한글 초성 검색('ㄱㅅㅇ' → 구세인, '구ㅅㅇ'도 됨). 이름 앞부분 일치가 먼저
+//  - 동명이인은 모두 나옴. 결과 각 항목은 {no, name}. 빈 질의는 []
+export function searchStudents(roster, query, limit = 8) {
+  if (!hasRoster(roster)) return [];
+  const q = cleanQuery(query);
+  if (!q) return [];
+  const list = [...roster.students].sort((a, b) => a.no - b.no);
+  const out = [];
+  const n = numberQuery(q);
+  if (n !== null) {
+    const exact = list.filter((s) => s.no === n);
+    const prefix = n > 0 ? list.filter((s) => s.no !== n && String(s.no).startsWith(String(n))) : [];
+    out.push(...exact, ...prefix);
+  } else {
+    const ranked = [];
+    for (const s of list) {
+      const i = indexOfQuery(s.name, q);
+      if (i >= 0) ranked.push({ s, rank: i === 0 ? 0 : 1 });
+    }
+    ranked.sort((a, b) => a.rank - b.rank || a.s.no - b.s.no);
+    out.push(...ranked.map((x) => x.s));
+  }
+  return out.slice(0, Math.max(0, limit)).map((s) => ({ no: s.no, name: s.name }));
+}
+
+// 목록 필터용: 질의에 맞는 번호인지 판단하는 함수. 빈 질의면 null (거르지 않음).
+//  숫자 질의는 그 번호만(접두 아님), 문자 질의는 이름 부분 일치·초성. 명단에 없는 번호도 숫자로는 맞음.
+export function makeStudentFilter(roster, query) {
+  const q = cleanQuery(query);
+  if (!q) return null;
+  const n = numberQuery(q);
+  if (n !== null) return (no) => Number(no) === n;
+  const nos = new Set(hasRoster(roster) ? roster.students.filter((s) => indexOfQuery(s.name, q) >= 0).map((s) => s.no) : []);
+  return (no) => nos.has(Number(no));
+}
+
+// 붙여넣은 명단 글 읽기. 한 줄에 한 명: "7 홍길동", "7. 홍길동", "7)홍길동", "7번 홍길동", "7\t홍길동" 등.
+// 탭이 있으면 둘째 칸만 이름으로 읽는다(셋째 칸 이후 생년월일 등은 버림). 이름에 숫자가 있으면 오류.
+// 반환 {students (정리됨), errors:[{line, text, reason}], duplicates:[번호]}
+export function parseRosterText(text) {
+  const students = new Map();
+  const errors = [];
+  const duplicates = [];
+  const lines = String(text == null ? '' : text).split(/\r\n|\r|\n/);
+  lines.forEach((raw, idx) => {
+    const line = idx + 1;
+    const t = raw.trim();
+    if (!t) return;
+    const fail = (reason) => errors.push({ line, text: t.length > 30 ? `${t.slice(0, 30)}...` : t, reason });
+    let noPart, namePart;
+    if (t.includes('\t')) {
+      const cols = t.split('\t').map((c) => c.trim()).filter((c, i) => i < 2 || c);
+      noPart = cols[0];
+      namePart = cols[1];
+      const m = /^(\d{1,3})\s*(?:번|[.)\]:,])?$/.exec(noPart || '');
+      if (!m || !namePart) return fail(!m ? '번호를 읽을 수 없습니다' : '이름이 없습니다');
+      noPart = m[1];
+    } else {
+      const m = /^(\d{1,3})\s*(?:번|[.)\]:,])?\s*(.*)$/.exec(t);
+      if (!m) return fail('번호로 시작해야 합니다');
+      noPart = m[1];
+      namePart = m[2];
+    }
+    const no = Number(noPart);
+    if (!(no >= 1 && no <= ROSTER_NO_MAX)) return fail(`번호는 1~${ROSTER_NO_MAX} 사이여야 합니다`);
+    if (/\d/.test(namePart || '')) return fail('이름에 숫자가 있습니다');
+    const name = cleanStudentName(namePart);
+    if (!name) return fail(!String(namePart || '').trim() ? '이름이 없습니다' : `이름은 ${ROSTER_NAME_MAX}자 이하여야 합니다`);
+    if (students.has(no) && !duplicates.includes(no)) duplicates.push(no);
+    students.set(no, { no, name });
+  });
+  const list = [...students.values()].sort((a, b) => a.no - b.no);
+  if (list.length > ROSTER_MAX) {
+    for (const s of list.slice(ROSTER_MAX)) errors.push({ line: 0, text: `${s.no}번`, reason: `최대 ${ROSTER_MAX}명까지 등록합니다` });
+  }
+  return { students: list.slice(0, ROSTER_MAX), errors, duplicates };
+}
+
 const SETTINGS_KEYS = ['schoolYear', 'grade', 'classNo', 'studentCount', 'periodsPerDay', 'parentNoteLimit', 'periodPainLimit', 'updatedAt'];
 const SETTINGS_BOOL_KEYS = ['periodPainCountsParentNote'];
 export function sanitizeSettings(s, base = defaultSettings()) {
@@ -367,13 +540,16 @@ export function sanitizeSettings(s, base = defaultSettings()) {
 export function normalizeData(data) {
   const base = createEmptyData();
   if (!data || typeof data !== 'object') return base;
-  return {
+  const out = {
     schema: data.schema || SCHEMA_VERSION,
     updatedAt: data.updatedAt || base.updatedAt,
     settings: sanitizeSettings(data.settings),
     records: Array.isArray(data.records) ? data.records.map(sanitizeRecord).filter(Boolean) : [],
     deleted: Array.isArray(data.deleted) ? data.deleted.filter((d) => d && d.id).map((d) => ({ id: String(d.id), deletedAt: d.deletedAt || null })) : [],
   };
+  const roster = sanitizeRoster(data.roster); // 선택 필드: 없으면 키 자체를 두지 않음
+  if (roster) out.roster = roster;
+  return out;
 }
 
 // 서류 한 항목의 병합 기준 시각: updatedAt, 없으면(옛 데이터) submittedAt
@@ -441,19 +617,23 @@ export function mergeData(local, remote) {
   else if (ls || rs) settings = ls ? L.settings : R.settings;
   else settings = ts(R.updatedAt) > ts(L.updatedAt) ? R.settings : L.settings;
 
-  return {
+  const out = {
     schema: SCHEMA_VERSION,
     updatedAt: new Date().toISOString(),
     settings: { ...settings, quickReasons: (settings.quickReasons || []).map((q) => ({ ...q })), divOrder: sanitizeDivOrder(settings.divOrder) },
     records,
     deleted: [...deletedMap.values()],
   };
+  const roster = mergeRoster(L.roster, R.roster); // updatedAt 이 늦은 쪽을 통째로
+  if (roster) out.roster = roster;
+  return out;
 }
 
 // 원격 반영 전후 비교 (자동 확인, 계약 5절). 화면 안내용: 무엇이 몇 건 바뀌었는지.
 //  - kinds[id]: 'added' | 'removed' | 'body'(본문) | 'docs'(서류 제출만) | 'neis'(나이스 입력 완료만)
 //  - neisOnly: 바뀐 기록이 모두 나이스 입력 완료만 바뀐 경우
 //  - 시각 값(updatedAt 등)만 다르고 내용이 같으면 바뀐 것으로 보지 않는다
+//  - roster: 학생 명단이 바뀌었는가 (기록 변경 건수 changed 에는 들어가지 않음)
 const DIFF_BODY_KEYS = ['date', 'no', 'kind', 'div', 'period', 'periods', 'reason', 'tag', 'groupId'];
 const sameJson = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 const docsShape = (r) => (r.docs || []).map((d) => [d.type, d.name || '']);
@@ -472,7 +652,9 @@ export function diffRemoteChanges(before, after) {
   }
   for (const id of B.keys()) if (!A.has(id)) kinds[id] = 'removed';
   const ids = Object.keys(kinds);
-  return { changed: ids.length, neisOnly: ids.length > 0 && ids.every((id) => kinds[id] === 'neis'), ids, kinds };
+  // 명단(roster)은 기록 변경으로 세지 않고 roster 표시만 따로 알림
+  const roster = !sameJson(sanitizeRoster(before && before.roster), sanitizeRoster(after && after.roster));
+  return { changed: ids.length, neisOnly: ids.length > 0 && ids.every((id) => kinds[id] === 'neis'), ids, kinds, roster };
 }
 
 // ---------- 버전 ----------
