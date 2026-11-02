@@ -5,7 +5,8 @@ import { driveConfigured } from './drive.js';
 import { APP_VERSION } from './version.js';
 import { countParentNotes, countPeriodPain } from './shared/rules.js';
 import { esc, icon, toast, confirmDialog, openSheet, closeSheet } from './ui.js';
-import { openDivOrderSheet, openReasonsSheet, divOrderSummary, reasonsSummary } from './list-sheets.js';
+import { openDivOrderSheet, openReasonsSheet, openRosterSheet, divOrderSummary, reasonsSummary } from './list-sheets.js';
+import { getRoster, rosterSummary, rosterOn } from './roster.js';
 import { ext, onExtChange, needsUpdate, downloadZip, checkExtension } from './ext.js';
 
 // 학교 PC 확장프로그램 카드 (최신 버전, 이 PC에 설치된 버전, 내려받기)
@@ -63,7 +64,7 @@ function showImportResult(added, over, stripped = false) {
   el.querySelector('[data-ok]').addEventListener('click', () => closeSheet());
 }
 
-const PRIVACY = '온라인에는 학생 번호만 저장됩니다. 사유도 저장되므로 학교 개인정보 지침을 확인하세요.';
+const PRIVACY = '학생 이름은 명단을 등록한 경우에만 구글 드라이브 앱 전용 폴더에 저장됩니다. 기록에는 번호만 저장됩니다. 이름과 사유가 같은 파일에 저장되므로 학교 개인정보 지침을 확인하세요.';
 
 const installGuide = `
   <section class="card stack-sm" aria-labelledby="install-title">
@@ -198,6 +199,10 @@ export const settingsView = {
             <div class="list-main"><div class="list-title">자주 쓰는 사유</div><div class="list-meta" id="sum-qr">${esc(reasonsSummary(s))}</div></div>
             <button type="button" class="btn btn-secondary summary-btn" data-act="edit-qr" aria-label="자주 쓰는 사유 편집" aria-describedby="sum-qr">편집</button>
           </li>
+          <li class="list-row is-clickable" data-open-list="roster">
+            <div class="list-main"><div class="list-title">학생 명단</div><div class="list-meta" id="sum-roster">${esc(rosterSummary(getRoster()))}</div></div>
+            <button type="button" class="btn btn-secondary summary-btn" data-act="edit-roster" aria-label="학생 명단 편집" aria-describedby="sum-roster">편집</button>
+          </li>
         </ul>
       </section>
 
@@ -212,6 +217,7 @@ export const settingsView = {
           <button type="button" class="btn btn-secondary" data-act="export">백업 파일 내보내기</button>
           <button type="button" class="btn btn-secondary" data-act="import">가져오기</button>
         </div>
+        <p class="tiny muted" id="backup-names" style="margin:0"${rosterOn() ? '' : ' hidden'}>백업 파일에는 학생 이름이 들어 있습니다. 외부에 공유하지 마세요.</p>
         <input type="file" id="import-file" accept="application/json,.json" hidden>
       </section>
 
@@ -267,6 +273,10 @@ export const settingsView = {
     if (d) d.textContent = divOrderSummary(s);
     const q = document.getElementById('sum-qr');
     if (q) q.textContent = reasonsSummary(s);
+    const r = document.getElementById('sum-roster');
+    if (r) r.textContent = rosterSummary(getRoster());
+    const w = document.getElementById('backup-names');
+    if (w) w.hidden = !rosterOn();
   },
   renderDrive() {
     const el = document.getElementById('drive-card');
@@ -288,7 +298,7 @@ export const settingsView = {
     const row = e.target.closest('[data-open-list]');
     if (row && !e.target.closest('[data-act]')) {
       row.querySelector('[data-act]').focus();
-      (row.dataset.openList === 'div' ? openDivOrderSheet : openReasonsSheet)();
+      ({ div: openDivOrderSheet, qr: openReasonsSheet, roster: openRosterSheet })[row.dataset.openList]();
       return;
     }
     const b = e.target.closest('[data-act]');
@@ -307,6 +317,8 @@ export const settingsView = {
         openDivOrderSheet();
       } else if (act === 'edit-qr') {
         openReasonsSheet();
+      } else if (act === 'edit-roster') {
+        openRosterSheet();
       } else if (act === 'ext-download') {
         downloadZip();
         toast('확장프로그램 압축 파일을 내려받습니다');
@@ -346,7 +358,7 @@ export const setupView = {
           <p class="small muted" style="margin:0">담임 학급 정보를 입력하세요. 나중에 설정에서 바꿀 수 있습니다.</p>
         </div>
         ${classFields({ ...s, grade: '', classNo: '', studentCount: '' })}
-        <div class="alert alert-info">${icon('info')}<div class="alert-body"><strong class="alert-title">개인정보 안내</strong>${PRIVACY} 이 앱에는 학생 이름을 입력하지 않습니다.</div></div>
+        <div class="alert alert-info">${icon('info')}<div class="alert-body"><strong class="alert-title">개인정보 안내</strong>${PRIVACY} 처음에는 이름 없이 번호만 써도 되고, 나중에 설정에서 명단을 등록할 수 있습니다.</div></div>
         <button type="button" class="btn btn-primary btn-block btn-lg" data-act="start">시작하기</button>
       </section>
       <section class="card stack-sm" aria-labelledby="restore-title">

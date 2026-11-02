@@ -4,6 +4,8 @@ import {
   yearMonthOf, toDateStr, neisBlockReason,
 } from './shared/model.js';
 import { missingDocs, countParentNotes, countPeriodPain, periodPainWithoutDocs } from './shared/rules.js';
+import { makeStudentFilter } from './shared/model.js';
+import { getRoster, rosterOn, nameFor, stuLabel } from './roster.js';
 import { store, deleteRecord, restoreRecord, setDocsSubmitted, addMissingPainDocs } from './store.js';
 import { RecordForm } from './form.js';
 import { esc, icon, quota, toast, openSheet, closeSheet, josa } from './ui.js';
@@ -37,10 +39,11 @@ function docStatus(r) {
   return (r.docs || []).map((d) => `${docLabel(d, true)} ${d.submitted ? '받음' : '미제출'}`).join(', ');
 }
 
-export function recordRow(r, { showDate = false } = {}) {
+export function recordRow(r, { showDate = false, showName = true } = {}) {
   const meta = [showDate ? formatDateKo(r.date) : '', docStatus(r), r.reason ? `사유 ${r.reason}` : ''].filter(Boolean).join(' · ');
-  const title = describeKind(r);
-  return `<li class="list-row is-clickable${r.neis?.done ? ' is-done' : ''}" role="button" tabindex="0" data-open="${esc(r.id)}" aria-label="${esc(`${r.no}번 ${describeRecord(r)}, ${formatDateKo(r.date)}. 눌러서 수정`)}">
+  const nm = showName ? nameFor(r.no) : '';
+  const title = nm ? `${nm} · ${describeKind(r)}` : describeKind(r);
+  return `<li class="list-row is-clickable${r.neis?.done ? ' is-done' : ''}" role="button" tabindex="0" data-open="${esc(r.id)}" aria-label="${esc(`${stuLabel(r.no)} ${describeRecord(r)}, ${formatDateKo(r.date)}. 눌러서 수정`)}">
     <span class="list-no">${r.no}</span>
     <div class="list-main">
       <div class="list-title">${esc(title)}</div>
@@ -64,7 +67,7 @@ let editing = null; // 열려 있는 수정 시트 {id, form, sheet}
 export function openEditSheet(record) {
   const sheet = openSheet(`
     <div class="sheet-head">
-      <h2 class="sheet-title" id="sheet-title">${record.no}번 기록 수정</h2>
+      <h2 class="sheet-title" id="sheet-title">${esc(stuLabel(record.no))} 기록 수정</h2>
       <button type="button" class="icon-btn" data-close aria-label="닫기">${icon('close')}</button>
     </div>
     <p class="small muted num" style="margin: 0 0 var(--sp-3)">${esc(formatDateKo(record.date))} · ${record.neis?.done ? '나이스 입력 완료' : '나이스 대기'}</p>
@@ -82,7 +85,7 @@ export function openEditSheet(record) {
     const copy = structuredClone(record);
     deleteRecord(record.id);
     closeSheet();
-    toast(`${record.no}번 ${formatDateKo(record.date, false)} 기록을 삭제했습니다`, {
+    toast(`${stuLabel(record.no)} ${formatDateKo(record.date, false)} 기록을 삭제했습니다`, {
       action: '되돌리기',
       onAction: () => { restoreRecord(copy); toast('삭제를 취소했습니다'); },
     });
@@ -129,7 +132,7 @@ export const todayView = {
         <section class="card card-flush" id="today-list" aria-live="polite"></section>
         <p class="tiny muted storage-note" id="storage-note"></p>
       </div></div>`;
-    this.form = new RecordForm(main.querySelector('#today-form'), { prefix: 't' });
+    this.form = new RecordForm(main.querySelector('#today-form'), { prefix: 't', search: true });
     this.form.render();
     bindOpen(main.querySelector('#today-list'));
     this.updateList();
@@ -166,24 +169,31 @@ export function storageText() {
 }
 
 // ---------- 기록 ----------
-const recFilter = { month: '', no: '', kind: '', neisWait: false, undecided: false };
+const recFilter = { month: '', no: '', q: '', kind: '', neisWait: false, undecided: false };
 export const recordsView = {
   title: '기록',
   mount(main) {
     if (!recFilter.month) recFilter.month = yearMonthOf(todayStr());
     main.innerHTML = `<div class="cols cols-side"><div class="col col-sticky">
       <section class="card stack-sm" aria-label="필터">
-        <div class="grid-3">
+        <div class="field" id="flt-q-wrap" hidden><label class="label" for="flt-q">번호 또는 이름</label><input class="input" id="flt-q" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="번호 또는 이름, 초성도 가능" value="${esc(recFilter.q)}"></div>
+        <div class="grid-3" id="flt-grid">
           <div class="field"><label class="label" for="flt-month">월</label><select class="select" id="flt-month"></select></div>
-          <div class="field"><label class="label" for="flt-no">번호</label><select class="select" id="flt-no"></select></div>
+          <div class="field" id="flt-no-wrap"><label class="label" for="flt-no">번호</label><select class="select" id="flt-no"></select></div>
           <div class="field"><label class="label" for="flt-kind">종류</label><select class="select" id="flt-kind"></select></div>
         </div>
         <label class="check"><input type="checkbox" id="flt-neis"${recFilter.neisWait ? ' checked' : ''}><span class="check-box"></span><span class="check-label">나이스 미입력만</span></label>
         <label class="check"><input type="checkbox" id="flt-undecided"${recFilter.undecided ? ' checked' : ''}><span class="check-box"></span><span class="check-label">구분 미정만</span></label>
       </section></div>
       <div id="records-body" class="col"></div></div>`;
+    main.querySelector('section').addEventListener('input', (e) => {
+      if (e.target.id !== 'flt-q') return;
+      recFilter.q = e.target.value;
+      this.update();
+    });
     main.querySelector('section').addEventListener('change', (e) => {
       const id = e.target.id;
+      if (id === 'flt-q') return; // 검색칸은 input 에서 이미 반영. 여기서 다시 그리면 목록을 누르는 첫 탭이 사라짐
       if (id === 'flt-month') recFilter.month = e.target.value;
       if (id === 'flt-no') recFilter.no = e.target.value;
       if (id === 'flt-kind') recFilter.kind = e.target.value;
@@ -200,6 +210,12 @@ export const recordsView = {
     const mSel = document.getElementById('flt-month');
     if (!mSel) return;
     mSel.innerHTML = `<option value="all"${recFilter.month === 'all' ? ' selected' : ''}>전체</option>` + months.map((m) => `<option value="${m}"${m === recFilter.month ? ' selected' : ''}>${ymShort(m)}</option>`).join('');
+    // 명단이 있으면 번호 선택 대신 '번호 또는 이름' 검색칸 (입력칸은 다시 그리지 않음)
+    const byName = rosterOn();
+    document.getElementById('flt-q-wrap').hidden = !byName;
+    document.getElementById('flt-no-wrap').hidden = byName;
+    document.getElementById('flt-grid').className = byName ? 'grid-2' : 'grid-3';
+    const nameFilter = byName ? makeStudentFilter(getRoster(), recFilter.q) : null;
     const n = store.data.settings.studentCount;
     let noOpts = '<option value="">전체</option>';
     for (let i = 1; i <= n; i++) noOpts += `<option value="${i}"${String(i) === recFilter.no ? ' selected' : ''}>${i}번</option>`;
@@ -208,7 +224,7 @@ export const recordsView = {
 
     const list = sortRecords(recs.filter((r) =>
       (recFilter.month === 'all' || yearMonthOf(r.date) === recFilter.month) &&
-      (!recFilter.no || r.no === Number(recFilter.no)) &&
+      (byName ? (!nameFilter || nameFilter(r.no)) : (!recFilter.no || r.no === Number(recFilter.no))) &&
       (!recFilter.kind || r.kind === recFilter.kind) &&
       (!recFilter.neisWait || !r.neis?.done) &&
       (!recFilter.undecided || r.div === 'undecided')));
@@ -233,11 +249,15 @@ export const recordsView = {
 // ---------- 서류 ----------
 function daysText(n) { return n === 0 ? '오늘' : `${n}일 지남`; }
 
+const docsQ = { q: '' };
 export const docsView = {
   title: '서류',
   sub: () => `${Number(todayStr().slice(5, 7))}월`,
   mount(main) {
-    main.innerHTML = '<div id="docs-body" class="stack"></div>';
+    main.innerHTML = `<div class="stack">
+      <div class="field" id="docs-q-wrap" hidden><label class="label" for="docs-q">번호 또는 이름</label><input class="input" id="docs-q" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="번호 또는 이름, 초성도 가능" value="${esc(docsQ.q)}"></div>
+      <div id="docs-body" class="stack"></div></div>`;
+    main.querySelector('#docs-q').addEventListener('input', (e) => { docsQ.q = e.target.value; this.update(); });
     const body = main.querySelector('#docs-body');
     body.addEventListener('click', (e) => {
       const b = e.target.closest('[data-receive]');
@@ -251,7 +271,7 @@ export const docsView = {
     const item = missingDocs(store.data.records, todayStr()).find((x) => x.key === key);
     if (!item) return;
     setDocsSubmitted(item.refs, true);
-    toast(`${item.no}번 ${josa(item.docLabel, '을', '를')} 받음으로 표시했습니다`, {
+    toast(`${stuLabel(item.no)} ${josa(item.docLabel, '을', '를')} 받음으로 표시했습니다`, {
       action: '되돌리기',
       onAction: () => { setDocsSubmitted(item.refs, false); toast('받음 표시를 취소했습니다'); },
     });
@@ -270,7 +290,14 @@ export const docsView = {
     const ym = yearMonthOf(today);
     const recs = store.data.records;
     const set = store.data.settings;
-    const missing = missingDocs(recs, today);
+    const byName = rosterOn();
+    const qWrap = document.getElementById('docs-q-wrap');
+    if (qWrap) qWrap.hidden = !byName;
+    const nf = byName ? makeStudentFilter(getRoster(), docsQ.q) : null; // 검색어에 맞는 학생만 (목록만 거르고 위쪽 숫자는 전체)
+    const mine = (no) => !nf || nf(no);
+    const nameTitle = (no, text) => { const n = nameFor(no); return n ? `${n} · ${text}` : text; };
+    const missingAll = missingDocs(recs, today);
+    const missing = missingAll.filter((m) => mine(m.no));
 
     // 이번 달 제출 완료 (서류 제출일 기준), 묶음은 한 건으로
     const submitted = [];
@@ -287,11 +314,13 @@ export const docsView = {
     }
     const thisMonthDone = submitted.filter((x) => (x.d.submittedAt ? yearMonthOf(toDateStr(new Date(x.d.submittedAt))) : yearMonthOf(x.r.date)) === ym).length;
     submitted.sort((a, b) => (b.d.submittedAt || '').localeCompare(a.d.submittedAt || ''));
+    const submittedShown = submitted.filter((x) => mine(x.r.no));
 
     // 이번 달 사용 현황
     const usage = [];
     for (let no = 1; no <= set.studentCount; no++) {
       const p = countParentNotes(recs, no, ym, null, set);
+      if (!mine(no)) continue;
       if (p) usage.push({ no, label: '학부모확인서', used: p, limit: Number(set.parentNoteLimit) });
       const pp = countPeriodPain(recs, no, ym);
       if (pp) usage.push({ no, label: '생리통 출석인정', used: pp, limit: Number(set.periodPainLimit) });
@@ -308,7 +337,7 @@ export const docsView = {
     body.innerHTML = `<div class="cols cols-tablet"><div class="col">
       ${painNote}
       <div class="stats">
-        <div class="stat"><div class="stat-label">미제출 서류</div><div class="stat-value num${missing.length ? ' is-danger' : ''}">${missing.length}건</div></div>
+        <div class="stat"><div class="stat-label">미제출 서류</div><div class="stat-value num${missingAll.length ? ' is-danger' : ''}">${missingAll.length}건</div></div>
         <div class="stat"><div class="stat-label">이번 달 제출 완료</div><div class="stat-value num">${thisMonthDone}건</div></div>
       </div>
       <section class="card card-flush" aria-labelledby="miss-title">
@@ -317,14 +346,15 @@ export const docsView = {
           <li class="list-row${m.daysPassed >= 3 ? ' is-urgent' : ''}">
             <span class="list-no">${m.no}</span>
             <div class="list-main">
-              <div class="list-title">${esc(describeKind(m.record))} · ${esc(m.docShort)}</div>
+              <div class="list-title">${esc(nameTitle(m.no, `${describeKind(m.record)} · ${m.docShort}`))}</div>
               <div class="list-meta num">${esc(m.startDate === m.endDate ? formatDateKo(m.startDate) : formatRangeKo(m.startDate, m.endDate))} · ${daysText(m.daysPassed)}</div>
             </div>
             <div class="list-side">
               <span class="badge badge-missing">미제출</span>
-              <button type="button" class="btn btn-secondary btn-sm" data-receive="${esc(m.key)}" aria-label="${m.no}번 ${esc(m.docLabel)} 받음">받음</button>
+              <button type="button" class="btn btn-secondary btn-sm" data-receive="${esc(m.key)}" aria-label="${esc(stuLabel(m.no))} ${esc(m.docLabel)} 받음">받음</button>
             </div>
           </li>`).join('')}</ul>`
+        : nf && missingAll.length ? `<div class="empty">${icon('doc')}<div class="empty-title">검색한 학생의 미제출 서류가 없습니다</div></div>`
         : `<div class="empty">${icon('doc')}<div class="empty-title">미제출 서류가 없습니다</div><div class="empty-text">서류가 필요한 기록을 저장하면 여기에 표시됩니다.</div></div>`}
       </section></div>
       <div class="col">
@@ -333,18 +363,18 @@ export const docsView = {
         ${usage.length ? `<ul class="list">${usage.map((u) => `
           <li class="list-row">
             <span class="list-no">${u.no}</span>
-            <div class="list-main"><div class="list-title">${esc(u.label)}</div></div>
+            <div class="list-main"><div class="list-title">${esc(nameTitle(u.no, u.label))}</div></div>
             ${quota(u.used, u.limit, `${u.used}/${u.limit}회`)}
           </li>`).join('')}</ul>`
         : '<p class="small muted card-note">이번 달 학부모확인서·생리통 사용 기록이 없습니다.</p>'}
       </section>
       <section class="card card-flush" aria-labelledby="recent-title">
         <div class="card-head"><h2 class="card-title" id="recent-title">최근 제출</h2></div>
-        ${submitted.length ? `<ul class="list">${submitted.slice(0, 8).map((x) => `
+        ${submittedShown.length ? `<ul class="list">${submittedShown.slice(0, 8).map((x) => `
           <li class="list-row is-done is-clickable" role="button" tabindex="0" data-open="${esc(x.r.id)}">
             <span class="list-no">${x.r.no}</span>
             <div class="list-main">
-              <div class="list-title">${esc(describeKind(x.r))} · ${esc(docLabel(x.d, true))}</div>
+              <div class="list-title">${esc(nameTitle(x.r.no, `${describeKind(x.r)} · ${docLabel(x.d, true)}`))}</div>
               <div class="list-meta num">${esc(x.start === x.end ? formatDateKo(x.start) : formatRangeKo(x.start, x.end))}</div>
             </div>
             <span class="badge badge-done">제출</span>
@@ -355,7 +385,7 @@ export const docsView = {
 };
 
 // ---------- 학생 ----------
-const stuState = { no: null, ym: '' };
+const stuState = { no: null, ym: '', q: '' };
 export const studentsView = {
   title: '학생',
   mount(main) {
@@ -367,10 +397,18 @@ export const studentsView = {
           <h2 class="card-title num" id="stu-month" aria-live="polite"></h2>
           <button type="button" class="icon-btn" data-month="1" aria-label="다음 달">${icon('chev')}</button>
         </div>
+        <div class="field" id="stu-q-wrap" hidden style="margin-bottom: var(--sp-3)"><label class="label" for="stu-q">번호 또는 이름</label><input class="input" id="stu-q" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="done" placeholder="번호 또는 이름, 초성도 가능" value="${esc(stuState.q)}"></div>
         <div class="num-grid" id="stu-grid" role="group" aria-label="번호 선택"></div>
         <p class="tiny muted" style="margin: var(--sp-3) 0 0">진한 테두리 번호는 이 달에 기록이 있습니다.</p>
       </section></div>
       <div id="stu-body" class="col"></div></div>`;
+    const qInput = main.querySelector('#stu-q');
+    qInput.addEventListener('input', (e) => { stuState.q = e.target.value; this.update(); });
+    qInput.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' || e.isComposing || e.keyCode === 229) return;
+      e.preventDefault();
+      main.querySelector('#stu-grid [data-stu]')?.click(); // 검색 결과 맨 위 학생 선택
+    });
     main.addEventListener('click', (e) => {
       const m = e.target.closest('[data-month]');
       if (m) { stuState.ym = shiftMonth(stuState.ym, Number(m.dataset.month)); this.update(); return; }
@@ -389,11 +427,17 @@ export const studentsView = {
     const monthRecs = store.data.records.filter((r) => yearMonthOf(r.date) === ym);
     const withRec = new Set(monthRecs.map((r) => r.no));
     if (stuState.no > set.studentCount) stuState.no = null;
+    const byName = rosterOn();
+    document.getElementById('stu-q-wrap').hidden = !byName;
+    const nf = byName ? makeStudentFilter(getRoster(), stuState.q) : null;
+    grid.classList.toggle('has-names', byName);
     let cells = '';
     for (let i = 1; i <= set.studentCount; i++) {
-      cells += `<button type="button" class="chip chip-num${withRec.has(i) ? ' has-rec' : ''}" data-stu="${i}" aria-pressed="${stuState.no === i}" aria-label="${i}번${withRec.has(i) ? ', 기록 있음' : ''}">${i}</button>`;
+      if (nf && !nf(i)) continue;
+      const nm = nameFor(i);
+      cells += `<button type="button" class="chip chip-num${withRec.has(i) ? ' has-rec' : ''}" data-stu="${i}" aria-pressed="${stuState.no === i}" aria-label="${esc(stuLabel(i))}${withRec.has(i) ? ', 기록 있음' : ''}"><span class="num">${i}</span>${nm ? `<span class="chip-name">${esc(nm)}</span>` : ''}</button>`;
     }
-    grid.innerHTML = cells;
+    grid.innerHTML = cells || '<p class="small muted" style="grid-column: 1 / -1; margin: 0" data-testid="stu-empty">일치하는 학생이 없습니다.</p>';
     const body = document.getElementById('stu-body');
     if (!stuState.no) {
       body.innerHTML = `<div class="card"><div class="empty">${icon('user')}<div class="empty-title">번호를 고르세요</div><div class="empty-text">고른 학생의 ${Number(ym.slice(5))}월 출결 요약이 표시됩니다.</div></div></div>`;
@@ -407,7 +451,7 @@ export const studentsView = {
     const ppUsed = countPeriodPain(store.data.records, no, ym);
     const miss = missingDocs(store.data.records, todayStr()).filter((m) => m.no === no && yearMonthOf(m.startDate) <= ym && yearMonthOf(m.endDate) >= ym);
     body.innerHTML = `
-      <h2 class="subtitle">${no}번 · ${Number(ym.slice(5))}월 요약</h2>
+      <h2 class="subtitle">${esc(stuLabel(no))} · ${Number(ym.slice(5))}월 요약</h2>
       <div class="stats stats-4">
         ${KIND_ORDER.map((k) => `<div class="stat"><div class="stat-label">${KINDS[k].ko}</div><div class="stat-value num">${cnt(k)}</div></div>`).join('')}
       </div>
@@ -421,7 +465,7 @@ export const studentsView = {
       </section>
       <section class="card card-flush">
         <div class="card-head"><h3 class="card-title">${Number(ym.slice(5))}월 기록</h3><span class="badge badge-info num">${mine.length}건</span></div>
-        ${mine.length ? `<ul class="list">${mine.map((r) => recordRow(r, { showDate: true })).join('')}</ul>` : '<p class="small muted card-note">이 달 기록이 없습니다.</p>'}
+        ${mine.length ? `<ul class="list">${mine.map((r) => recordRow(r, { showDate: true, showName: false })).join('')}</ul>` : '<p class="small muted card-note">이 달 기록이 없습니다.</p>'}
       </section>`;
   },
 };

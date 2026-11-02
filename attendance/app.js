@@ -157,6 +157,8 @@ subscribe((kind) => {
     if (d && d.changed) {
       toast(d.neisOnly ? `나이스 입력 완료 ${d.changed}건을 반영했습니다` : `학교 PC에서 바뀐 기록 ${d.changed}건을 반영했습니다`);
       notifyEditSheet(d);
+    } else if (d && d.roster) {
+      toast('다른 기기에서 학생 명단이 바뀌었습니다');
     }
     return;
   }
