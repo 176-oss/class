@@ -32,6 +32,22 @@ export const DIV_ORDER = ['ill', 'sago', 'etc', 'injung', 'undecided'];
 // 나이스에 그대로 넣을 수 있는 구분
 export const NEIS_DIVS = ['ill', 'sago', 'etc', 'injung'];
 
+// 설정의 구분 순서 (settings.divOrder, spec 14.3). 잘못된 값이면 기본 순서
+export function sanitizeDivOrder(order) {
+  const out = [];
+  if (Array.isArray(order)) for (const d of order) if (DIVS[d] && !out.includes(d)) out.push(d);
+  for (const d of DIV_ORDER) if (!out.includes(d)) out.push(d); // 빠진 구분은 기본 순서대로 뒤에
+  return out;
+}
+// 화면에 보일 구분 5개 (설정 순서)
+export function orderedDivs(settings) {
+  return sanitizeDivOrder(settings && settings.divOrder);
+}
+// 나이스에 넣을 수 있는 구분 4개 (설정 순서, 미정 제외)
+export function orderedNeisDivs(settings) {
+  return orderedDivs(settings).filter((d) => NEIS_DIVS.includes(d));
+}
+
 // 나이스 일괄 콤보 cmbAtteScCd 코드 (참고용, neis-structure.md 7절)
 const DIV_CODE = { ill: 0, sago: 1, etc: 2, injung: 3 };
 const KIND_CODE = { absent: 0, late: 1, early: 2, result: 3 };
@@ -106,6 +122,8 @@ export function defaultSettings(today = new Date()) {
     periodsPerDay: 7,
     parentNoteLimit: 2,
     periodPainLimit: 1,
+    periodPainCountsParentNote: false, // 생리통 학부모확인서도 학부모확인서 월 한도에 포함 (기본 끔)
+    divOrder: DIV_ORDER.slice(), // 구분 버튼 순서 (spec 14.3)
     quickReasons: DEFAULT_QUICK_REASONS.map((q) => ({ ...q })),
   };
 }
@@ -324,11 +342,14 @@ export function sanitizeRecord(r) {
 }
 
 const SETTINGS_KEYS = ['schoolYear', 'grade', 'classNo', 'studentCount', 'periodsPerDay', 'parentNoteLimit', 'periodPainLimit', 'updatedAt'];
+const SETTINGS_BOOL_KEYS = ['periodPainCountsParentNote'];
 export function sanitizeSettings(s, base = defaultSettings()) {
   const out = { ...base };
   delete out.updatedAt;
   if (s && typeof s === 'object') {
     for (const k of SETTINGS_KEYS) if (s[k] !== undefined && s[k] !== null && s[k] !== '') out[k] = k === 'updatedAt' ? s[k] : Number(s[k]);
+    for (const k of SETTINGS_BOOL_KEYS) if (typeof s[k] === 'boolean') out[k] = s[k];
+    if (Array.isArray(s.divOrder)) out.divOrder = s.divOrder;
     if (Array.isArray(s.quickReasons)) {
       out.quickReasons = s.quickReasons.filter((q) => q && q.label).map((q) => {
         const o = { label: String(q.label) };
@@ -339,6 +360,7 @@ export function sanitizeSettings(s, base = defaultSettings()) {
       });
     }
   }
+  out.divOrder = sanitizeDivOrder(out.divOrder);
   return out;
 }
 
@@ -422,7 +444,7 @@ export function mergeData(local, remote) {
   return {
     schema: SCHEMA_VERSION,
     updatedAt: new Date().toISOString(),
-    settings: { ...settings, quickReasons: (settings.quickReasons || []).map((q) => ({ ...q })) },
+    settings: { ...settings, quickReasons: (settings.quickReasons || []).map((q) => ({ ...q })), divOrder: sanitizeDivOrder(settings.divOrder) },
     records,
     deleted: [...deletedMap.values()],
   };
@@ -451,4 +473,18 @@ export function diffRemoteChanges(before, after) {
   for (const id of B.keys()) if (!A.has(id)) kinds[id] = 'removed';
   const ids = Object.keys(kinds);
   return { changed: ids.length, neisOnly: ids.length > 0 && ids.every((id) => kinds[id] === 'neis'), ids, kinds };
+}
+
+// ---------- 버전 ----------
+// '0.4.10' 같은 점 구분 숫자 버전 비교. a<b → -1, 같으면 0, a>b → 1. 숫자가 아닌 조각은 0으로 본다.
+export function compareVersions(a, b) {
+  const pa = String(a == null ? '' : a).trim().split('.').map((x) => parseInt(x, 10) || 0);
+  const pb = String(b == null ? '' : b).trim().split('.').map((x) => parseInt(x, 10) || 0);
+  const n = Math.max(pa.length, pb.length);
+  for (let i = 0; i < n; i++) {
+    const x = pa[i] || 0;
+    const y = pb[i] || 0;
+    if (x !== y) return x < y ? -1 : 1;
+  }
+  return 0;
 }

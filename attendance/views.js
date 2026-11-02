@@ -3,8 +3,8 @@ import {
   KINDS, KIND_ORDER, describeKind, describeRecord, docLabel, formatDateKo, formatRangeKo, todayStr,
   yearMonthOf, toDateStr, neisBlockReason,
 } from './shared/model.js';
-import { missingDocs, countParentNotes, countPeriodPain } from './shared/rules.js';
-import { store, deleteRecord, restoreRecord, setDocsSubmitted } from './store.js';
+import { missingDocs, countParentNotes, countPeriodPain, periodPainWithoutDocs } from './shared/rules.js';
+import { store, deleteRecord, restoreRecord, setDocsSubmitted, addMissingPainDocs } from './store.js';
 import { RecordForm } from './form.js';
 import { esc, icon, quota, toast, openSheet, closeSheet, josa } from './ui.js';
 
@@ -242,6 +242,7 @@ export const docsView = {
     body.addEventListener('click', (e) => {
       const b = e.target.closest('[data-receive]');
       if (b) { this.receive(b.dataset.receive); return; }
+      if (e.target.closest('[data-act="pain-docs"]')) { this.addPainDocs(); return; }
     });
     bindOpen(body);
     this.update();
@@ -254,6 +255,13 @@ export const docsView = {
       action: '되돌리기',
       onAction: () => { setDocsSubmitted(item.refs, false); toast('받음 표시를 취소했습니다'); },
     });
+  },
+  addPainDocs() {
+    const ids = periodPainWithoutDocs(store.data.records).map((r) => r.id);
+    if (!ids.length) return;
+    const n = addMissingPainDocs(ids);
+    if (n < 0) { toast('이 기기에 저장하지 못했습니다. 저장 공간을 확인하세요.', { danger: true }); return; }
+    toast(`생리통 기록 ${n}건에 학부모확인서(미제출)를 추가했습니다`);
   },
   update() {
     const body = document.getElementById('docs-body');
@@ -283,14 +291,22 @@ export const docsView = {
     // 이번 달 사용 현황
     const usage = [];
     for (let no = 1; no <= set.studentCount; no++) {
-      const p = countParentNotes(recs, no, ym);
+      const p = countParentNotes(recs, no, ym, null, set);
       if (p) usage.push({ no, label: '학부모확인서', used: p, limit: Number(set.parentNoteLimit) });
       const pp = countPeriodPain(recs, no, ym);
       if (pp) usage.push({ no, label: '생리통 출석인정', used: pp, limit: Number(set.periodPainLimit) });
     }
     usage.sort((a, b) => b.used / b.limit - a.used / a.limit || a.no - b.no);
 
+    const oldPain = periodPainWithoutDocs(recs);
+    const painNote = oldPain.length ? `<div class="alert alert-info" role="status" id="pain-docs-note">${icon('info')}<div class="alert-body">
+        <strong class="alert-title num">생리통 기록 ${oldPain.length}건에 서류 정보가 없습니다</strong>
+        생리통 출석인정도 학부모확인서를 받습니다. 추가하면 미제출 목록에 나옵니다.
+        <div class="alert-actions"><button type="button" class="btn btn-secondary btn-sm" data-act="pain-docs">한 번에 추가</button></div>
+      </div></div>` : '';
+
     body.innerHTML = `<div class="cols cols-tablet"><div class="col">
+      ${painNote}
       <div class="stats">
         <div class="stat"><div class="stat-label">미제출 서류</div><div class="stat-value num${missing.length ? ' is-danger' : ''}">${missing.length}건</div></div>
         <div class="stat"><div class="stat-label">이번 달 제출 완료</div><div class="stat-value num">${thisMonthDone}건</div></div>
@@ -387,7 +403,7 @@ export const studentsView = {
     const mine = sortRecords(monthRecs.filter((r) => r.no === no));
     const cnt = (k) => mine.filter((r) => r.kind === k).length;
     const undecided = mine.filter((r) => r.div === 'undecided').sort((a, b) => (a.date < b.date ? -1 : 1));
-    const pUsed = countParentNotes(store.data.records, no, ym);
+    const pUsed = countParentNotes(store.data.records, no, ym, null, set);
     const ppUsed = countPeriodPain(store.data.records, no, ym);
     const miss = missingDocs(store.data.records, todayStr()).filter((m) => m.no === no && yearMonthOf(m.startDate) <= ym && yearMonthOf(m.endDate) >= ym);
     body.innerHTML = `

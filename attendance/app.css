@@ -42,6 +42,27 @@ body.has-overlay { overflow: hidden; }
 .card-note { padding: var(--sp-3) var(--sp-4) var(--sp-4); margin: 0; }
 .card-flush .card-note.stack-sm { border-top: 1px solid var(--color-divider); }
 
+/* 순서 바꾸기 버튼 (설정: 구분 순서, 자주 쓰는 사유) */
+.order-btns { display: flex; flex: none; gap: 0; }
+.icon-btn:disabled { color: var(--color-text-disabled); background: transparent; cursor: not-allowed; }
+.order-list .list-row { padding-right: var(--sp-2); }
+.list-box { border: 1px solid var(--color-border); border-radius: var(--r-md); overflow: hidden; }
+/* 사유 행: 휴대폰은 [이름 | 버튼] 아래 구분 선택, 600px 이상은 한 줄 */
+.reason-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "name btns" "type type"; gap: var(--sp-2); align-items: center; }
+.reason-row .list-main { grid-area: name; }
+.reason-row .select { grid-area: type; }
+.reason-row-btns { grid-area: btns; display: flex; }
+.summary-btn { flex: none; }
+/* 목록 편집 시트: [취소][완료]는 목록을 내려도 보이게 */
+[data-list-sheet] [data-actions], [data-list-sheet] [data-confirm] { position: sticky; bottom: calc(-1 * var(--sp-4)); background: var(--color-surface); padding-bottom: var(--sp-4); margin-bottom: calc(-1 * var(--sp-4)); }
+[data-list-sheet] [data-actions] { border-top: 1px solid var(--color-divider); padding-top: var(--sp-3); }
+@media (min-width: 600px) {
+  .reason-row { grid-template-columns: minmax(0, 0.8fr) minmax(0, 2fr) auto; grid-template-areas: "name type btns"; }
+}
+.list-row[data-open-list] .list-meta { white-space: normal; }
+.order-list .list-main { min-width: 0; }
+.order-pos { width: calc(24 * var(--u)); flex: none; color: var(--color-text-muted); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
+
 /* 학생 번호 격자: 기록 있는 번호 */
 .num-grid .chip-num { min-width: 0; }
 .chip-num.has-rec { border-color: var(--color-primary); font-weight: var(--fw-bold); }
@@ -49,7 +70,7 @@ body.has-overlay { overflow: hidden; }
 
 .storage-note { text-align: center; margin: 0; }
 
-.guide-list { margin: 0; padding-left: var(--sp-5); display: flex; flex-direction: column; gap: var(--sp-1); color: var(--color-text); }
+.guide-list { word-break: keep-all; margin: 0; padding-left: var(--sp-5); display: flex; flex-direction: column; gap: var(--sp-1); color: var(--color-text); }
 .guide-list strong { font-weight: var(--fw-semibold); margin-right: var(--sp-1); }
 
 /* 시트 안 삭제 버튼 */
@@ -139,6 +160,7 @@ body.has-overlay { overflow: hidden; }
 @media (max-height: 500px) and (orientation: landscape) {
   :root { --header-h: calc(44 * var(--u)); --tabbar-h: calc(48 * var(--u)); }
   .tab { flex-direction: row; gap: var(--sp-2); font-size: var(--fs-sm); }
+  .tab.tab-ext { display: flex; margin-top: auto; font-size: var(--fs-sm); color: var(--color-text-muted); }
   .tab .dot { position: static; margin-left: 2px; }
   .tab[aria-current="page"]::before { left: 25%; right: 25%; }
 }
@@ -162,6 +184,10 @@ body.has-overlay { overflow: hidden; }
   .sheet { border-radius: var(--r-lg); max-width: calc(560 * var(--u)); }
   .sheet-handle { display: none; }
 }
+
+/* 확장프로그램 바로가기: 넓은 화면(1024px~) 왼쪽 메뉴에서만. 카드로 이동할 때 상단 바에 가리지 않게 */
+#ext-card { scroll-margin-top: calc(var(--header-h) + env(safe-area-inset-top) + var(--sp-4)); }
+.tab.tab-ext { display: none; }
 
 /* ---------- 1024px~: 2단 + 왼쪽 세로 메뉴 ---------- */
 @media (min-width: 1024px) {
@@ -189,6 +215,7 @@ body.has-overlay { overflow: hidden; }
   .tab[aria-current="page"]::before, .tab.is-active::before {
     top: 22%; bottom: 22%; left: 0; right: auto; width: 3px; height: auto; border-radius: 0 3px 3px 0;
   }
+  .tab.tab-ext { display: flex; margin-top: auto; font-size: var(--fs-sm); color: var(--color-text-muted); }
   .tab .dot { position: static; margin-left: auto; min-width: calc(20 * var(--u)); height: calc(20 * var(--u)); line-height: calc(20 * var(--u)); font-size: var(--fs-xs); }
   .toast { bottom: var(--sp-6); left: calc(50% + var(--nav-w) / 2); }
 
@@ -208,3 +235,6 @@ body.has-overlay { overflow: hidden; }
   :root { --nav-w: calc(176 * var(--u)); }
   .cols-today .seg[data-seg="div"] .seg-item { font-size: var(--fs-sm); }
 }
+
+/* 두 칸 버튼 줄: 칸이 좁으면 글자를 줄바꿈 (iOS 날짜칸 수정으로 칸이 내용보다 좁아질 수 있음) */
+.grid-2 > .btn { white-space: normal; word-break: keep-all; line-height: 1.25; text-align: center; }

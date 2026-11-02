@@ -8,7 +8,10 @@ import {
 const hasDoc = (r, type) => Array.isArray(r.docs) && r.docs.some((d) => d.type === type);
 // 한도 계산에서 구분 미정 기록은 뺀다 (spec 13.1)
 const counted = (r) => r.div !== 'undecided';
-const isParentNote = (r) => counted(r) && hasDoc(r, 'parentNote');
+// 생리통 기록의 학부모확인서는 기본적으로 질병 '학부모확인서 월 N회' 한도에 넣지 않는다 (생리통은 자체 월 한도).
+// settings.periodPainCountsParentNote 가 true 면 포함.
+const isParentNote = (r, settings) => counted(r) && hasDoc(r, 'parentNote') &&
+  (r.tag !== 'periodPain' || !!(settings && settings.periodPainCountsParentNote));
 const isPeriodPain = (r) => counted(r) && r.tag === 'periodPain';
 // today(YYYY-MM-DD)를 주면 같은 달은 '이번 달', 아니면 '10월'
 const monthWordOf = (ym, today) => (today && yearMonthOf(today) === ym ? '이번 달' : `${Number(ym.slice(5, 7))}월`);
@@ -16,17 +19,18 @@ const monthWordOf = (ym, today) => (today && yearMonthOf(today) === ym ? '이번
 // ---------- 학부모확인서 ----------
 // 그 달 학부모확인서 사용 횟수. 결석 1일 = 1회 (기간 결석은 날짜별 기록이므로 기록 1건 = 1회),
 // 지각·조퇴·결과 1건 = 1회.
-export function countParentNotes(records, no, yearMonth, excludeId) {
-  return parentNoteRecords(records, no, yearMonth, excludeId).length;
+// settings(선택): periodPainCountsParentNote 판단용. 없으면 생리통 기록은 세지 않음.
+export function countParentNotes(records, no, yearMonth, excludeId, settings) {
+  return parentNoteRecords(records, no, yearMonth, excludeId, settings).length;
 }
 
-export function parentNoteRecords(records, no, yearMonth, excludeId) {
+export function parentNoteRecords(records, no, yearMonth, excludeId, settings) {
   const ex = toSet(excludeId);
   return (records || []).filter((r) =>
     Number(r.no) === Number(no) &&
     yearMonthOf(r.date) === yearMonth &&
     !ex.has(r.id) &&
-    isParentNote(r),
+    isParentNote(r, settings),
   ).sort((a, b) => (a.date < b.date ? -1 : 1));
 }
 
@@ -43,7 +47,7 @@ export function checkParentNoteLimit(records, draftRecords, settings = {}, today
   const limit = Number(settings.parentNoteLimit ?? 2);
   return checkLimit({
     records, draftRecords, limit, today,
-    match: isParentNote,
+    match: (r) => isParentNote(r, settings),
     blocking: true,
     message: (ctx) => ctx.used >= ctx.limit
       ? `${ctx.monthWord} 학부모확인서 ${ctx.limit}회를 모두 사용했습니다. 처방전·진료확인서를 받거나 미인정으로 처리하세요.`
@@ -116,7 +120,9 @@ export function requiredDocs(div, tag) {
       { type: 'tripReport', submitted: false, submittedAt: null },
     ];
   }
-  if (tag === 'periodPain' || div === 'undecided') return [];
+  if (div === 'undecided') return [];
+  // 출석인정 생리통: 학부모확인서 (질병 학부모확인서 한도와는 별개, settings.periodPainCountsParentNote)
+  if (tag === 'periodPain') return [{ type: 'parentNote', submitted: false, submittedAt: null }];
   if (div === 'ill') return [{ type: 'parentNote', submitted: false, submittedAt: null }];
   if (div === 'etc' || div === 'injung') return [{ type: 'other', name: '', submitted: false, submittedAt: null }];
   return []; // 미인정
@@ -169,6 +175,11 @@ export function missingDocs(records, today) {
     });
   }
   return [...items.values()].sort((a, b) => b.daysPassed - a.daysPassed || a.no - b.no);
+}
+
+// 서류 정보가 없는 생리통 기록 (v0.3.3 이전에 저장한 기록). 데이터는 자동으로 바꾸지 않고 안내만.
+export function periodPainWithoutDocs(records) {
+  return (records || []).filter((r) => r.tag === 'periodPain' && r.div === 'injung' && !(r.docs || []).length);
 }
 
 // ---------- 날짜 ----------

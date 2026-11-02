@@ -52,8 +52,9 @@ export function toast(message, { action, onAction, danger = false, duration = 40
 
 // ---------- 바텀시트 / 모달 ----------
 let lastFocus = null;
-export function openSheet(html, { center = false, labelledby = 'sheet-title', onClose } = {}) {
-  closeSheet();
+// beforeClose: 닫기 전에 부름. false를 돌려주면 닫지 않음 (바깥 누르기·Esc·closeSheet() 모두). closeSheet({ force: true })는 묻지 않음
+export function openSheet(html, { center = false, labelledby = 'sheet-title', onClose, beforeClose } = {}) {
+  closeSheet({ force: true });
   lastFocus = document.activeElement;
   const root = document.getElementById('overlay-root');
   root.innerHTML = `<div class="overlay${center ? ' overlay-center' : ''}" data-overlay>
@@ -61,19 +62,22 @@ export function openSheet(html, { center = false, labelledby = 'sheet-title', on
   const overlay = root.firstElementChild;
   overlay.addEventListener('click', (e) => { if (e.target === overlay) closeSheet(); });
   overlay._onClose = onClose;
+  overlay._beforeClose = beforeClose;
   document.body.classList.add('has-overlay');
   const focusable = overlay.querySelector('[autofocus], .sheet-title, .modal-title');
   if (focusable) { focusable.setAttribute('tabindex', '-1'); focusable.focus({ preventScroll: true }); }
   return overlay.firstElementChild;
 }
-export function closeSheet() {
+export function closeSheet({ force = false } = {}) {
   const root = document.getElementById('overlay-root');
-  if (!root || !root.firstElementChild) return;
+  if (!root || !root.firstElementChild) return false;
+  if (!force && root.firstElementChild._beforeClose?.() === false) return false;
   const cb = root.firstElementChild._onClose;
   root.innerHTML = '';
   document.body.classList.remove('has-overlay');
   cb?.();
   if (lastFocus && lastFocus.isConnected) lastFocus.focus({ preventScroll: true });
+  return true;
 }
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSheet(); });
 

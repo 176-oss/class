@@ -107,6 +107,22 @@ export function setDocsSubmitted(refs, submitted) {
     }
   });
 }
+// 서류 정보가 없는 옛 생리통 기록에 미제출 학부모확인서 추가 (v0.3.3).
+// 서류 목록 구성이 바뀌므로 record.updatedAt(본문)과 새 docs[i].updatedAt을 함께 갱신 (계약 5절). 반환: 바꾼 건수
+export function addMissingPainDocs(ids) {
+  const now = new Date().toISOString();
+  const want = new Set(ids);
+  let n = 0;
+  const ok = commit((d) => {
+    for (const r of d.records) {
+      if (!want.has(r.id) || r.tag !== 'periodPain' || (r.docs || []).length) continue;
+      r.docs = [{ type: 'parentNote', submitted: false, submittedAt: null, updatedAt: now }];
+      r.updatedAt = now;
+      n++;
+    }
+  });
+  return ok ? n : -1;
+}
 export function updateSettings(settings) {
   return commit((d) => { d.settings = { ...d.settings, ...settings, updatedAt: new Date().toISOString() }; });
 }

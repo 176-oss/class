@@ -1,6 +1,6 @@
 // 출결 입력 폼 (오늘 탭 빠른 입력, 기록 수정 시트 공용)
 import {
-  KINDS, KIND_ORDER, DIVS, DIV_ORDER, DOC_TYPES, ILL_DOC_TYPES, createRecord, newId, todayStr,
+  KINDS, KIND_ORDER, DIVS, orderedDivs, DOC_TYPES, ILL_DOC_TYPES, createRecord, newId, todayStr,
   weekdayKo, yearMonthOf, formatDateKo, isDateStr, describeKind,
 } from './shared/model.js';
 import {
@@ -71,10 +71,13 @@ export class RecordForm {
   }
 
   fromRecord(r) {
+    let docs = (r.docs || []).map((d) => ({ ...d }));
+    // v0.3.3 이전 생리통 기록(서류 없음): 수정 시트에 학부모확인서 체크를 보여 주고, 저장하면 서류가 추가됨
+    if (r.tag === 'periodPain' && r.div === 'injung' && !docs.length) docs = requiredDocs(r.div, r.tag);
     return {
       date: r.date, range: false, endDate: '', no: r.no, kind: r.kind, div: r.div,
       period: r.period, periods: [...(r.periods || [])], reason: r.reason || '', tag: r.tag || null,
-      docs: (r.docs || []).map((d) => ({ ...d })), confirmPain: false, confirmDup: false,
+      docs, confirmPain: false, confirmDup: false,
     };
   }
 
@@ -154,7 +157,7 @@ export class RecordForm {
     const noInvalid = this.showErrors && !(Number(s.no) >= 1 && Number(s.no) <= set.studentCount);
 
     const kindOpts = KIND_ORDER.map((k) => [k, KINDS[k].ko]);
-    const divOpts = DIV_ORDER.map((d) => [d, DIVS[d].ko]);
+    const divOpts = orderedDivs(set).map((d) => [d, DIVS[d].ko]); // 설정 순서 (spec 14.3)
 
     let rangeHtml = '';
     if (!this.editId) {
@@ -230,7 +233,7 @@ export class RecordForm {
           <strong class="alert-title">저장할 수 없습니다</strong>
           ${esc(parent.message)}
           <div class="alert-actions">
-            <button type="button" class="btn btn-secondary btn-sm" data-act="to-prescription">처방전으로 바꾸기</button>
+            ${s.tag === 'periodPain' ? '' : '<button type="button" class="btn btn-secondary btn-sm" data-act="to-prescription">처방전으로 바꾸기</button>'}
             <button type="button" class="btn btn-secondary btn-sm" data-act="to-sago">미인정으로 바꾸기</button>
           </div>
         </div>
@@ -286,15 +289,20 @@ export class RecordForm {
     if (s.tag === 'periodPain') {
       const used = validNo ? countPeriodPain(store.data.records, no, ym, this.editId) : 0;
       const limit = Number(set.periodPainLimit ?? 1);
-      return `<div class="field">
-        <div class="label-row"><span class="label">증빙서류</span>${validNo ? quota(used, limit, `${mw} 생리통 ${used}/${limit}회`) : ''}</div>
-        <div class="hint" style="margin-top:0">생리통 출석인정은 기본 서류가 없습니다. 학교 규정을 따르세요.</div>
+      const counts = !!set.periodPainCountsParentNote;
+      const pUsed = validNo && counts ? countParentNotes(store.data.records, no, ym, this.editId, set) : 0;
+      const pLimit = Number(set.parentNoteLimit ?? 2);
+      return `<div class="field" role="group" aria-labelledby="${this.id('dlabel')}">
+        <div class="label-row"><span class="label" id="${this.id('dlabel')}">증빙서류</span>${validNo ? quota(used, limit, `${mw} 생리통 ${used}/${limit}회`) : ''}</div>
+        <div class="row-between"><span class="small strong" id="${this.id('docname-pain')}">학부모확인서</span>${validNo && counts ? quota(pUsed, pLimit, `학부모확인서 ${pUsed}/${pLimit}회`) : ''}</div>
+        ${s.docs.length ? check(0, '서류 받음') : ''}
+        <div class="hint">${counts ? '생리통 학부모확인서도 학부모확인서 월 한도에 포함합니다 (설정).' : '질병 학부모확인서 월 한도와는 따로 셉니다.'}</div>
       </div>`;
     }
     if (s.div === 'ill') {
-      const used = validNo ? countParentNotes(store.data.records, no, ym, this.editId) : 0;
+      const used = validNo ? countParentNotes(store.data.records, no, ym, this.editId, set) : 0;
       const limit = Number(set.parentNoteLimit ?? 2);
-      const usedRecs = validNo && used >= limit ? parentNoteRecords(store.data.records, no, ym, this.editId) : [];
+      const usedRecs = validNo && used >= limit ? parentNoteRecords(store.data.records, no, ym, this.editId, set) : [];
       const type = s.docs[0]?.type || 'parentNote';
       return `<div class="field">
         <div class="label-row">
