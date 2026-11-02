@@ -42,6 +42,27 @@ body.has-overlay { overflow: hidden; }
 .card-note { padding: var(--sp-3) var(--sp-4) var(--sp-4); margin: 0; }
 .card-flush .card-note.stack-sm { border-top: 1px solid var(--color-divider); }
 
+/* 순서 바꾸기 버튼 (설정: 구분 순서, 자주 쓰는 사유) */
+.order-btns { display: flex; flex: none; gap: 0; }
+.icon-btn:disabled { color: var(--color-text-disabled); background: transparent; cursor: not-allowed; }
+.order-list .list-row { padding-right: var(--sp-2); }
+.list-box { border: 1px solid var(--color-border); border-radius: var(--r-md); overflow: hidden; }
+/* 사유 행: 휴대폰은 [이름 | 버튼] 아래 구분 선택, 600px 이상은 한 줄 */
+.reason-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "name btns" "type type"; gap: var(--sp-2); align-items: center; }
+.reason-row .list-main { grid-area: name; }
+.reason-row .select { grid-area: type; }
+.reason-row-btns { grid-area: btns; display: flex; }
+.summary-btn { flex: none; }
+/* 목록 편집 시트: [취소][완료]는 목록을 내려도 보이게 */
+[data-list-sheet] [data-actions], [data-list-sheet] [data-confirm] { position: sticky; bottom: calc(-1 * var(--sp-4)); background: var(--color-surface); padding-bottom: var(--sp-4); margin-bottom: calc(-1 * var(--sp-4)); }
+[data-list-sheet] [data-actions] { border-top: 1px solid var(--color-divider); padding-top: var(--sp-3); }
+@media (min-width: 600px) {
+  .reason-row { grid-template-columns: minmax(0, 0.8fr) minmax(0, 2fr) auto; grid-template-areas: "name type btns"; }
+}
+.list-row[data-open-list] .list-meta { white-space: normal; }
+.order-list .list-main { min-width: 0; }
+.order-pos { width: calc(24 * var(--u)); flex: none; color: var(--color-text-muted); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
+
 /* 학생 번호 격자: 기록 있는 번호 */
 .num-grid .chip-num { min-width: 0; }
 .chip-num.has-rec { border-color: var(--color-primary); font-weight: var(--fw-bold); }

@@ -13,6 +13,7 @@ const SHELL = [
   './form.js',
   './views.js',
   './settings.js',
+  './list-sheets.js',
   './store.js',
   './drive.js',
   './ext.js',

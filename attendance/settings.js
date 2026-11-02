@@ -1,10 +1,11 @@
 // 설정 화면과 첫 실행 화면
-import { DIVS, defaultSettings, createEmptyData, normalizeData, compactDate, todayStr } from './shared/model.js';
+import { defaultSettings, createEmptyData, normalizeData, compactDate, todayStr } from './shared/model.js';
 import { store, updateSettings, importData, initData, connectDrive, disconnectDrive, syncNow, pollMs, autoCheckOn } from './store.js';
 import { driveConfigured } from './drive.js';
 import { APP_VERSION } from './version.js';
 import { countParentNotes, countPeriodPain } from './shared/rules.js';
 import { esc, icon, toast, confirmDialog, openSheet, closeSheet } from './ui.js';
+import { openDivOrderSheet, openReasonsSheet, divOrderSummary, reasonsSummary } from './list-sheets.js';
 import { ext, onExtChange, needsUpdate, downloadZip, checkExtension } from './ext.js';
 
 // 학교 PC 확장프로그램 카드 (최신 버전, 이 PC에 설치된 버전, 내려받기)
@@ -63,16 +64,6 @@ function showImportResult(added, over, stripped = false) {
 }
 
 const PRIVACY = '온라인에는 학생 번호만 저장됩니다. 사유도 저장되므로 학교 개인정보 지침을 확인하세요.';
-
-// 사유 구분 선택지: div 또는 div:tag
-const REASON_TYPES = [
-  ['ill', '질병'], ['sago', '미인정'], ['etc', '기타'], ['injung', '출석인정'], ['undecided', '미정'],
-  ['keep', '구분 그대로 (사유만 채움)'],
-  ['injung:periodPain', '출석인정 (생리통, 월 한도)'],
-  ['injung:fieldTrip:absent', '출석인정 결석 (교외체험학습, 서류 2개)'],
-];
-const reasonTypeKey = (q) => [q.div || 'keep', q.tag, q.tag === 'fieldTrip' ? (q.kind || 'absent') : null].filter(Boolean).join(':');
-const reasonTypeLabel = (q) => (REASON_TYPES.find(([k]) => k === reasonTypeKey(q)) || [null, DIVS[q.div]?.ko || ''])[1];
 
 const installGuide = `
   <section class="card stack-sm" aria-labelledby="install-title">
@@ -197,17 +188,17 @@ export const settingsView = {
         <button type="button" class="btn btn-primary btn-block" data-act="save-settings">설정 저장</button>
       </section>
 
-      <section class="card card-flush" aria-labelledby="qr-title">
-        <div class="card-head"><h2 class="card-title" id="qr-title">자주 쓰는 사유</h2></div>
-        <ul class="list" id="qr-list"></ul>
-        <div class="card-note stack-sm">
-          <div class="grid-2">
-            <div class="field"><label class="label" for="qr-label">사유</label><input class="input" id="qr-label" type="text" maxlength="20" placeholder="예: 두통"></div>
-            <div class="field"><label class="label" for="qr-type">구분</label>
-              <select class="select" id="qr-type">${REASON_TYPES.map(([k, t]) => `<option value="${k}">${esc(t)}</option>`).join('')}</select></div>
-          </div>
-          <button type="button" class="btn btn-secondary btn-block" data-act="add-reason">${icon('plus')}사유 추가</button>
-        </div>
+      <section class="card card-flush" aria-label="입력 버튼">
+        <ul class="list">
+          <li class="list-row is-clickable" data-open-list="div">
+            <div class="list-main"><div class="list-title">구분 순서</div><div class="list-meta" id="sum-div">${esc(divOrderSummary(s))}</div></div>
+            <button type="button" class="btn btn-secondary summary-btn" data-act="edit-div" aria-label="구분 순서 바꾸기" aria-describedby="sum-div">바꾸기</button>
+          </li>
+          <li class="list-row is-clickable" data-open-list="qr">
+            <div class="list-main"><div class="list-title">자주 쓰는 사유</div><div class="list-meta" id="sum-qr">${esc(reasonsSummary(s))}</div></div>
+            <button type="button" class="btn btn-secondary summary-btn" data-act="edit-qr" aria-label="자주 쓰는 사유 편집" aria-describedby="sum-qr">편집</button>
+          </li>
+        </ul>
       </section>
 
       <section class="card stack-sm" aria-labelledby="drive-title" id="drive-card"></section>
@@ -241,7 +232,7 @@ export const settingsView = {
         showImportResult(added, overLimitList(store.data), hadExtraFields(json));
       } catch (err) { toast(err.message, { danger: true }); }
     });
-    this.renderReasons();
+    this.renderLists();
     this.renderDrive();
     this.renderExt();
     if (!ext.detected || !ext.latest) checkExtension();
@@ -257,7 +248,7 @@ export const settingsView = {
       return;
     }
     if (kind === 'sync') { this.renderDrive(); return; }
-    this.renderReasons();
+    this.renderLists();
     this.renderDrive();
     // 동기화로 설정이 바뀌면 입력칸도 맞춤 (입력 중인 칸은 그대로)
     const s = store.data.settings;
@@ -269,15 +260,13 @@ export const settingsView = {
     const pp = document.getElementById('set-pp-pn');
     if (pp && pp !== document.activeElement) pp.checked = !!s.periodPainCountsParentNote;
   },
-  renderReasons() {
-    const el = document.getElementById('qr-list');
-    if (!el) return;
-    const qs = store.data.settings.quickReasons || [];
-    el.innerHTML = qs.length ? qs.map((q, i) => `
-      <li class="list-row">
-        <div class="list-main"><div class="list-title">${esc(q.label)}</div><div class="list-meta">${esc(reasonTypeLabel(q))}</div></div>
-        <button type="button" class="icon-btn" data-del-reason="${i}" aria-label="${esc(q.label)} 삭제">${icon('trash')}</button>
-      </li>`).join('') : '<li class="list-row"><span class="small muted">등록된 사유가 없습니다.</span></li>';
+  // 요약 글자만 바꿈 (버튼은 그대로 두어 시트를 닫을 때 초점이 돌아올 수 있게)
+  renderLists() {
+    const s = store.data.settings;
+    const d = document.getElementById('sum-div');
+    if (d) d.textContent = divOrderSummary(s);
+    const q = document.getElementById('sum-qr');
+    if (q) q.textContent = reasonsSummary(s);
   },
   renderDrive() {
     const el = document.getElementById('drive-card');
@@ -295,17 +284,11 @@ export const settingsView = {
         : `<button type="button" class="btn btn-primary btn-block" data-act="connect">구글 드라이브 연결</button>`}`;
   },
   async onClick(e) {
-    const del = e.target.closest('[data-del-reason]');
-    if (del) {
-      const i = Number(del.dataset.delReason);
-      const qs = store.data.settings.quickReasons.slice();
-      const [removed] = qs.splice(i, 1);
-      updateSettings({ quickReasons: qs });
-      toast(`'${removed.label}' 사유를 지웠습니다`, { action: '되돌리기', onAction: () => {
-        const again = store.data.settings.quickReasons.slice();
-        again.splice(i, 0, removed);
-        updateSettings({ quickReasons: again });
-      } });
+    // 요약 행 아무 곳이나 눌러도 편집 시트 (초점은 행의 버튼에 두어 닫으면 그 버튼으로 돌아옴)
+    const row = e.target.closest('[data-open-list]');
+    if (row && !e.target.closest('[data-act]')) {
+      row.querySelector('[data-act]').focus();
+      (row.dataset.openList === 'div' ? openDivOrderSheet : openReasonsSheet)();
       return;
     }
     const b = e.target.closest('[data-act]');
@@ -320,19 +303,10 @@ export const settingsView = {
         v.periodPainCountsParentNote = !!root.querySelector('#set-pp-pn')?.checked;
         updateSettings(v);
         toast('설정을 저장했습니다');
-      } else if (act === 'add-reason') {
-        const input = root.querySelector('#qr-label');
-        const label = input.value.trim();
-        if (!label) { input.focus(); throw new Error('사유를 입력하세요.'); }
-        if (store.data.settings.quickReasons.some((q) => q.label === label)) throw new Error('이미 있는 사유입니다.');
-        const [div, tag, kind] = root.querySelector('#qr-type').value.split(':');
-        const q = { label };
-        if (div !== 'keep') q.div = div; // 'keep' = 사유만 채우고 구분은 바꾸지 않음
-        if (kind) q.kind = kind;
-        if (tag) q.tag = tag;
-        updateSettings({ quickReasons: [...store.data.settings.quickReasons, q] });
-        input.value = '';
-        toast(`'${label}' 사유를 추가했습니다`);
+      } else if (act === 'edit-div') {
+        openDivOrderSheet();
+      } else if (act === 'edit-qr') {
+        openReasonsSheet();
       } else if (act === 'ext-download') {
         downloadZip();
         toast('확장프로그램 압축 파일을 내려받습니다');

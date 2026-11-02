@@ -1,6 +1,6 @@
 // 출결 입력 폼 (오늘 탭 빠른 입력, 기록 수정 시트 공용)
 import {
-  KINDS, KIND_ORDER, DIVS, DIV_ORDER, DOC_TYPES, ILL_DOC_TYPES, createRecord, newId, todayStr,
+  KINDS, KIND_ORDER, DIVS, orderedDivs, DOC_TYPES, ILL_DOC_TYPES, createRecord, newId, todayStr,
   weekdayKo, yearMonthOf, formatDateKo, isDateStr, describeKind,
 } from './shared/model.js';
 import {
@@ -157,7 +157,7 @@ export class RecordForm {
     const noInvalid = this.showErrors && !(Number(s.no) >= 1 && Number(s.no) <= set.studentCount);
 
     const kindOpts = KIND_ORDER.map((k) => [k, KINDS[k].ko]);
-    const divOpts = DIV_ORDER.map((d) => [d, DIVS[d].ko]);
+    const divOpts = orderedDivs(set).map((d) => [d, DIVS[d].ko]); // 설정 순서 (spec 14.3)
 
     let rangeHtml = '';
     if (!this.editId) {
