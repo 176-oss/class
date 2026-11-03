@@ -276,3 +276,43 @@ body.has-overlay { overflow: hidden; }
 /* 명단 편집 시트 */
 .roster-row { display: grid; grid-template-columns: calc(64 * var(--u)) minmax(0, 1fr) var(--touch-min); gap: var(--sp-2); align-items: center; padding: var(--sp-2) var(--sp-2) var(--sp-2) var(--sp-3); }
 .roster-no { text-align: center; padding: 0 var(--sp-1); }
+
+/* ---------- 기록 탭: 보기·정렬 세그먼트, 미제출 보기 ---------- */
+.rec-modes { display: grid; gap: var(--sp-2); }
+@media (min-width: 600px) and (max-width: 1023px) { .rec-modes { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); } }
+.seg-count {
+  display: inline-block; min-width: calc(20 * var(--u)); height: calc(20 * var(--u)); margin-left: var(--sp-1); padding: 0 calc(6 * var(--u));
+  border-radius: var(--r-full); background: var(--color-danger); color: var(--color-on-primary);
+  font-size: var(--fs-xs); font-weight: var(--fw-bold); line-height: calc(20 * var(--u)); text-align: center; vertical-align: middle;
+}
+.list-meta.is-late { color: var(--color-danger); font-weight: var(--fw-medium); }
+.list-side .badge-missing { max-width: calc(120 * var(--u)); white-space: normal; text-align: center; }
+
+/* ---------- 서류 탭: 학생별 사용 현황 묶음 ---------- */
+.usage-summary { margin: 0; padding: var(--sp-3) var(--sp-4); font-size: var(--fs-md); font-weight: var(--fw-semibold); border-bottom: 1px solid var(--color-divider); }
+.usage-summary .is-danger { color: var(--color-danger); }
+.usage-row { border-bottom: 1px solid var(--color-divider); background: var(--color-surface); }
+.usage-row:last-child { border-bottom: 0; }
+.usage-row.is-full { box-shadow: inset 3px 0 0 var(--color-danger); }
+.usage-head {
+  display: flex; align-items: center; gap: var(--sp-3); width: 100%; min-height: var(--touch-min);
+  padding: var(--sp-2) var(--sp-4); border: 0; background: transparent; text-align: left; color: var(--color-text);
+}
+.usage-head:hover { background: var(--color-accent-soft); }
+.usage-name { flex: 1; min-width: 0; font-weight: var(--fw-semibold); font-size: var(--fs-md); overflow-wrap: anywhere; }
+.usage-chev { flex: none; color: var(--color-text-muted); display: inline-flex; }
+.usage-chev .icon.rot { transform: rotate(90deg); }
+.usage-items { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-2) var(--sp-3); padding: 0 var(--sp-4) var(--sp-3); }
+.usage-item { display: flex; flex-direction: column; gap: var(--sp-1); min-width: 0; }
+.usage-label { font-size: var(--fs-xs); color: var(--color-text-muted); font-weight: var(--fw-medium); }
+.quota.is-zero { opacity: .55; }
+.usage-detail { display: grid; gap: var(--sp-2); padding: var(--sp-3) var(--sp-4); background: var(--color-bg); border-top: 1px solid var(--color-divider); }
+.usage-dates { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-2); }
+.usage-dates .usage-label { flex: 0 0 100%; }
+.link-btn {
+  min-height: var(--touch-min); padding: 0 var(--sp-3); border: 1px solid var(--color-accent-line); border-radius: var(--r-md);
+  background: var(--color-surface); color: var(--color-accent); font-size: var(--fs-sm); font-weight: var(--fw-semibold);
+}
+.link-btn:hover { background: var(--color-accent-soft); }
+.seg[data-seg="rec-view"] { grid-auto-flow: row; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); }
+@media (max-width: 359px) { .seg[data-seg="rec-sort"] .seg-item { font-size: var(--fs-sm); } }

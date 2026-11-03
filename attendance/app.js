@@ -71,7 +71,7 @@ function renderBanner() {
 function renderTabbar(name) {
   const missing = store.data ? missingDocs(store.data.records, todayStr()).length : 0;
   tabbar.innerHTML = TABS.map(([key, label, ic]) => `
-    <a class="tab" href="#${key}"${key === name ? ' aria-current="page"' : ''}>${icon(ic)}${label}${key === 'docs' && missing ? `<span class="dot num" aria-label="미제출 ${missing}건">${missing}</span>` : ''}</a>`).join('')
+    <a class="tab" href="#${key}"${key === name ? ' aria-current="page"' : ''}>${icon(ic)}${label}${key === 'records' && missing ? `<span class="dot num" aria-label="미제출 ${missing}건">${missing}</span>` : ''}</a>`).join('')
     // 넓은 화면(PC)에서만 보이는 확장프로그램 바로가기 (설정의 확장프로그램 카드로 이동)
     + `<a class="tab tab-ext" href="#settings" data-goto="ext" id="nav-ext">${icon('ext')}확장프로그램</a>`;
 }
