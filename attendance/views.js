@@ -3,12 +3,12 @@ import {
   KINDS, KIND_ORDER, describeKind, describeRecord, docLabel, formatDateKo, formatRangeKo, todayStr,
   yearMonthOf, toDateStr, neisBlockReason,
 } from './shared/model.js';
-import { missingDocs, countParentNotes, countPeriodPain, periodPainWithoutDocs } from './shared/rules.js';
+import { missingDocs, countParentNotes, parentNoteRecords, countPeriodPain, periodPainWithoutDocs } from './shared/rules.js';
 import { makeStudentFilter } from './shared/model.js';
 import { getRoster, rosterOn, nameFor, stuLabel } from './roster.js';
 import { store, deleteRecord, restoreRecord, setDocsSubmitted, addMissingPainDocs } from './store.js';
 import { RecordForm } from './form.js';
-import { esc, icon, quota, toast, openSheet, closeSheet, josa } from './ui.js';
+import { esc, icon, quota, toast, openSheet, closeSheet, josa, seg } from './ui.js';
 
 const ymLabel = (ym) => `${Number(ym.slice(0, 4))}년 ${Number(ym.slice(5, 7))}월`;
 // 필터용 짧은 이름: 올해면 '10월', 아니면 '25년 10월'
@@ -169,47 +169,145 @@ export function storageText() {
 }
 
 // ---------- 기록 ----------
-const recFilter = { month: '', no: '', q: '', kind: '', neisWait: false, undecided: false };
+// 보기(전체 / 미제출 서류)와 정렬은 기기별로만 기억한다 (localStorage ah.ui, 드라이브에 올리지 않음)
+const UI_KEY = 'ah.ui';
+const SORTS = ['new', 'old'];
+function readUi() {
+  try { const o = JSON.parse(localStorage.getItem(UI_KEY) || '{}'); return o && typeof o === 'object' ? o : {}; } catch { return {}; }
+}
+function saveUi(patch) {
+  try { localStorage.setItem(UI_KEY, JSON.stringify({ ...readUi(), ...patch })); } catch { /* 무시 */ }
+}
+// 보기별 기본 정렬: 전체는 최신순, 미제출은 오래된순(오래된 것이 가장 급함)
+const defaultSort = (view) => (view === 'unpaid' ? 'old' : 'new');
+function sortOf(view) {
+  const v = readUi().recSort?.[view];
+  return SORTS.includes(v) ? v : defaultSort(view);
+}
+function saveSort(view, v) {
+  saveUi({ recSort: { ...(readUi().recSort || {}), [view]: v } });
+}
+
+const recFilter = { view: 'all', months: {}, no: '', q: '', kind: '', neisWait: false, undecided: false };
+// 미제출 보기에서는 월 기본값 '전체'(이전 달 미제출이 보여야 함), 전체 보기는 이번 달.
+// 월 선택은 보기별로 따로 두고, 화면을 떠났다 와도 앱을 닫기 전까지 유지한다 (저장하지 않음).
+const defaultMonth = (view) => (view === 'unpaid' ? 'all' : yearMonthOf(todayStr()));
+const curMonth = () => recFilter.months[recFilter.view] || defaultMonth(recFilter.view);
+
+function unpaidRow(m) {
+  const nm = nameFor(m.no);
+  const rec = m.record;
+  const title = nm ? `${nm} · ${describeKind(rec)}` : describeKind(rec);
+  const span = m.startDate === m.endDate ? '' : formatRangeKo(m.startDate, m.endDate);
+  const meta = [span, daysText(m.daysPassed)].filter(Boolean).join(' · ');
+  return `<li class="list-row is-clickable${m.daysPassed >= 3 ? ' is-urgent' : ''}" role="button" tabindex="0" data-open="${esc(rec.id)}" data-unpaid="${esc(m.key)}" aria-label="${esc(`${stuLabel(m.no)} ${describeRecord(rec)}, ${m.docLabel} 미제출, ${daysText(m.daysPassed)}. 눌러서 수정`)}">
+    <span class="list-no">${m.no}</span>
+    <div class="list-main">
+      <div class="list-title">${esc(title)}</div>
+      <div class="list-meta num${m.daysPassed >= 3 ? ' is-late' : ''}">${esc(meta)}</div>
+    </div>
+    <div class="list-side">
+      <span class="badge badge-missing">${esc(m.docShort)} 미제출</span>
+      <button type="button" class="btn btn-secondary btn-sm" data-receive="${esc(m.key)}" aria-label="${esc(stuLabel(m.no))} ${esc(m.docLabel)} 받음">받음</button>
+    </div>
+  </li>`;
+}
+
 export const recordsView = {
   title: '기록',
   mount(main) {
-    if (!recFilter.month) recFilter.month = yearMonthOf(todayStr());
+    recFilter.view = 'all'; // 탭에 들어올 때는 늘 [전체] (정렬만 기기에 기억)
     main.innerHTML = `<div class="cols cols-side"><div class="col col-sticky">
       <section class="card stack-sm" aria-label="필터">
+        <div class="rec-modes" id="rec-modes"></div>
         <div class="field" id="flt-q-wrap" hidden><label class="label" for="flt-q">번호 또는 이름</label><input class="input" id="flt-q" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="번호 또는 이름, 초성도 가능" value="${esc(recFilter.q)}"></div>
         <div class="grid-3" id="flt-grid">
           <div class="field"><label class="label" for="flt-month">월</label><select class="select" id="flt-month"></select></div>
           <div class="field" id="flt-no-wrap"><label class="label" for="flt-no">번호</label><select class="select" id="flt-no"></select></div>
           <div class="field"><label class="label" for="flt-kind">종류</label><select class="select" id="flt-kind"></select></div>
         </div>
-        <label class="check"><input type="checkbox" id="flt-neis"${recFilter.neisWait ? ' checked' : ''}><span class="check-box"></span><span class="check-label">나이스 미입력만</span></label>
-        <label class="check"><input type="checkbox" id="flt-undecided"${recFilter.undecided ? ' checked' : ''}><span class="check-box"></span><span class="check-label">구분 미정만</span></label>
+        <div class="stack-sm" id="flt-checks">
+          <label class="check"><input type="checkbox" id="flt-neis"${recFilter.neisWait ? ' checked' : ''}><span class="check-box"></span><span class="check-label">나이스 미입력만</span></label>
+          <label class="check"><input type="checkbox" id="flt-undecided"${recFilter.undecided ? ' checked' : ''}><span class="check-box"></span><span class="check-label">구분 미정만</span></label>
+        </div>
       </section></div>
       <div id="records-body" class="col"></div></div>`;
-    main.querySelector('section').addEventListener('input', (e) => {
+    const filters = main.querySelector('section');
+    filters.addEventListener('input', (e) => {
       if (e.target.id !== 'flt-q') return;
       recFilter.q = e.target.value;
       this.update();
     });
-    main.querySelector('section').addEventListener('change', (e) => {
+    filters.addEventListener('change', (e) => {
       const id = e.target.id;
       if (id === 'flt-q') return; // 검색칸은 input 에서 이미 반영. 여기서 다시 그리면 목록을 누르는 첫 탭이 사라짐
-      if (id === 'flt-month') recFilter.month = e.target.value;
+      if (id === 'flt-month') recFilter.months[recFilter.view] = e.target.value;
       if (id === 'flt-no') recFilter.no = e.target.value;
       if (id === 'flt-kind') recFilter.kind = e.target.value;
       if (id === 'flt-neis') recFilter.neisWait = e.target.checked;
       if (id === 'flt-undecided') recFilter.undecided = e.target.checked;
       this.update();
     });
-    bindOpen(main.querySelector('#records-body'));
+    // 보기·정렬 세그먼트
+    filters.addEventListener('click', (e) => {
+      const it = e.target.closest('[data-seg-value]');
+      if (!it || !filters.contains(it)) return;
+      const name = it.parentElement.dataset.seg;
+      const v = it.dataset.segValue;
+      if (name === 'rec-view' && v !== recFilter.view) {
+        recFilter.view = v;
+        this.update();
+      } else if (name === 'rec-sort') {
+        saveSort(recFilter.view, v);
+        this.update();
+      }
+    });
+    const body = main.querySelector('#records-body');
+    body.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-receive]');
+      if (!b) return;
+      e.stopPropagation();
+      this.receive(b.dataset.receive);
+    }, true);
+    bindOpen(body);
     this.update();
+  },
+  receive(key) {
+    const item = missingDocs(store.data.records, todayStr()).find((x) => x.key === key);
+    if (!item) return;
+    setDocsSubmitted(item.refs, true);
+    toast(`${stuLabel(item.no)} ${josa(item.docLabel, '을', '를')} 받음으로 표시했습니다`, {
+      action: '되돌리기',
+      onAction: () => { setDocsSubmitted(item.refs, false); toast('받음 표시를 취소했습니다'); },
+    });
   },
   update() {
     const recs = store.data.records;
+    const unpaid = recFilter.view === 'unpaid';
     const months = [...new Set([yearMonthOf(todayStr()), ...recs.map((r) => yearMonthOf(r.date))])].sort().reverse();
     const mSel = document.getElementById('flt-month');
     if (!mSel) return;
-    mSel.innerHTML = `<option value="all"${recFilter.month === 'all' ? ' selected' : ''}>전체</option>` + months.map((m) => `<option value="${m}"${m === recFilter.month ? ' selected' : ''}>${ymShort(m)}</option>`).join('');
+    const today = todayStr();
+    const missingAll = missingDocs(recs, today);
+
+    // 보기·정렬 세그먼트 (미제출 건수 배지, 0이면 숨김)
+    const sort = sortOf(recFilter.view);
+    const modes = document.getElementById('rec-modes');
+    const modeSeg = `<div class="seg" role="radiogroup" aria-label="보기" data-seg="rec-view">${[['all', '전체'], ['unpaid', '미제출 서류']].map(([v, t]) =>
+      `<button type="button" class="seg-item" role="radio" aria-checked="${v === recFilter.view}" tabindex="${v === recFilter.view ? 0 : -1}" data-seg-value="${v}">${t}${v === 'unpaid' && missingAll.length ? `<span class="seg-count num" aria-label="${missingAll.length}건">${missingAll.length}</span>` : ''}</button>`).join('')}</div>`;
+    const sortSeg = seg('rec-sort', '정렬', [['new', '최신순'], ['old', '오래된순']], sort);
+    // 포커스 중인 세그먼트를 다시 그리다 잃지 않도록, 바뀐 경우에만 교체
+    const html = modeSeg + sortSeg;
+    if (modes.dataset.html !== html) {
+      const had = modes.contains(document.activeElement) ? document.activeElement.parentElement.dataset.seg + '|' + document.activeElement.dataset.segValue : '';
+      modes.innerHTML = html;
+      modes.dataset.html = html;
+      if (had) { const [n, v] = had.split('|'); modes.querySelector(`[data-seg="${n}"] [data-seg-value="${v}"]`)?.focus({ preventScroll: true }); }
+    }
+    document.getElementById('flt-checks').hidden = unpaid;
+
+    const month = curMonth();
+    mSel.innerHTML = `<option value="all"${month === 'all' ? ' selected' : ''}>전체</option>` + months.map((m) => `<option value="${m}"${m === month ? ' selected' : ''}>${ymShort(m)}</option>`).join('');
     // 명단이 있으면 번호 선택 대신 '번호 또는 이름' 검색칸 (입력칸은 다시 그리지 않음)
     const byName = rosterOn();
     document.getElementById('flt-q-wrap').hidden = !byName;
@@ -222,25 +320,54 @@ export const recordsView = {
     document.getElementById('flt-no').innerHTML = noOpts;
     document.getElementById('flt-kind').innerHTML = '<option value="">전체</option>' + KIND_ORDER.map((k) => `<option value="${k}"${k === recFilter.kind ? ' selected' : ''}>${KINDS[k].ko}</option>`).join('');
 
-    const list = sortRecords(recs.filter((r) =>
-      (recFilter.month === 'all' || yearMonthOf(r.date) === recFilter.month) &&
-      (byName ? (!nameFilter || nameFilter(r.no)) : (!recFilter.no || r.no === Number(recFilter.no))) &&
+    const okNo = (r) => (byName ? (!nameFilter || nameFilter(r.no)) : (!recFilter.no || r.no === Number(recFilter.no)));
+    const body = document.getElementById('records-body');
+    const emptyCard = (title, text) => `<div class="card"><div class="empty">${icon(unpaid ? 'doc' : 'list')}<div class="empty-title">${title}</div><div class="empty-text">${text}</div></div></div>`;
+
+    if (unpaid) {
+      // 미제출 서류가 있는 기록만. 같은 groupId 묶음은 한 줄(기준일 = 묶음 시작일, 보고서는 종료일)
+      const items = missingAll.filter((m) =>
+        (month === 'all' || yearMonthOf(m.baseDate) === month) &&
+        okNo(m.record) && (!recFilter.kind || m.record.kind === recFilter.kind));
+      if (!items.length) {
+        const filtered = missingAll.length > 0;
+        body.innerHTML = emptyCard(filtered ? '조건에 맞는 미제출 서류가 없습니다' : '미제출 서류가 없습니다', filtered ? '월이나 검색 조건을 바꿔 보세요.' : '서류가 필요한 기록을 저장하면 여기에 표시됩니다.');
+        return;
+      }
+      const dir = sort === 'old' ? 1 : -1;
+      items.sort((a, b) => dir * (a.baseDate < b.baseDate ? -1 : a.baseDate > b.baseDate ? 1 : 0) || a.no - b.no || (a.key < b.key ? -1 : 1));
+      const groups = new Map();
+      for (const m of items) {
+        if (!groups.has(m.baseDate)) groups.set(m.baseDate, []);
+        groups.get(m.baseDate).push(m);
+      }
+      body.innerHTML = `<p class="small muted num" style="margin:0" data-testid="unpaid-count">미제출 서류 ${items.length}건</p>
+        <section class="card card-flush" data-testid="unpaid-list">${[...groups].map(([date, ms]) => `
+          <div class="list-group-head"><span class="num">${esc(formatDateKo(date))}</span><span class="num">${ms.length}건</span></div>
+          <ul class="list">${ms.map(unpaidRow).join('')}</ul>`).join('')}</section>`;
+      return;
+    }
+
+    const list = recs.filter((r) =>
+      (month === 'all' || yearMonthOf(r.date) === month) &&
+      okNo(r) &&
       (!recFilter.kind || r.kind === recFilter.kind) &&
       (!recFilter.neisWait || !r.neis?.done) &&
-      (!recFilter.undecided || r.div === 'undecided')));
-    const body = document.getElementById('records-body');
+      (!recFilter.undecided || r.div === 'undecided'));
     if (!list.length) {
-      body.innerHTML = `<div class="card"><div class="empty">${icon('list')}<div class="empty-title">기록이 없습니다</div><div class="empty-text">조건을 바꾸거나 오늘 탭에서 기록을 입력하세요.</div></div></div>`;
+      body.innerHTML = emptyCard('기록이 없습니다', '조건을 바꾸거나 오늘 탭에서 기록을 입력하세요.');
       return;
     }
     const groups = new Map();
-    for (const r of list) {
+    for (const r of sortRecords(list)) {
       if (!groups.has(r.date)) groups.set(r.date, []);
       groups.get(r.date).push(r);
     }
+    // 오래된순이면 날짜 묶음과 묶음 안 순서를 함께 뒤집는다
+    const ordered = sort === 'old' ? [...groups].reverse().map(([d, rs]) => [d, rs.slice().reverse()]) : [...groups];
     const waiting = list.filter((r) => !r.neis?.done).length;
     body.innerHTML = `<p class="small muted num" style="margin:0">${list.length}건 · 나이스 대기 ${waiting}건</p>
-      <section class="card card-flush">${[...groups].map(([date, rs]) => `
+      <section class="card card-flush">${ordered.map(([date, rs]) => `
         <div class="list-group-head"><span class="num">${esc(formatDateKo(date))}</span><span class="num">${rs.length}건</span></div>
         <ul class="list">${rs.map((r) => recordRow(r)).join('')}</ul>`).join('')}</section>`;
   },
@@ -250,6 +377,7 @@ export const recordsView = {
 function daysText(n) { return n === 0 ? '오늘' : `${n}일 지남`; }
 
 const docsQ = { q: '' };
+const docsOpen = new Set(); // 펼친 학생 번호
 export const docsView = {
   title: '서류',
   sub: () => `${Number(todayStr().slice(5, 7))}월`,
@@ -260,21 +388,17 @@ export const docsView = {
     main.querySelector('#docs-q').addEventListener('input', (e) => { docsQ.q = e.target.value; this.update(); });
     const body = main.querySelector('#docs-body');
     body.addEventListener('click', (e) => {
-      const b = e.target.closest('[data-receive]');
-      if (b) { this.receive(b.dataset.receive); return; }
       if (e.target.closest('[data-act="pain-docs"]')) { this.addPainDocs(); return; }
+      const t = e.target.closest('[data-usage-toggle]');
+      if (t) {
+        const no = Number(t.dataset.usageToggle);
+        if (docsOpen.has(no)) docsOpen.delete(no); else docsOpen.add(no);
+        this.update();
+        body.querySelector(`[data-usage-toggle="${no}"]`)?.focus({ preventScroll: true });
+      }
     });
     bindOpen(body);
     this.update();
-  },
-  receive(key) {
-    const item = missingDocs(store.data.records, todayStr()).find((x) => x.key === key);
-    if (!item) return;
-    setDocsSubmitted(item.refs, true);
-    toast(`${stuLabel(item.no)} ${josa(item.docLabel, '을', '를')} 받음으로 표시했습니다`, {
-      action: '되돌리기',
-      onAction: () => { setDocsSubmitted(item.refs, false); toast('받음 표시를 취소했습니다'); },
-    });
   },
   addPainDocs() {
     const ids = periodPainWithoutDocs(store.data.records).map((r) => r.id);
@@ -293,11 +417,9 @@ export const docsView = {
     const byName = rosterOn();
     const qWrap = document.getElementById('docs-q-wrap');
     if (qWrap) qWrap.hidden = !byName;
-    const nf = byName ? makeStudentFilter(getRoster(), docsQ.q) : null; // 검색어에 맞는 학생만 (목록만 거르고 위쪽 숫자는 전체)
+    const nf = byName ? makeStudentFilter(getRoster(), docsQ.q) : null; // 검색어에 맞는 학생만 (요약 숫자는 전체 학생)
     const mine = (no) => !nf || nf(no);
     const nameTitle = (no, text) => { const n = nameFor(no); return n ? `${n} · ${text}` : text; };
-    const missingAll = missingDocs(recs, today);
-    const missing = missingAll.filter((m) => mine(m.no));
 
     // 이번 달 제출 완료 (서류 제출일 기준), 묶음은 한 건으로
     const submitted = [];
@@ -312,62 +434,68 @@ export const docsView = {
         submitted.push({ r, d, key, start: group[0], end: group[group.length - 1] });
       });
     }
-    const thisMonthDone = submitted.filter((x) => (x.d.submittedAt ? yearMonthOf(toDateStr(new Date(x.d.submittedAt))) : yearMonthOf(x.r.date)) === ym).length;
     submitted.sort((a, b) => (b.d.submittedAt || '').localeCompare(a.d.submittedAt || ''));
     const submittedShown = submitted.filter((x) => mine(x.r.no));
 
-    // 이번 달 사용 현황
-    const usage = [];
+    // 이번 달 사용 현황: 학생 한 명당 한 행 (생리통 + 학부모확인서). 한쪽만 쓴 학생도 다른 쪽은 0회로 표시
+    const pLimit = Number(set.parentNoteLimit);
+    const ppLimit = Number(set.periodPainLimit);
+    const usageAll = [];
     for (let no = 1; no <= set.studentCount; no++) {
-      const p = countParentNotes(recs, no, ym, null, set);
-      if (!mine(no)) continue;
-      if (p) usage.push({ no, label: '학부모확인서', used: p, limit: Number(set.parentNoteLimit) });
+      const pRecs = parentNoteRecords(recs, no, ym, null, set);
+      const ppRecs = recs.filter((r) => Number(r.no) === no && yearMonthOf(r.date) === ym && r.tag === 'periodPain' && r.div !== 'undecided').sort((a, b) => (a.date < b.date ? -1 : 1));
       const pp = countPeriodPain(recs, no, ym);
-      if (pp) usage.push({ no, label: '생리통 출석인정', used: pp, limit: Number(set.periodPainLimit) });
+      const p = pRecs.length;
+      if (!p && !pp) continue;
+      usageAll.push({ no, p, pp, pRecs, ppRecs, full: (p >= pLimit) || (pp >= ppLimit) });
     }
-    usage.sort((a, b) => b.used / b.limit - a.used / a.limit || a.no - b.no);
+    const usage = usageAll.filter((u) => mine(u.no));
+    const fullCount = usageAll.filter((u) => u.full).length;
 
     const oldPain = periodPainWithoutDocs(recs);
     const painNote = oldPain.length ? `<div class="alert alert-info" role="status" id="pain-docs-note">${icon('info')}<div class="alert-body">
         <strong class="alert-title num">생리통 기록 ${oldPain.length}건에 서류 정보가 없습니다</strong>
-        생리통 출석인정도 학부모확인서를 받습니다. 추가하면 미제출 목록에 나옵니다.
+        생리통 출석인정도 학부모확인서를 받습니다. 추가하면 기록 탭의 [미제출 서류]에 나옵니다.
         <div class="alert-actions"><button type="button" class="btn btn-secondary btn-sm" data-act="pain-docs">한 번에 추가</button></div>
       </div></div>` : '';
 
+    const usageItem = (label, used, limit) => `
+      <div class="usage-item">
+        <span class="usage-label">${label}</span>
+        ${quota(used, limit, `${used}/${limit}회`).replace('class="quota', `class="quota${used ? '' : ' is-zero'}`)}
+      </div>`;
+    const dateLinks = (label, list) => `<div class="usage-dates"><span class="usage-label">${label}</span>${list.length
+      ? list.map((r) => `<button type="button" class="link-btn num" data-open="${esc(r.id)}" aria-label="${esc(`${stuLabel(r.no)} ${label} ${formatDateKo(r.date, false)} 기록 수정`)}">${esc(formatDateKo(r.date, false))}</button>`).join('')
+      : '<span class="muted small">없음</span>'}</div>`;
+
     body.innerHTML = `<div class="cols cols-tablet"><div class="col">
       ${painNote}
-      <div class="stats">
-        <div class="stat"><div class="stat-label">미제출 서류</div><div class="stat-value num${missingAll.length ? ' is-danger' : ''}">${missingAll.length}건</div></div>
-        <div class="stat"><div class="stat-label">이번 달 제출 완료</div><div class="stat-value num">${thisMonthDone}건</div></div>
-      </div>
-      <section class="card card-flush" aria-labelledby="miss-title">
-        <div class="card-head"><h2 class="card-title" id="miss-title">미제출</h2>${missing.length ? `<span class="badge badge-missing num">${missing.length}건</span>` : ''}</div>
-        ${missing.length ? `<ul class="list">${missing.map((m) => `
-          <li class="list-row${m.daysPassed >= 3 ? ' is-urgent' : ''}">
-            <span class="list-no">${m.no}</span>
-            <div class="list-main">
-              <div class="list-title">${esc(nameTitle(m.no, `${describeKind(m.record)} · ${m.docShort}`))}</div>
-              <div class="list-meta num">${esc(m.startDate === m.endDate ? formatDateKo(m.startDate) : formatRangeKo(m.startDate, m.endDate))} · ${daysText(m.daysPassed)}</div>
-            </div>
-            <div class="list-side">
-              <span class="badge badge-missing">미제출</span>
-              <button type="button" class="btn btn-secondary btn-sm" data-receive="${esc(m.key)}" aria-label="${esc(stuLabel(m.no))} ${esc(m.docLabel)} 받음">받음</button>
-            </div>
-          </li>`).join('')}</ul>`
-        : nf && missingAll.length ? `<div class="empty">${icon('doc')}<div class="empty-title">검색한 학생의 미제출 서류가 없습니다</div></div>`
-        : `<div class="empty">${icon('doc')}<div class="empty-title">미제출 서류가 없습니다</div><div class="empty-text">서류가 필요한 기록을 저장하면 여기에 표시됩니다.</div></div>`}
-      </section></div>
-      <div class="col">
       <section class="card card-flush" aria-labelledby="usage-title">
         <div class="card-head"><h2 class="card-title" id="usage-title">이번 달 사용 현황</h2></div>
-        ${usage.length ? `<ul class="list">${usage.map((u) => `
-          <li class="list-row">
-            <span class="list-no">${u.no}</span>
-            <div class="list-main"><div class="list-title">${esc(nameTitle(u.no, u.label))}</div></div>
-            ${quota(u.used, u.limit, `${u.used}/${u.limit}회`)}
-          </li>`).join('')}</ul>`
+        <p class="usage-summary num" data-testid="usage-summary">이번 달 사용 ${usageAll.length}명 · 한도 도달 <span class="${fullCount ? 'is-danger' : ''}">${fullCount}명</span></p>
+        ${usage.length ? `<ul class="list">${usage.map((u) => {
+          const open = docsOpen.has(u.no);
+          const nm = nameFor(u.no);
+          return `<li class="usage-row${u.full ? ' is-full' : ''}" data-usage="${u.no}">
+            <button type="button" class="usage-head" data-usage-toggle="${u.no}" aria-expanded="${open}" aria-controls="usage-d-${u.no}" aria-label="${esc(`${stuLabel(u.no)} 생리통 ${u.pp}/${ppLimit}회, 학부모확인서 ${u.p}/${pLimit}회. 날짜 보기`)}">
+              <span class="list-no">${u.no}</span>
+              <span class="usage-name">${nm ? esc(nm) : ''}</span>
+              <span class="usage-chev" aria-hidden="true">${icon('chev', open ? 'icon rot' : 'icon')}</span>
+            </button>
+            <div class="usage-items">
+              ${usageItem('생리통', u.pp, ppLimit)}
+              ${usageItem('학부모확인서', u.p, pLimit)}
+            </div>
+            <div class="usage-detail" id="usage-d-${u.no}"${open ? '' : ' hidden'}>
+              ${dateLinks('생리통', u.ppRecs)}
+              ${dateLinks('학부모확인서', u.pRecs)}
+            </div>
+          </li>`;
+        }).join('')}</ul>`
+        : nf && usageAll.length ? '<p class="small muted card-note">검색한 학생의 사용 기록이 없습니다.</p>'
         : '<p class="small muted card-note">이번 달 학부모확인서·생리통 사용 기록이 없습니다.</p>'}
-      </section>
+      </section></div>
+      <div class="col">
       <section class="card card-flush" aria-labelledby="recent-title">
         <div class="card-head"><h2 class="card-title" id="recent-title">최근 제출</h2></div>
         ${submittedShown.length ? `<ul class="list">${submittedShown.slice(0, 8).map((x) => `
