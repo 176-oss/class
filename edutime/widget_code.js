@@ -12,6 +12,18 @@ const PASTEL_SUBJECT_COLORS = [
     "#9DD9E8", "#F9BBD1", "#EEDC7D", "#B9D864", "#D8CAEE"
 ];
 
+// 📱 화면 크기에 맞춰 글자 크기를 비율로 조정 (기준: 폭 390pt 아이폰)
+const FONT_SCALE = (() => {
+  try {
+    let size = Device.screenSize();
+    let shortSide = Math.min(size.width, size.height);
+    return Math.max(0.8, Math.min(1.2, shortSide / 390));
+  } catch (e) { return 1; }
+})();
+function fs(n) { return n * FONT_SCALE; }
+// 글자가 "..."으로 잘리지 않고, 칸에 맞게 자동으로 작아지도록
+function fit(t, minScale = 0.5) { t.lineLimit = 1; t.minimumScaleFactor = minScale; return t; }
+
 // ✨ [신규] iOS 표준 시작 시간표 세팅
 const START_TIMES = ["09:00", "10:00", "11:00", "12:00", "13:50", "14:50", "15:50"];
 
@@ -42,9 +54,9 @@ widget.backgroundColor = new Color("#1c1c1e", alphaValue);
 widget.setPadding(12, 16, 12, 16); 
 
 if (!SCHOOL_NAME || !TEACHER_NAME) {
-  let t = widget.addText("⚠️ 앱을 열어 설정을 완료해주세요.");
+  let t = widget.addText("⚠️ 앱을 열어 설정을 완료해주세요."); fit(t);
   t.textColor = Color.white();
-  t.font = Font.systemFont(12);
+  t.font = Font.systemFont(fs(12));
 } else {
   let scheduleData = null;
   let errorMsg = "";
@@ -324,12 +336,12 @@ function buildWidget(widget, schedule, errorMsg) {
     labelColor = new Color("#ffcc00"); 
   }
 
-  let weekLabel = headerStack.addText(weekLabelText);
-  weekLabel.font = Font.boldSystemFont(12);
+  let weekLabel = headerStack.addText(weekLabelText); fit(weekLabel);
+  weekLabel.font = Font.boldSystemFont(fs(12));
   weekLabel.textColor = labelColor;
 
-  let titleText = headerStack.addText(`👨‍🏫 ${TEACHER_NAME}`);
-  titleText.font = Font.boldSystemFont(12); 
+  let titleText = headerStack.addText(`👨‍🏫 ${TEACHER_NAME}`); fit(titleText);
+  titleText.font = Font.boldSystemFont(fs(12)); 
   titleText.textColor = Color.white();
   headerStack.addSpacer();
   
@@ -337,8 +349,8 @@ function buildWidget(widget, schedule, errorMsg) {
   setBtn.backgroundColor = new Color("#333333");
   setBtn.cornerRadius = 4;
   setBtn.setPadding(2, 6, 2, 6);
-  let setText = setBtn.addText("⚙️");
-  setText.font = Font.systemFont(10);
+  let setText = setBtn.addText("⚙️"); fit(setText);
+  setText.font = Font.systemFont(fs(10));
   setBtn.url = `scriptable:///run/${myScriptName}?action=settings`;
 
   widget.addSpacer(10); 
@@ -392,8 +404,8 @@ function buildWidget(widget, schedule, errorMsg) {
   let timeHeaderStack = timeStack.addStack();
   timeHeaderStack.layoutHorizontally();
   timeHeaderStack.addSpacer();
-  let timeLabel = timeHeaderStack.addText("교시");
-  timeLabel.font = Font.boldSystemFont(12);
+  let timeLabel = timeHeaderStack.addText("교시"); fit(timeLabel);
+  timeLabel.font = Font.boldSystemFont(fs(12));
   timeLabel.textColor = new Color("#8e8e93");
   timeHeaderStack.addSpacer();
   
@@ -406,16 +418,16 @@ function buildWidget(widget, schedule, errorMsg) {
     periodTimeStack.setPadding(3, 2, 3, 2);
     
     let h1 = periodTimeStack.addStack(); h1.layoutHorizontally(); h1.addSpacer();
-    let txt1 = h1.addText(`${p + 1}`);
+    let txt1 = h1.addText(`${p + 1}`); fit(txt1);
     h1.addSpacer();
     
     let h2 = periodTimeStack.addStack(); h2.layoutHorizontally(); h2.addSpacer();
-    let txt2 = h2.addText(`(${START_TIMES[p]})`);
+    let txt2 = h2.addText(`(${START_TIMES[p]})`); fit(txt2);
     h2.addSpacer();
     
-    txt1.font = Font.boldSystemFont(11);
+    txt1.font = Font.boldSystemFont(fs(11));
     txt1.textColor = new Color("#8e8e93");
-    txt2.font = Font.systemFont(7.5); // 시간은 컴팩트하게
+    txt2.font = Font.systemFont(fs(7.5)); // 시간은 컴팩트하게
     txt2.textColor = new Color("#636366");
     
     timeStack.addSpacer(4);
@@ -433,8 +445,8 @@ function buildWidget(widget, schedule, errorMsg) {
     let dayHeaderStack = dayStack.addStack();
     dayHeaderStack.layoutHorizontally();
     dayHeaderStack.addSpacer();
-    let dayLabel = dayHeaderStack.addText(days[d]);
-    dayLabel.font = Font.boldSystemFont(12); 
+    let dayLabel = dayHeaderStack.addText(days[d]); fit(dayLabel);
+    dayLabel.font = Font.boldSystemFont(fs(12)); 
     dayLabel.textColor = new Color("#8e8e93"); 
     dayHeaderStack.addSpacer();
     
@@ -470,23 +482,23 @@ function buildWidget(widget, schedule, errorMsg) {
       if (isCancelled) {
         periodStack.backgroundColor = new Color("#424242"); 
       } else if (isChanged) {
-        periodStack.backgroundColor = Color.dynamic(new Color("#60FFAB40"), new Color("#40FFAB40")); 
+        periodStack.backgroundColor = Color.dynamic(new Color("#FFE0B2"), new Color("#5C3A21")); 
       }
 
       let h1 = periodStack.addStack(); h1.layoutHorizontally(); h1.addSpacer();
-      let txt1 = h1.addText(classTextStr);
+      let txt1 = h1.addText(classTextStr); fit(txt1);
       h1.addSpacer();
       
       let h2 = periodStack.addStack(); h2.layoutHorizontally(); h2.addSpacer();
-      let txt2 = h2.addText(subjTextStr ? subjTextStr : " ");
+      let txt2 = h2.addText(subjTextStr ? subjTextStr : " "); fit(txt2);
       h2.addSpacer();
 
-      txt1.font = Font.boldSystemFont(11); 
+      txt1.font = Font.boldSystemFont(fs(11)); 
       txt1.lineLimit = 1;
       if (subjTextStr.length > 3 || subjTextStr.includes("/")) {
-          txt2.font = Font.systemFont(8);
+          txt2.font = Font.systemFont(fs(8));
       } else {
-          txt2.font = Font.systemFont(9); 
+          txt2.font = Font.systemFont(fs(9)); 
       }
       txt2.lineLimit = 1;
 
@@ -499,7 +511,7 @@ function buildWidget(widget, schedule, errorMsg) {
           txt2.textColor = new Color(subjectColorMap[subjTextStr] || "#FFFFFF"); 
         }
       } else {
-        txt1.font = Font.systemFont(11); 
+        txt1.font = Font.systemFont(fs(11)); 
         txt1.textColor = new Color("#444446"); 
       }
       
@@ -510,8 +522,8 @@ function buildWidget(widget, schedule, errorMsg) {
 
   if (errorMsg) {
     widget.addSpacer(4);
-    let errText = widget.addText(`💡 ${errorMsg}`);
-    errText.font = Font.systemFont(10);
+    let errText = widget.addText(`💡 ${errorMsg}`); fit(errText);
+    errText.font = Font.systemFont(fs(10));
     errText.textColor = new Color("#ffcc00");
     errText.centerAlignText();
   }
