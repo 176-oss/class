@@ -350,7 +350,7 @@ function buildWidget(widget, schedule, errorMsg) {
   let uniqueClasses = new Set();
   let subjectCounts = {};
   
-  if (schedule && !errorMsg) {
+  if (schedule) {
       for (let d = 0; d < 5; d++) {
           let dayData = schedule[d] || schedule[String(d)];
           if (dayData) {
@@ -440,7 +440,7 @@ function buildWidget(widget, schedule, errorMsg) {
     
     dayStack.addSpacer(6);
 
-    let dayData = (schedule && !errorMsg) ? (schedule[d] || schedule[String(d)]) : null;
+    let dayData = schedule ? (schedule[d] || schedule[String(d)]) : null;
 
     for (let p = 0; p < 7; p++) {
       let cellData = (dayData && dayData[p]) ? dayData[p] : null;
