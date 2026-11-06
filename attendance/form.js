@@ -2,6 +2,7 @@
 import {
   KINDS, KIND_ORDER, DIVS, orderedDivs, DOC_TYPES, ILL_DOC_TYPES, createRecord, newId, todayStr,
   weekdayKo, yearMonthOf, formatDateKo, isDateStr, describeKind,
+  PERIOD_JO, PERIOD_JONG, periodLabel, periodChoices, periodsText,
 } from './shared/model.js';
 import {
   requiredDocs, checkParentNoteLimit, checkPeriodPainLimit, countParentNotes, parentNoteRecords,
@@ -14,9 +15,16 @@ import { getRoster, rosterOn, nameFor, stuLabel } from './roster.js';
 
 // 교시 안내: 고르기 전에는 규칙, 고른 뒤에는 실제로 표시될 범위
 function periodHint(kind, period, periods, n) {
-  if (kind === 'late') return period ? `조회~${period}교시 없음 (${period}교시까지)` : '지각: 고른 교시까지 없음';
-  if (kind === 'early') return period ? `${period}교시~종례 없음 (${period}교시부터)` : '조퇴: 고른 교시부터 없음';
-  if (kind === 'result') return periods.length ? `${periods.join(', ')}교시만 없음` : '결과: 빠진 교시를 모두 고르세요';
+  const has = period != null;
+  if (kind === 'late') {
+    if (!has) return '지각: 고른 칸까지 없음 (조회만도 가능)';
+    return period === PERIOD_JO ? '조회만 없음 (조회까지)' : `조회~${period}교시 없음 (${period}교시까지)`;
+  }
+  if (kind === 'early') {
+    if (!has) return '조퇴: 고른 칸부터 없음 (종례만도 가능)';
+    return period === PERIOD_JONG ? '종례만 없음 (종례부터)' : `${period}교시~종례 없음 (${period}교시부터)`;
+  }
+  if (kind === 'result') return periods.length ? `${periodsText(periods)}만 없음` : '결과: 빠진 칸을 모두 고르세요 (조회·종례 포함)';
   return '';
 }
 
@@ -315,13 +323,17 @@ export class RecordForm {
     if (s.kind !== 'absent') {
       const n = Number(set.periodsPerDay) || 7;
       let chips = '';
-      for (let i = 1; i <= n; i++) {
+      const choices = periodChoices(s.kind, n);
+      const isWord = (i) => i === PERIOD_JO || i === PERIOD_JONG;
+      for (const i of choices) {
         const on = s.kind === 'result' ? s.periods.includes(i) : s.period === i;
-        chips += `<button type="button" class="chip chip-num" id="${this.id('p' + i)}" data-period="${i}" aria-pressed="${on}" aria-label="${i}교시">${i}</button>`;
+        chips += `<button type="button" class="chip chip-num${isWord(i) ? ' chip-word' : ''}" id="${this.id('p' + i)}" data-period="${i}" aria-pressed="${on}" aria-label="${periodLabel(i)}">${isWord(i) ? periodLabel(i) : i}</button>`;
       }
+      // 조회·종례는 숫자 칸보다 조금 넓게, 모두 한 줄에 둔다
+      const cols = choices.map((i) => (isWord(i) ? '1.45fr' : '1fr')).join(' ');
       periodHtml = `<div class="field">
         <div class="label-row"><span class="label" id="${this.id('plabel')}">교시</span><span class="tiny muted" id="${this.id('phint')}" aria-live="polite">${periodHint(s.kind, s.period, s.periods, n)}</span></div>
-        <div class="chips chips-period" role="group" aria-labelledby="${this.id('plabel')}" style="grid-template-columns: repeat(${Math.min(n, 10)}, 1fr)">${chips}</div>
+        <div class="chips chips-period" role="group" aria-labelledby="${this.id('plabel')}" style="grid-template-columns: ${cols}">${chips}</div>
       </div>`;
     }
 

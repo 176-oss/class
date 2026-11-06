@@ -32,6 +32,28 @@ export const DIV_ORDER = ['ill', 'sago', 'etc', 'injung', 'undecided'];
 // 나이스에 그대로 넣을 수 있는 구분
 export const NEIS_DIVS = ['ill', 'sago', 'etc', 'injung'];
 
+// 교시 칸 값: 0 = 조회, 1~N = N교시, 99 = 종례 (나이스 표의 jo / gyo1~ / jong 칸)
+export const PERIOD_JO = 0;
+export const PERIOD_JONG = 99;
+export function periodLabel(p) {
+  const n = Number(p);
+  if (n === PERIOD_JO) return '조회';
+  if (n === PERIOD_JONG) return '종례';
+  return `${n}교시`;
+}
+// 그 종류에서 고를 수 있는 교시 값 목록 (지각: 조회~N교시, 조퇴: 1~종례, 결과: 조회~종례)
+export function periodChoices(kind, per = 7) {
+  const n = Number(per) || 7;
+  const nums = Array.from({ length: n }, (_, i) => i + 1);
+  if (kind === 'late') return [PERIOD_JO, ...nums];
+  if (kind === 'early') return [...nums, PERIOD_JONG];
+  if (kind === 'result') return [PERIOD_JO, ...nums, PERIOD_JONG];
+  return [];
+}
+export function isValidPeriod(kind, p, per = 7) {
+  return Number.isInteger(p) && periodChoices(kind, per).includes(p);
+}
+
 // 설정의 구분 순서 (settings.divOrder, spec 14.3). 잘못된 값이면 기본 순서
 export function sanitizeDivOrder(order) {
   const out = [];
@@ -265,13 +287,13 @@ export function validate(record, settings = {}) {
   if (!KINDS[record.kind]) errs.push('종류를 고르세요.');
   if (!DIVS[record.div]) errs.push('구분을 고르세요.');
   if (record.kind === 'late' || record.kind === 'early') {
-    const p = Number(record.period);
-    if (!Number.isInteger(p) || p < 1 || p > per) errs.push('교시를 고르세요.');
+    const p = record.period == null || record.period === '' ? NaN : Number(record.period);
+    if (!isValidPeriod(record.kind, p, per)) errs.push('교시를 고르세요.');
   }
   if (record.kind === 'result') {
     const ps = record.periods || [];
     if (!ps.length) errs.push('빠진 교시를 하나 이상 고르세요.');
-    else if (ps.some((p) => !Number.isInteger(p) || p < 1 || p > per)) errs.push(`교시는 1~${per} 사이여야 합니다.`);
+    else if (ps.some((p) => !isValidPeriod('result', p, per))) errs.push(`교시는 조회, 1~${per}교시, 종례 중에서 고르세요.`);
   }
   if (Array.isArray(record.docs)) {
     for (const d of record.docs) {
@@ -281,15 +303,27 @@ export function validate(record, settings = {}) {
   return errs;
 }
 
+// 결과 교시 목록 -> "조회, 2, 3교시, 종례"
+export function periodsText(periods) {
+  const ps = [...(periods || [])].map(Number).sort((a, b) => a - b);
+  const lab = [];
+  const nums = ps.filter((p) => p >= 1 && p < PERIOD_JONG);
+  if (ps.includes(PERIOD_JO)) lab.push('조회');
+  if (nums.length) lab.push(`${nums.join(', ')}교시`);
+  if (ps.includes(PERIOD_JONG)) lab.push('종례');
+  return lab.join(', ');
+}
+
 // 목록 한 줄 요약: 구분 + 종류 + 교시
 export function describeKind(record) {
   const divKo = record.tag === 'fieldTrip' ? '체험학습' : (DIVS[record.div]?.ko || '');
   const kindKo = KINDS[record.kind]?.ko || '';
   let s = `${divKo} ${kindKo}`;
-  // 지각 N = N교시까지 없음, 조퇴 N = N교시부터 없음
-  if (record.kind === 'late' && record.period) s += ` ${record.period}교시까지`;
-  if (record.kind === 'early' && record.period) s += ` ${record.period}교시부터`;
-  if (record.kind === 'result' && record.periods?.length) s += ` ${record.periods.join(', ')}교시`;
+  // 지각 N = N교시까지 없음 (지각 조회 = 조회만), 조퇴 N = N교시부터 없음 (조퇴 종례 = 종례만)
+  const has = record.period != null && record.period !== '';
+  if (record.kind === 'late' && has) s += Number(record.period) === PERIOD_JO ? ' 조회만' : ` ${record.period}교시까지`;
+  if (record.kind === 'early' && has) s += Number(record.period) === PERIOD_JONG ? ' 종례만' : ` ${record.period}교시부터`;
+  if (record.kind === 'result' && record.periods?.length) s += ` ${periodsText(record.periods)}`;
   return s;
 }
 // "질병 조퇴 2교시부터 · 학부모확인서"

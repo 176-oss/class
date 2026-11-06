@@ -2,7 +2,7 @@
 // 순수 함수만. DOM, 네트워크, 저장소 접근 없음.
 import {
   validate, yearMonthOf, isDateStr, isWeekend, addDays,
-  daysBetween, chulgyulGb, docLabel,
+  daysBetween, chulgyulGb, docLabel, PERIOD_JO, PERIOD_JONG,
 } from './model.js';
 
 const hasDoc = (r, type) => Array.isArray(r.docs) && r.docs.some((d) => d.type === type);
@@ -199,7 +199,7 @@ export function expandRange(startDate, endDate) {
 
 // ---------- 나이스 기대값 ----------
 // 결석: 조회+전 교시+종례 "/" (실제 자동 표시 형태 미확인 — 비교 시 chulgyulGb만 엄격, 교시는 경고)
-// 지각 N: 조회 + 1~N교시 / 조퇴 N: N~마지막 교시 + 종례 / 결과: 고른 교시만
+// 지각 N: 조회 + 1~N교시 (지각 조회: 조회만) / 조퇴 N: N~마지막 교시 + 종례 (조퇴 종례: 종례만) / 결과: 고른 칸만 (조회·종례 포함)
 // 구분 미정이면 null (나이스에 넣을 수 없음)
 export function expectedNeisMarks(record, totMax = 7) {
   if (!chulgyulGb(record.div, record.kind)) return null;
@@ -213,12 +213,17 @@ export function expectedNeisMarks(record, totMax = 7) {
     for (let i = 1; i <= tot; i++) gyo[i] = '/';
   } else if (k === 'late') {
     jo = '/';
-    for (let i = 1; i <= Math.min(Number(record.period) || 0, tot); i++) gyo[i] = '/';
+    for (let i = 1; i <= Math.min(Number(record.period) || 0, tot); i++) gyo[i] = '/'; // 지각 조회(0)는 조회만
   } else if (k === 'early') {
     jong = '/';
-    for (let i = Math.max(1, Number(record.period) || tot + 1); i <= tot; i++) gyo[i] = '/';
+    const from = Number(record.period);
+    if (from !== PERIOD_JONG) for (let i = Math.max(1, from || tot + 1); i <= tot; i++) gyo[i] = '/'; // 조퇴 종례는 종례만
   } else if (k === 'result') {
-    for (const p of record.periods || []) if (p >= 1 && p <= tot) gyo[p] = '/';
+    for (const p of record.periods || []) {
+      if (Number(p) === PERIOD_JO) jo = '/';
+      else if (Number(p) === PERIOD_JONG) jong = '/';
+      else if (p >= 1 && p <= tot) gyo[p] = '/';
+    }
   }
   return { chulgyulGb: chulgyulGb(record.div, record.kind), jo, gyo, jong };
 }
