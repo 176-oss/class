@@ -195,7 +195,8 @@ input[type="date"].input::-webkit-date-and-time-value { min-width: 0; text-align
 .chip:disabled { color: var(--color-text-disabled); background: var(--color-bg); cursor: not-allowed; }
 /* 교시 칩: 정사각 원형 숫자 */
 .chips-period { display: grid; grid-template-columns: repeat(7, 1fr); gap: var(--sp-2); }
-.chips-period-words { margin-top: var(--sp-2); }
+.chip-word { font-size: var(--fs-sm); letter-spacing: -0.02em; white-space: nowrap; }
+.chips-period .chip { min-width: 0; }
 .chip-num {
   min-height: var(--touch-min); padding: 0; border-radius: var(--r-md);
   font-size: var(--fs-md); font-weight: var(--fw-semibold); font-variant-numeric: tabular-nums;

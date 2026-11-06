@@ -322,19 +322,18 @@ export class RecordForm {
     let periodHtml = '';
     if (s.kind !== 'absent') {
       const n = Number(set.periodsPerDay) || 7;
-      let chips = '', words = '';
+      let chips = '';
       const choices = periodChoices(s.kind, n);
+      const isWord = (i) => i === PERIOD_JO || i === PERIOD_JONG;
       for (const i of choices) {
         const on = s.kind === 'result' ? s.periods.includes(i) : s.period === i;
-        const word = i === PERIOD_JO || i === PERIOD_JONG;
-        const html = `<button type="button" class="chip chip-num${word ? ' chip-word' : ''}" id="${this.id('p' + i)}" data-period="${i}" aria-pressed="${on}" aria-label="${periodLabel(i)}">${word ? periodLabel(i) : i}</button>`;
-        if (word) words += html; else chips += html;
+        chips += `<button type="button" class="chip chip-num${isWord(i) ? ' chip-word' : ''}" id="${this.id('p' + i)}" data-period="${i}" aria-pressed="${on}" aria-label="${periodLabel(i)}">${isWord(i) ? periodLabel(i) : i}</button>`;
       }
-      const wordCount = choices.filter((i) => i === PERIOD_JO || i === PERIOD_JONG).length;
+      // 조회·종례는 숫자 칸보다 조금 넓게, 모두 한 줄에 둔다
+      const cols = choices.map((i) => (isWord(i) ? '1.45fr' : '1fr')).join(' ');
       periodHtml = `<div class="field">
         <div class="label-row"><span class="label" id="${this.id('plabel')}">교시</span><span class="tiny muted" id="${this.id('phint')}" aria-live="polite">${periodHint(s.kind, s.period, s.periods, n)}</span></div>
-        <div class="chips chips-period" role="group" aria-labelledby="${this.id('plabel')}" style="grid-template-columns: repeat(${Math.min(n, 10)}, 1fr)">${chips}</div>
-        ${wordCount ? `<div class="chips chips-period chips-period-words" role="group" aria-label="조회와 종례" style="grid-template-columns: repeat(${wordCount}, 1fr)">${words}</div>` : ''}
+        <div class="chips chips-period" role="group" aria-labelledby="${this.id('plabel')}" style="grid-template-columns: ${cols}">${chips}</div>
       </div>`;
     }
 
