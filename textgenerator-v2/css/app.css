@@ -1,0 +1,153 @@
+/* 화면별 배치 (화면 담당). 색과 부품 모양은 tokens.css, components.css 를 따른다. */
+
+body { margin: 0; }
+
+.main {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: var(--sp-6) var(--sp-4) var(--sp-12);
+}
+.main:focus { outline: none; }
+
+.appbar-badges { display: inline-flex; gap: var(--sp-2); align-items: center; flex: none; }
+.appbar-badges:empty { display: none; }
+
+.banner { max-width: 1440px; margin: var(--sp-3) auto 0; padding: 0 var(--sp-4); }
+
+.view-head { align-items: flex-end; }
+.view-head-text { gap: var(--sp-1); }
+.view-title { font-size: var(--fs-xl); }
+.view-title:focus { outline: none; }
+.view-title:focus-visible { outline: var(--focus-ring) solid var(--color-focus); outline-offset: var(--focus-offset); }
+.section-title { font-size: var(--fs-md); font-weight: var(--fw-semibold); margin: 0; }
+.card-title:focus { outline: none; }
+.card-title:focus-visible { outline: var(--focus-ring) solid var(--color-focus); outline-offset: var(--focus-offset); }
+
+.stack.gap-1 { gap: var(--sp-1); }
+.row.align-end { align-items: flex-end; }
+.text-danger { color: var(--color-danger-text); font-weight: var(--fw-semibold); }
+.form-error:empty { display: none; }
+.form-error { color: var(--color-danger-text); }
+.alert-body { gap: var(--sp-1); min-width: 0; }
+.alert-body p { margin: 0; }
+
+/* 토스트 안 버튼 */
+.toast { display: flex; align-items: center; gap: var(--sp-3); }
+.toast .toast-action { color: var(--color-surface); border-color: currentColor; }
+.toast .toast-action:hover { color: var(--color-text); }
+.toast-danger { background: var(--color-danger-text); }
+
+/* 대화상자 */
+.dialog-wide { width: min(720px, calc(100vw - 2 * var(--sp-4))); }
+.dialog-title:focus { outline: none; }
+.dialog-body { gap: var(--sp-3); }
+
+/* ---------- 명단 ---------- */
+.roster-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 380px) minmax(0, 1fr);
+  gap: var(--sp-6);
+  align-items: start;
+}
+.class-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
+.class-item {
+  width: 100%;
+  min-height: var(--touch-min);
+  display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-1);
+  padding: var(--sp-3);
+  border: var(--bw) solid var(--color-border);
+  border-radius: var(--r-md);
+  background: var(--color-surface);
+  text-align: left;
+}
+.class-item:hover { background: var(--color-accent-soft); }
+.class-item[aria-pressed="true"] { border: var(--bw-strong) solid var(--color-primary); background: var(--color-accent-soft); }
+.class-item:focus-visible { outline: var(--focus-ring) solid var(--color-focus); outline-offset: var(--focus-offset); }
+.class-item-name { font-weight: var(--fw-semibold); }
+
+/* ---------- 작성 ---------- */
+.write-toolbar {
+  display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--sp-3) var(--sp-4);
+}
+.write-class-field { min-width: 220px; }
+.write-toolbar .tabs { flex: 1 1 auto; min-width: 0; overflow-x: auto; }
+.write-tools { margin-left: auto; align-items: flex-end; }
+
+.write-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--sp-4);
+  align-items: start;
+}
+@media (min-width: 1100px) {
+  .write-layout { grid-template-columns: minmax(0, 1fr) minmax(360px, 440px); }
+  .write-panel { position: sticky; top: calc(var(--appbar-h, 56px) + var(--sp-4)); }
+}
+.write-table .col-check { width: 48px; text-align: center; }
+.write-table .col-name { white-space: nowrap; }
+.write-table .col-text { min-width: 140px; max-width: 260px; }
+.write-table td .clamp-2 { white-space: pre-wrap; word-break: keep-all; overflow-wrap: anywhere; }
+/* 고르기 칸: label이 칸 전체(44x44 이상)를 덮어 여백을 눌러도 체크됨. 상자는 24px */
+.write-table .col-check { padding: 0; width: 52px; }
+.write-table .check-hit {
+  display: flex; align-items: center; justify-content: center;
+  min-width: 48px; min-height: 48px; width: 100%; height: 100%;
+  cursor: pointer;
+}
+.write-table .check-hit input[type="checkbox"] { width: 24px; height: 24px; margin: 0; cursor: pointer; }
+.write-table .check-hit:hover { background: var(--color-accent-soft); }
+
+.write-panel .tabs { overflow-x: auto; }
+.write-panel > * { flex-shrink: 0; } /* 패널이 세로 스크롤될 때 단계 탭이 눌려 사라지지 않게 */
+.dialog > * { flex-shrink: 0; }
+.panel-title { font-size: var(--fs-lg); }
+.panel-empty { padding: var(--sp-4) 0; }
+.save-state:empty { display: none; }
+.chips { gap: var(--sp-2); }
+.step-nav { justify-content: flex-end; }
+.candidate-list { list-style: none; margin: 0; padding: 0; }
+.candidate { gap: var(--sp-2); padding: var(--sp-3); }
+.candidate-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; }
+
+/* ---------- 현황 ---------- */
+.status-table th, .status-table td { vertical-align: top; }
+.status-table td { min-width: 120px; padding: var(--sp-1); }
+.status-table .status-na { text-align: center; vertical-align: middle; }
+.status-cell-text { display: block; }
+.status-col-count { display: block; font-weight: var(--fw-regular, 400); }
+
+/* ---------- NEIS ---------- */
+.neis-pickers .field { min-width: 200px; }
+.neis-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+  gap: var(--sp-6);
+  align-items: start;
+}
+.neis-card .textarea { min-height: 200px; line-height: 1.7; }
+
+/* ---------- 설정 ---------- */
+.limit-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: var(--sp-3); }
+.model-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-1); }
+.model-item { padding: var(--sp-1) var(--sp-2); border: var(--bw) solid var(--color-border); border-radius: var(--r-md); }
+.forbidden-table { min-width: 960px; }
+.forbidden-table td { padding: var(--sp-1); }
+.forbidden-table .input, .forbidden-table .select { min-width: 110px; width: 100%; }
+.check-row { min-height: var(--touch-min); cursor: pointer; }
+.key-guide summary { min-height: var(--touch-min); display: flex; align-items: center; cursor: pointer; font-weight: var(--fw-semibold); }
+.key-guide ol { padding-left: var(--sp-6); }
+
+/* ---------- 좁은 화면 ---------- */
+@media (max-width: 960px) {
+  .roster-layout, .neis-layout { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 640px) {
+  .main { padding: var(--sp-4) var(--sp-3) var(--sp-10); }
+  .write-tools { margin-left: 0; }
+  .write-class-field, .neis-pickers .field { min-width: 0; width: 100%; }
+  .view-head { align-items: flex-start; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+}
