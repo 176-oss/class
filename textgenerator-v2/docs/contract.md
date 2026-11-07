@@ -714,3 +714,16 @@ export async function refineDraft({ record, text, request, studentName, roster, 
 - 머리 줄 [구글 드라이브에 저장]은 머리 줄 배경이 주 색이라 `btn btn-primary`에 `.appbar .sync-save`(밝은 바탕) 덧칠을 둔다.
 - 화면 ctx(app.js가 views에 넘김)에 `sync()`, `syncConnected()`, `saveToDrive()`, `connectDrive()`, `drive`, `fakeDrive`, `hhmm(iso)` 추가. 화면의 `update(kind, detail)`에 `'sync'`(detail = sync.status)가 온다.
 - 주의(B): 동기화가 다른 기기 변경을 반영하면 `'all'`이 온다. 지금 write.js는 `'all'`에 `renderAll()`을 하므로, 입력 중이면 패널을 다시 그리지 않게 하는 것을 B가 검토.
+
+## 24. B 구현하며 바뀐 점 (16~17절 보충)
+- `scrubMemo`가 'n학년 n반 n번'(학년 없이 'n반 n번' 포함)도 '학생'으로 바꾼다 (5절 보충). 메모·다듬기 글·요청에 반 번호가 있으면 학생을 알아볼 수 있어서다. privacy 테스트가 이것을 잡았다.
+- `style.js` 추가 내보내기: `exampleLimit(key, limits)`(16-1의 예시 바이트 한도), `stripMarks`, `STYLE_SUMMARY_MARK`, `EXAMPLE_OPEN`('<문체 예시>'), `EXAMPLE_CLOSE`, `MASK`('OO'). `addExample(styles, key, text, now, limit = Infinity)`: 다섯째 인자로 바이트 한도(넘으면 error).
+- `pickExamples(styles, 'common')`은 공통 규칙과 공통 예시만 쓴다. 규칙 줄 앞의 '- ', '1. ' 같은 글머리는 지운다.
+- `styleOverlap`은 어절 비교 때 끝의 문장부호(. , ! ? 따옴표 괄호 가운뎃점)를 빼고 비교한다.
+- `prompt.js` 추가 내보내기: `REFINE_MARK`, `CURRENT_HEAD`('[지금 글]'), `STYLE_RULES_HEAD`('[문체 규칙]'), `STYLE_ONLY_TEXT`(문체만 참고 문구), `extractRefine(user)`(가짜 AI용, 다듬기 프롬프트가 아니면 null). `buildRefinePrompt` user에 '[초안 개수] 1개'를 함께 넣는다.
+- `check.js` 추가 내보내기: `STYLE_OVERLAP_TEXT` (화면 문구).
+- `candidates.js`: `pushVersion`은 새 글이 지금 글과 같으면 받은 객체를 그대로 돌려주고(판을 만들지 않음), `resetCandidate`도 이미 원문이면 그대로. 화면은 이것으로 '바뀐 것이 없음'을 안내한다.
+- 가짜 AI: 스타일 정리는 예시의 평균 문장 길이로 규칙 5개, 다듬기는 요청 말('짧게', '자세히', '나누', '평가어', 그 밖)에 따라 정해진 방식으로 바꾼다. 결과가 같으면 정해진 마무리 문장 하나를 붙인다.
+- 작성 화면: 동기화 반영('all')과 classes·students·settings·styles 알림이 입력 중(포커스가 textarea 또는 글 input)이거나 저장 대기 입력이 있을 때 오면 다시 그리기를 미루고, 칸을 벗어날 때(focusout) 그린다. 내 스타일 화면도 같은 방식.
+- 내 스타일 화면의 [지우기]·[AI 규칙 지우기] 되돌리기는 이전 상태로 되돌리되 그 영역 `updatedAt`을 지금으로 한다 (동기화에서 지운 쪽에 지지 않게).
+- 일괄 초안 대화상자의 '내 스타일 적용' 체크는 작성 패널 스위치 상태를 기본값으로 가져온다 (영역별 화면 메모리).

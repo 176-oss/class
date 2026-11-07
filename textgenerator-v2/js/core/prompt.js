@@ -54,13 +54,14 @@ export function nameVariants(roster) {
   return [...set].sort((a, b) => b.length - a.length || a.localeCompare(b));
 }
 
-/** 메모 속 명단 이름과 5자리 숫자를 '학생'으로 바꿈 */
+/** 메모 속 명단 이름, 5자리 숫자, 'n학년 n반 n번'을 '학생'으로 바꿈 */
 export function scrubMemo(memo, roster) {
   let out = String(memo ?? '');
   for (const name of nameVariants(roster)) {
     out = out.replace(new RegExp(escapeRegExp(name), 'g'), '학생');
   }
   out = out.replace(/(?<!\d)\d{5}(?!\d)/g, '학생');
+  out = out.replace(/(?:[1-6]\s*학년\s*)?\d{1,2}\s*반\s*\d{1,2}\s*번/g, '학생'); // 'n학년 n반 n번'도 학생을 알아볼 수 있음
   return out;
 }
 
