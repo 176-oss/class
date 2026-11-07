@@ -1,13 +1,16 @@
-// 백업: 백업 파일 내보내기·가져오기(미리보기, 되돌리기 지점), 영역별 엑셀 내보내기
+// 백업: 백업 파일 내보내기·가져오기(미리보기, 되돌리기 지점), 드라이브 자동 백업 되돌리기, 영역별 엑셀 내보내기
 import { h, clear, icon } from '../dom.js';
 import { toast, confirmDialog, alertBox, viewHeader, downloadJSON, readFileText, stamp, formatDateTime, field } from '../ui.js';
 import * as store from '../store.js';
-import { AREAS, AREA_LABELS, AREAS_BY_KIND, STATUS_LABELS } from '../core/model.js';
-import { byteLength } from '../core/bytes.js';
-import { makeBackup, validateBackup, previewImport, mergeBackup } from '../core/backup-format.js';
+import { AREAS, AREA_LABELS } from '../core/model.js';
+import { makeBackup, validateBackup, previewImport, mergeBackup, excelRows } from '../core/backup-format.js';
+import { checkDataFile } from '../core/sync-merge.js';
 import { downloadSheet, hasXlsx, XLSX_MISSING_TEXT } from '../xlsx-io.js';
 
 let root = null;
+let ctx = null;
+let driveList = null; // null: 아직 안 읽음 | { items } | { error }
+let driveHost = null;
 let incoming = null; // { backup, preview, fileName }
 let importMsg = null;
 let exportArea = 'autonomy';
@@ -137,7 +140,7 @@ function restoreCard() {
           const v = validateBackup(snap.data);
           if (!v.ok) throw new Error(v.error);
           const d = v.backup;
-          await store.replaceAll({ students: d.students, classes: d.classes, records: d.records, settings: { ...d.settings, keyStorage: store.state.settings.keyStorage, devFakeAI: store.state.settings.devFakeAI } });
+          await store.replaceAll({ students: d.students, classes: d.classes, records: d.records, styles: d.styles, settings: { ...d.settings, keyStorage: store.state.settings.keyStorage, devFakeAI: store.state.settings.devFakeAI } });
           toast('가져오기 전 상태로 되돌렸습니다');
         } catch (e) {
           console.error(e);
@@ -147,25 +150,87 @@ function restoreCard() {
     }, icon('undo'), '가져오기 전 상태로 되돌리기')));
 }
 
-function exportRows(area) {
-  const rows = [['학번', '이름', '반', '과목', '최종본', '바이트', '상태']];
-  const byRecord = new Map();
-  for (const c of store.listClasses()) {
-    if (!AREAS_BY_KIND[c.kind].includes(area)) continue;
-    const subject = area === 'subject' ? c.subject : null;
-    for (const s of store.studentsOf(c)) {
-      const rec = store.findRecord(s.studentId, area, subject);
-      const key = `${s.studentId}|${subject || ''}`;
-      if (byRecord.has(key)) { byRecord.get(key).classes.push(c.name); continue; }
-      byRecord.set(key, { s, rec, subject, classes: [c.name] });
+// ---------- 드라이브 자동 백업 (contract 9절) ----------
+const dayLabel = (name) => {
+  const m = /(\d{4})(\d{2})(\d{2})/.exec(name || '');
+  return m ? `${m[1]}.${m[2]}.${m[3]}` : name;
+};
+
+async function loadDriveList() {
+  const sync = ctx?.sync();
+  if (!sync?.status.connected) { driveList = null; return; }
+  driveList = { loading: true };
+  try {
+    driveList = { items: (await sync.listBackups()).slice(0, 7) };
+  } catch (e) {
+    driveList = { error: e?.userMessage || '드라이브 백업 목록을 읽지 못했습니다' };
+  }
+  renderDrive();
+}
+
+async function restoreDrive(item) {
+  const ok = await confirmDialog({
+    title: `${dayLabel(item.name)} 백업으로 되돌릴까요?`,
+    body: '지금 상태를 이 브라우저에 먼저 저장해 둔 뒤, 그 날의 드라이브 자동 백업으로 바꿉니다. 그 뒤에 고친 내용은 사라집니다. API 키 설정은 그대로 둡니다.',
+    ok: '이 백업으로 되돌리기', danger: true,
+  });
+  if (!ok) return;
+  const res = await ctx.sync().restoreBackup(item.id);
+  if (res.ok) toast(`${dayLabel(item.name)} 백업으로 되돌렸습니다`);
+  else toast(res.error?.userMessage || '되돌리지 못했습니다', { danger: true });
+}
+
+async function restoreBeforeFirstSync() {
+  const snap = store.state.snapshots['before-first-sync'];
+  if (!snap) return;
+  const ok = await confirmDialog({
+    title: '드라이브 연결 전 상태로 되돌릴까요?',
+    body: '처음 드라이브에 연결하기 직전의 이 브라우저 상태로 바꿉니다. 그 뒤에 고친 내용은 사라지고, 연결되어 있으면 드라이브에도 올립니다.',
+    ok: '되돌리기', danger: true,
+  });
+  if (!ok) return;
+  try {
+    const chk = checkDataFile(snap.data);
+    if (!chk.ok) throw new Error('parse');
+    const { secrets, ...data } = chk.data; // 키 설정은 지금 것 유지
+    void secrets;
+    await store.replaceAll(data);
+    toast('드라이브 연결 전 상태로 되돌렸습니다');
+  } catch (e) {
+    console.error(e);
+    toast('되돌리지 못했습니다', { danger: true });
+  }
+}
+
+function driveCard() {
+  const connected = !!ctx?.syncConnected();
+  const snap = store.state.snapshots?.['before-first-sync'];
+  if (!connected && !snap) return null;
+  let body = null;
+  if (connected) {
+    if (!driveList || driveList.loading) body = h('p', { class: 'small muted' }, '목록을 읽는 중입니다.');
+    else if (driveList.error) body = alertBox('warn', driveList.error);
+    else if (!driveList.items.length) body = h('p', { class: 'small muted' }, '아직 자동 백업이 없습니다. 하루 첫 저장 때 만들어집니다.');
+    else {
+      body = h('ul', { class: 'stack drive-backup-list' }, driveList.items.map((it) => h('li', { class: 'row-between' },
+        h('span', { class: 'num' }, `${dayLabel(it.name)} (${formatDateTime(it.modifiedTime)} 저장)`),
+        h('button', { type: 'button', class: 'btn btn-secondary btn-sm', 'aria-label': `${dayLabel(it.name)} 백업으로 되돌리기`, onclick: () => restoreDrive(it) }, icon('undo'), '이 백업으로 되돌리기'))));
     }
   }
-  const list = [...byRecord.values()].sort((a, b) => a.s.studentId.localeCompare(b.s.studentId) || String(a.subject).localeCompare(String(b.subject)));
-  for (const { s, rec, subject, classes } of list) {
-    const text = rec?.final || '';
-    rows.push([s.studentId, s.name, classes.join(', '), subject || '', text, byteLength(text), STATUS_LABELS[rec?.status || 'empty']]);
-  }
-  return rows;
+  return h('section', { class: 'card stack', 'aria-labelledby': 'bk-drive-title' },
+    h('h2', { class: 'card-title', id: 'bk-drive-title' }, '드라이브 자동 백업'),
+    connected ? h('p', { class: 'small' }, '구글 드라이브에 날마다 첫 저장 때 자동 백업을 만들고 최근 7개를 남깁니다. API 키는 자동 백업에 들어가지 않습니다.') : null,
+    body,
+    snap ? h('div', { class: 'row' }, h('button', { type: 'button', class: 'btn btn-ghost', onclick: restoreBeforeFirstSync }, icon('undo'), '드라이브 연결 전 이 브라우저 상태로 되돌리기')) : null);
+}
+
+function renderDrive() {
+  if (driveHost) clear(driveHost, driveCard());
+}
+
+function exportRows(area) {
+  const d = store.snapshotData();
+  return excelRows({ classes: d.classes, students: d.students, records: d.records, area });
 }
 
 function excelCard() {
@@ -194,22 +259,32 @@ function excelCard() {
 
 function render() {
   if (!root) return;
+  driveHost = h('div', {});
   clear(root,
-    viewHeader('백업', '이 앱의 데이터는 이 브라우저에만 저장됩니다. 브라우저 기록을 지우거나 PC를 바꾸기 전에 백업 파일을 내보내 두세요.'),
+    viewHeader('백업', ctx?.syncConnected()
+      ? '데이터는 구글 드라이브에 저장되고 이 브라우저에는 사본이 있습니다. 따로 보관하고 싶으면 백업 파일을 내보내세요.'
+      : '드라이브에 연결하지 않아 데이터가 이 브라우저에만 있습니다. 브라우저 기록을 지우거나 PC를 바꾸기 전에 백업 파일을 내보내 두세요.'),
     alertBox('warn', '백업 파일에는 학생 이름이 있으니 메신저·메일로 다른 사람에게 보내지 마세요. USB나 학교 PC의 개인 폴더에 보관하세요.'),
     h('div', { class: 'grid-2' }, exportCard(), importCard()),
     restoreCard(),
+    driveHost,
     excelCard());
+  renderDrive();
 }
 
 export const backupView = {
-  mount(el) {
+  mount(el, params, c) {
+    ctx = c;
     root = h('div', { class: 'view view-backup stack' });
     el.appendChild(root);
+    driveList = null;
     render();
+    loadDriveList();
   },
-  update(kind) {
+  update(kind, detail) {
     if (kind === 'all') render();
+    if (kind === 'sync' && detail?.state === 'idle' && !driveList) loadDriveList();
+    if (kind === 'sync' && !detail?.connected && driveList) { driveList = null; render(); }
   },
-  unmount() { root = null; },
+  unmount() { root = null; driveHost = null; },
 };

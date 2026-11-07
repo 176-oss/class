@@ -2,7 +2,8 @@
 // API 키는 URL 이 아니라 x-goog-api-key 헤더로 보낸다.
 
 import { AiError } from './ai-error.js';
-import { scrubMemo, buildPrompt, parseResponse, tidyDraft, MAX_DRAFTS } from './prompt.js';
+import { scrubMemo, buildPrompt, buildRefinePrompt, parseResponse, tidyDraft, MAX_DRAFTS } from './prompt.js';
+import { maskExample, buildStyleSummaryPrompt, parseStyleRules } from './style.js';
 import { fakeGenerate } from './fake-ai.js';
 import { DEFAULT_MODELS, DEFAULT_LIMITS } from './model.js';
 
@@ -168,10 +169,10 @@ export async function generateDrafts({
   signal,
   timeoutMs,
   fakeDelayMs,
+  style = null,
 } = {}) {
   if (!record) throw new AiError('unknown', 'record 가 없음');
-  const people = Array.isArray(roster) ? [...roster] : [];
-  if (studentName) people.push({ studentId: record.studentId, name: studentName });
+  const people = peopleOf(roster, record, studentName);
 
   const area = record.area;
   const limit = settings?.limits?.[area] ?? DEFAULT_LIMITS.high[area];
@@ -187,6 +188,7 @@ export async function generateDrafts({
     length: record.length,
     limit,
     count: n,
+    style: maskStyle(style, people),
   });
 
   // 마지막 확인: 이 학생의 학번과 전체 이름이 요청에 없어야 함
@@ -194,10 +196,32 @@ export async function generateDrafts({
     throw new AiError('privacy', '요청에 학번이나 이름이 남아 있어 보내지 않음');
   }
 
+  const result = await send(prompt, { settings, apiKey, fake, fetchImpl, timeoutMs, signal, fakeDelayMs });
+  const parsed = parseResponse(result.text);
+  const drafts = parsed.drafts.map(tidyDraft).filter(Boolean).slice(0, n);
+  return { drafts, insufficient: parsed.insufficient, model: result.model };
+}
+
+function peopleOf(roster, record, studentName) {
+  const people = Array.isArray(roster) ? [...roster] : [];
+  if (studentName) people.push({ studentId: record?.studentId, name: studentName });
+  return people;
+}
+
+/** 스타일 규칙·예시를 보내기 직전에 한 번 더 가림 (명단 이름, 학번, 반 번호) */
+function maskStyle(style, people) {
+  if (!style) return null;
+  const names = people.map((p) => p?.name).filter(Boolean);
+  const mask = (t) => maskExample(t, names).text;
+  return { ...style, rules: (style.rules || []).map(mask), examples: (style.examples || []).map(mask) };
+}
+
+/** 가짜 AI 또는 Gemini 로 보냄 */
+function send(prompt, { settings, apiKey, fake, fetchImpl, timeoutMs, signal, fakeDelayMs }) {
   const useFake = fake ?? Boolean(settings?.devFakeAI);
-  const result = useFake
-    ? await fakeGenerate(prompt, { delayMs: fakeDelayMs ?? 300, signal })
-    : await callGemini({
+  return useFake
+    ? fakeGenerate(prompt, { delayMs: fakeDelayMs ?? 300, signal })
+    : callGemini({
       models: settings?.models,
       apiKey,
       prompt,
@@ -205,8 +229,52 @@ export async function generateDrafts({
       timeoutMs: timeoutMs ?? DEFAULT_TIMEOUT_MS,
       signal,
     });
+}
 
+/**
+ * 다듬기: 지금 후보 글, 요청, 메모, 스타일 규칙을 보내 새 글 하나를 받는다. 이름·학번은 보내지 않는다.
+ * @returns {Promise<{ text: string, model: string }>}
+ */
+export async function refineDraft({
+  record, text, request, studentName = '', roster = [], settings = {}, apiKey, style = null,
+  fake, signal, fetchImpl, timeoutMs, fakeDelayMs,
+} = {}) {
+  if (!record) throw new AiError('unknown', 'record 가 없음');
+  const people = peopleOf(roster, record, studentName);
+  const area = record.area;
+  const prompt = buildRefinePrompt({
+    area,
+    subject: record.subject,
+    text: scrubMemo(text, people),
+    request: scrubMemo(request, people),
+    memo: scrubMemo(record.memo, people),
+    style: maskStyle(style, people),
+    limit: settings?.limits?.[area] ?? DEFAULT_LIMITS.high[area],
+  });
+  if (containsIdentity(`${prompt.system}\n${prompt.user}`, record.studentId, studentName)) {
+    throw new AiError('privacy', '요청에 학번이나 이름이 남아 있어 보내지 않음');
+  }
+  const result = await send(prompt, { settings, apiKey, fake, fetchImpl, timeoutMs, signal, fakeDelayMs });
   const parsed = parseResponse(result.text);
-  const drafts = parsed.drafts.map(tidyDraft).filter(Boolean).slice(0, n);
-  return { drafts, insufficient: parsed.insufficient, model: result.model };
+  const out = parsed.drafts.map(tidyDraft).find(Boolean);
+  if (!out) throw new AiError('parse', '다듬은 글이 비어 있음');
+  return { text: out, model: result.model };
+}
+
+/**
+ * 스타일 정리: 가린 예시를 보내 문체 규칙 목록을 받는다.
+ * @returns {Promise<{ rules: string[], model: string }>}
+ */
+export async function summarizeStyle({
+  examples = [], roster = [], settings = {}, apiKey, fake, signal, fetchImpl, timeoutMs, fakeDelayMs,
+} = {}) {
+  const people = peopleOf(roster);
+  const names = people.map((p) => p?.name).filter(Boolean);
+  const prompt = buildStyleSummaryPrompt((examples || []).map((e) => maskExample(e, names).text));
+  const all = `${prompt.system}\n${prompt.user}`;
+  if (people.some((p) => containsIdentity(all, p.studentId, p.name))) {
+    throw new AiError('privacy', '요청에 학번이나 이름이 남아 있어 보내지 않음');
+  }
+  const result = await send(prompt, { settings, apiKey, fake, fetchImpl, timeoutMs, signal, fakeDelayMs });
+  return { rules: parseStyleRules(result.text), model: result.model };
 }

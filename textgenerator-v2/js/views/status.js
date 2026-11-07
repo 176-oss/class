@@ -110,7 +110,7 @@ export const statusView = {
     render();
   },
   update(kind) {
-    if (kind === 'save' || kind === 'key') return;
+    if (['save', 'key', 'sync', 'styles', 'secrets'].includes(kind)) return;
     const active = document.activeElement?.id;
     render();
     if (active) document.getElementById(active)?.focus();

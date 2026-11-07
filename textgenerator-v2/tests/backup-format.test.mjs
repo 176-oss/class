@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { makeBackup, validateBackup, previewImport, mergeBackup } from '../js/core/backup-format.js';
-import { defaultSettings, newRecord, SCHEMA_VERSION } from '../js/core/model.js';
+import { makeBackup, validateBackup, previewImport, mergeBackup, excelRows } from '../js/core/backup-format.js';
+import { defaultSettings, defaultStyles, newRecord, newCandidate, SCHEMA_VERSION } from '../js/core/model.js';
 
 const now = new Date('2026-11-06T00:00:00Z');
 
@@ -138,4 +138,59 @@ test('devFakeAI: 백업에 넣지 않고, 가져올 때 무시하고 현재 값 
   assert.equal(mergeBackup(devPc, { ...incoming, settings: { ...incoming.settings, devFakeAI: false } }).settings.devFakeAI, true, '현재 값 유지');
   assert.equal(mergeBackup(devPc, { ...incoming, settings: undefined }).settings.devFakeAI, true);
   assert.equal(mergeBackup({}, incoming).settings.devFakeAI, false, '현재 설정이 없으면 꺼짐');
+});
+
+test('makeBackup: styles 포함, 기기별 설정·secrets·deleted 없음', () => {
+  const styles = { updatedAt: 't1', areas: { common: { examples: [], rules: '짧게', aiRules: '', updatedAt: 't1' } } };
+  const b = makeBackup({ students: [], classes: [], records: [], settings: { ...defaultSettings(now), publicPC: true, keyStorage: 'session' }, styles, now });
+  assert.deepEqual(b.styles, styles);
+  assert.notEqual(b.styles, styles, '복사본');
+  for (const k of ['publicPC', 'keyStorage', 'devFakeAI']) assert.ok(!(k in b.settings), k);
+  assert.ok(!('secrets' in b) && !('deleted' in b));
+  assert.deepEqual(makeBackup({ now }).styles, defaultStyles());
+});
+
+test('validateBackup: v1 백업을 v2로, secrets와 deleted는 버림', () => {
+  const v1 = {
+    kind: 'sgb-v2-backup', schemaVersion: 1, exportedAt: now.toISOString(), app: 'textgenerator-v2',
+    students: [], classes: [], records: [rec('30501', 'autonomy', { candidates: ['초안'] })], settings: {},
+    secrets: { geminiKey: 'AIzaSECRET', updatedAt: 'x' }, deleted: [{ store: 'records', id: 'a', deletedAt: 'x' }],
+  };
+  const r = validateBackup(v1);
+  assert.equal(r.ok, true);
+  assert.equal(r.backup.schemaVersion, 2);
+  assert.deepEqual(r.backup.records[0].candidates, [newCandidate('초안')]);
+  assert.deepEqual(r.backup.styles, defaultStyles());
+  assert.ok(!('secrets' in r.backup) && !('deleted' in r.backup));
+  assert.ok(!JSON.stringify(r.backup).includes('AIzaSECRET'));
+});
+
+test('mergeBackup: styles 영역별 들어온 것 우선, 기기별 설정은 현재 값', () => {
+  const cur = { students: [], classes: [], records: [], settings: { ...defaultSettings(now), publicPC: true, keyStorage: 'session' },
+    styles: { updatedAt: 't2', areas: { common: { examples: [], rules: '현재 공통', aiRules: '', updatedAt: 't2' }, career: { examples: [], rules: '현재 진로', aiRules: '', updatedAt: 't1' } } } };
+  const inc = { students: [], classes: [], records: [], settings: { ...defaultSettings(now), publicPC: false },
+    styles: { updatedAt: 't0', areas: { career: { examples: [], rules: '들어온 진로', aiRules: '', updatedAt: 't0' } } } };
+  const m = mergeBackup(cur, inc);
+  assert.equal(m.styles.areas.common.rules, '현재 공통');
+  assert.equal(m.styles.areas.career.rules, '들어온 진로');
+  assert.equal(m.styles.updatedAt, 't2');
+  assert.equal(m.settings.publicPC, true);
+  assert.equal(m.settings.keyStorage, 'session');
+  assert.equal(mergeBackup(cur, { ...inc, styles: undefined }).styles.areas.career.rules, '현재 진로');
+});
+
+test('excelRows: 머리글, 반 이름 합침, 학번 순', () => {
+  const classes = [
+    { id: 'c_1', name: '3-5 담임', kind: 'homeroom', studentIds: ['30502', '30501'], createdAt: '1' },
+    { id: 'c_2', name: '로봇반', kind: 'club', studentIds: ['30501'], createdAt: '2' },
+    { id: 'c_3', name: '과학', kind: 'subject', subject: '통합과학', studentIds: ['30501'], createdAt: '3' },
+  ];
+  const students = [{ studentId: '30501', name: '김가온' }, { studentId: '30502', name: '이도윤' }];
+  const records = [rec('30501', 'club', { final: '가나', status: 'done' })];
+  const rows = excelRows({ classes, students, records, area: 'club' });
+  assert.deepEqual(rows[0], ['학번', '이름', '반', '과목', '최종본', '바이트', '상태']);
+  assert.deepEqual(rows[1], ['30501', '김가온', '3-5 담임, 로봇반', '', '가나', 6, '완료']);
+  assert.deepEqual(rows[2], ['30502', '이도윤', '3-5 담임', '', '', 0, '미작성']);
+  const sub = excelRows({ classes, students, records: [{ ...newRecord('30501', 'subject', '통합과학'), final: 'A' }], area: 'subject' });
+  assert.deepEqual(sub[1], ['30501', '김가온', '과학', '통합과학', 'A', 1, '미작성']);
 });

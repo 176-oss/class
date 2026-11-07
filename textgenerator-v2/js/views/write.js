@@ -5,10 +5,12 @@ import {
   progressBar, LEVEL_TEXT, formatDateTime,
 } from '../ui.js';
 import * as store from '../store.js';
-import { STATUS_LABELS, LENGTH_LABELS, TRAITS_BY_AREA, KIND_LABELS, deriveStatus } from '../core/model.js';
+import { STATUS_LABELS, LENGTH_LABELS, TRAITS_BY_AREA, KIND_LABELS, deriveStatus, newCandidate, normalizeCandidates } from '../core/model.js';
 import { byteLength, byteLevel } from '../core/bytes.js';
-import { cleanText } from '../core/check.js';
-import { generateDrafts, AiError } from '../core/gemini.js';
+import { cleanText, STYLE_OVERLAP_TEXT } from '../core/check.js';
+import { generateDrafts, refineDraft, AiError } from '../core/gemini.js';
+import { editCandidate, pushVersion, undoVersion, resetCandidate } from '../core/candidates.js';
+import { pickExamples, styleKey } from '../core/style.js';
 import { createBatch, pickBatchTargets } from '../core/batch.js';
 import { textHash } from '../core/neis-export.js';
 
@@ -30,6 +32,8 @@ const S = {
   busy: new Set(), // 초안 만드는 중인 기록 id
   errors: new Map(), // 기록 id별 오류 문구
   insufficient: new Set(), // 기록 id
+  refining: new Set(), // 다듬는 중인 후보 '기록id#번호'
+  styleOff: new Set(), // '내 스타일 적용'을 끈 스타일 영역 키 (화면 메모리, 저장 안 함)
 };
 
 let ctx = null;
@@ -392,6 +396,7 @@ function draftStep(rec, student) {
       onclick: () => makeDrafts(rec.id, student),
     }, icon('spark'), busy ? '만드는 중' : '초안 만들기'),
     ctx.isFakeAI() ? badge('가짜 AI', 'warn') : null));
+  out.push(styleSwitch(rec));
   if (noKey) {
     out.push(h('p', { class: 'hint', id: 'nokey-hint' }, '설정에서 API 키를 넣으면 초안을 만들 수 있습니다. ',
       h('a', { href: '#settings' }, '설정으로 가기')));
@@ -402,27 +407,12 @@ function draftStep(rec, student) {
   if (S.insufficient.has(rec.id)) {
     out.push(alertBox('info', '메모에 쓸 내용이 부족해 AI가 초안을 만들지 않았습니다. 관찰한 사실을 더 적은 뒤 다시 만들어 주세요.'));
   }
-  const cands = (rec.candidates || []).slice(0, 3);
+  const cands = candidatesOf(rec.id);
   const done = rec.status === 'done';
   if (cands.length) {
     out.push(h('h3', { class: 'section-title' }, `초안 후보 ${cands.length}개`));
-    out.push(h('ol', { class: 'candidate-list stack' }, cands.map((text, i) => h('li', { class: 'card stack candidate' },
-      h('p', { class: 'candidate-text' }, text),
-      h('p', { class: 'small muted num' }, `후보 ${i + 1}, ${byteLength(text)} byte`),
-      h('div', { class: 'row' },
-        h('button', {
-          type: 'button', class: 'btn btn-secondary btn-sm', 'aria-label': `후보 ${i + 1}을 초안 칸에 저장`,
-          onclick: () => {
-            const prev = rec.draft;
-            store.updateRecord(rec.id, { draft: text });
-            renderPanel();
-            toast(`후보 ${i + 1}을 초안 칸에 저장했습니다`, { action: '되돌리기', onAction: () => { store.updateRecord(rec.id, { draft: prev }); renderPanel(); } });
-          },
-        }, '초안 칸에 저장'),
-        h('button', {
-          type: 'button', class: 'btn btn-ghost btn-sm', disabled: done, 'aria-label': `후보 ${i + 1}을 최종본 끝에 붙이기`,
-          onclick: () => appendFinal(rec.id, text),
-        }, '최종본 끝에 붙이기'))))));
+    out.push(h('p', { class: 'hint' }, '후보 글은 바로 고칠 수 있고, 고친 글은 자동으로 저장됩니다.'));
+    out.push(h('ol', { class: 'candidate-list stack' }, cands.map((c, i) => candidateCard(rec, i, c, { done, noKey, student }))));
   }
   const draft = h('textarea', {
     class: 'textarea', id: 'f-draft', rows: '6', value: liveRecord(rec.id).draft || '',
@@ -436,6 +426,179 @@ function draftStep(rec, student) {
   if (done) out.push(h('p', { class: 'hint' }, '완료한 기록입니다. 최종본에 붙이려면 검사 단계에서 [완료 풀기]를 먼저 눌러 주세요.'));
   out.push(nextStepBtn('check', '다음: 검사'));
   return out;
+}
+
+// ---------- 후보 카드 (contract 17절) ----------
+const REFINE_CHIPS = ['더 짧게', '더 자세히', '문장 나누기', '평가어 줄이기'];
+/** '후보 1을', '후보 2를': 숫자 끝자리 읽는 소리에 받침이 없으면(2, 4, 5, 9) '를' */
+const hubo = (n) => `후보 ${n}${[2, 4, 5, 9].includes(n % 10) ? '를' : '을'}`;
+
+/** 지금 보이는 후보 목록 (저장 전 입력 포함). v1 문자열도 Candidate로 */
+function candidatesOf(id) {
+  return normalizeCandidates(liveRecord(id)?.candidates);
+}
+
+function setCandidate(id, i, fn, { now = true } = {}) {
+  const list = candidatesOf(id);
+  if (!list[i]) return null;
+  const next = fn(list[i]);
+  if (next === list[i]) return null;
+  list[i] = next;
+  if (now) { flushPending(); store.updateRecord(id, { candidates: list }); } else queuePatch(id, { candidates: list });
+  return next;
+}
+
+function byteText(bytes, limit) {
+  const level = byteLevel(bytes, limit);
+  return { level, text: `${bytes} / ${limit} byte${level !== 'ok' ? ` (${LEVEL_TEXT[level]})` : ''}` };
+}
+
+function candidateCard(rec, i, c, { done, noKey, student }) {
+  const n = i + 1;
+  const limit = store.limitOf(rec.area);
+  const key = `${rec.id}#${i}`;
+  const refining = S.refining.has(key);
+  const b0 = byteText(byteLength(c.text), limit);
+  const bytesEl = h('p', { class: ['small', 'num', b0.level === 'over' && 'text-danger'], 'aria-live': 'polite', id: `cand-bytes-${i}` }, b0.text);
+  const editedEl = badge('고침', 'warn');
+  editedEl.hidden = !c.edited;
+  const undoBtn = h('button', {
+    type: 'button', class: 'btn btn-ghost btn-sm', 'data-fkey': `cand-undo-${i}`, disabled: !c.versions.length || refining,
+    'aria-label': `후보 ${n} 이전 판으로`,
+    onclick: () => { if (setCandidate(rec.id, i, undoVersion)) { renderPanel(); announce(`${hubo(n)} 이전 판으로 되돌렸습니다`); } },
+  }, icon('undo'), '이전 판');
+  const ta = h('textarea', {
+    class: ['textarea', b0.level === 'over' && 'is-over'], id: `cand-${i}`, rows: '6', value: c.text, readonly: refining,
+    'aria-describedby': `cand-bytes-${i}`,
+    oninput: (e) => {
+      const next = setCandidate(rec.id, i, (x) => editCandidate(x, e.target.value), { now: false }) || candidatesOf(rec.id)[i];
+      const b = byteText(byteLength(e.target.value), limit);
+      bytesEl.textContent = b.text;
+      bytesEl.classList.toggle('text-danger', b.level === 'over');
+      ta.classList.toggle('is-over', b.level === 'over');
+      editedEl.hidden = !next.edited;
+    },
+  });
+  const textNow = () => candidatesOf(rec.id)[i]?.text || '';
+  const reqInput = h('input', {
+    type: 'text', class: 'input', id: `cand-req-${i}`, disabled: refining || noKey,
+    placeholder: '예: 리더십 부분을 줄이고 탐구 과정을 앞으로',
+    onkeydown: (e) => { if (e.key === 'Enter') { e.preventDefault(); refine(rec.id, i, reqInput.value, student); } },
+  });
+  return h('li', { class: 'card stack candidate' },
+    h('div', { class: 'row-between' },
+      h('label', { class: 'label', for: `cand-${i}` }, `후보 ${n}`),
+      editedEl),
+    ta,
+    bytesEl,
+    h('div', { class: 'row' },
+      h('button', {
+        type: 'button', class: 'btn btn-secondary btn-sm', 'data-fkey': `cand-draft-${i}`, 'aria-label': `${hubo(n)} 초안 칸에 저장`,
+        onclick: () => {
+          flushPending();
+          const prev = store.state.records.get(rec.id).draft;
+          store.updateRecord(rec.id, { draft: textNow() });
+          renderPanel();
+          toast(`${hubo(n)} 초안 칸에 저장했습니다`, { action: '되돌리기', onAction: () => { store.updateRecord(rec.id, { draft: prev }); renderPanel(); } });
+        },
+      }, '초안 칸에 저장'),
+      h('button', {
+        type: 'button', class: 'btn btn-ghost btn-sm', 'data-fkey': `cand-final-${i}`, disabled: done, 'aria-label': `${hubo(n)} 최종본 끝에 붙이기`,
+        onclick: () => appendFinal(rec.id, textNow().trim()),
+      }, '최종본 끝에 붙이기'),
+      h('button', {
+        type: 'button', class: 'btn btn-ghost btn-sm', 'data-fkey': `cand-reset-${i}`, disabled: refining, 'aria-label': `${hubo(n)} 처음 상태로`,
+        onclick: () => {
+          if (!setCandidate(rec.id, i, resetCandidate)) { toast('이미 AI가 처음 준 글입니다'); return; }
+          renderPanel();
+          toast(`${hubo(n)} 처음 상태로 되돌렸습니다. [이전 판]으로 고친 글에 돌아갈 수 있습니다.`);
+        },
+      }, '처음 상태로'),
+      undoBtn),
+    h('div', { class: 'stack gap-1 candidate-refine' },
+      h('label', { class: 'label', for: `cand-req-${i}` }, `후보 ${n} 다듬기 요청`),
+      h('div', { class: 'row', role: 'group', 'aria-label': `후보 ${n} 빠른 요청` },
+        REFINE_CHIPS.map((t) => h('button', {
+          type: 'button', class: 'chip', 'data-fkey': `cand-chip-${i}-${t}`, disabled: refining || noKey,
+          onclick: () => refine(rec.id, i, t, student),
+        }, t))),
+      h('div', { class: 'row' },
+        reqInput,
+        h('button', {
+          type: 'button', class: 'btn btn-secondary btn-sm', 'data-fkey': `cand-refine-${i}`, disabled: refining || noKey,
+          onclick: () => refine(rec.id, i, reqInput.value, student),
+        }, icon('spark'), refining ? '다듬는 중' : 'AI에게 다듬기 요청')),
+      refining ? h('p', { class: 'small muted', role: 'status' }, `AI가 ${hubo(n)} 다듬고 있습니다.`) : null));
+}
+
+async function refine(id, i, request, student) {
+  const req = String(request || '').trim();
+  if (!req) { toast('요청을 적거나 빠른 요청을 눌러 주세요'); return; }
+  flushPending();
+  const rec = store.state.records.get(id);
+  const c = candidatesOf(id)[i];
+  if (!rec || !c) return;
+  const key = `${id}#${i}`;
+  S.refining.add(key);
+  S.errors.delete(id);
+  renderPanel();
+  announce(`${hubo(i + 1)} 다듬고 있습니다`);
+  try {
+    const res = await refineDraft({
+      record: aiRecord(rec), text: c.text, request: req, studentName: student?.name || '', roster: rosterAll(),
+      settings: store.state.settings, apiKey: store.getApiKey(), style: styleFor(rec), fake: ctx.isFakeAI(),
+    });
+    if (setCandidate(id, i, (x) => pushVersion(x, res.text))) toast(`${hubo(i + 1)} 다듬었습니다. [이전 판]으로 되돌릴 수 있습니다.`);
+    else toast('AI가 같은 글을 돌려주었습니다');
+  } catch (e) {
+    if (!(e instanceof AiError)) console.warn('다듬기 중 예상 못 한 오류:', e?.name || 'Error');
+    const msg = e?.userMessage || '다듬지 못했습니다. 잠시 뒤 다시 시도해 주세요.';
+    S.errors.set(id, msg);
+    toast(msg, { danger: true });
+  } finally {
+    S.refining.delete(key);
+    if (S.open === rec.studentId && S.step === 'draft') {
+      // 다른 칸에 입력 중이면 그 카드만 바로 바꿔 입력·포커스를 지킨다 (오류 안내는 토스트로 이미 보임)
+      if (typing() && !replaceCard(id, i, student)) staleAll = true;
+      else if (!typing()) { renderPanel(); document.getElementById(`cand-${i}`)?.focus(); }
+    }
+  }
+}
+
+/** 후보 카드 하나만 새로 그림. 포커스가 그 카드 안에 있었으면 같은 칸으로 되돌림 */
+function replaceCard(id, i, student) {
+  const li = document.getElementById(`cand-${i}`)?.closest('li.candidate');
+  const rec = store.state.records.get(id);
+  const c = candidatesOf(id)[i];
+  if (!li || !rec || !c || !els.panel?.contains(li)) return false;
+  const ae = document.activeElement;
+  const own = li.contains(ae) ? (ae.id || ae.dataset.fkey || null) : null;
+  li.replaceWith(candidateCard(rec, i, c, { done: rec.status === 'done', noKey: !ctx.isFakeAI() && !ctx.hasKey(), student }));
+  if (own) (document.getElementById(own) || els.panel.querySelector(`[data-fkey="${CSS.escape(own)}"]`))?.focus();
+  return true;
+}
+
+// ---------- 내 스타일 적용 (contract 16-5) ----------
+function styleKeyOf(rec) { return styleKey(rec.area, rec.subject); }
+/** 이 기록에 쓸 스타일. 스위치를 껐거나 자료가 없으면 null */
+function styleFor(rec) {
+  if (S.styleOff.has(styleKeyOf(rec))) return null;
+  return pickExamples(store.getStyles(), rec.area, rec.subject);
+}
+function styleSwitch(rec) {
+  const picked = pickExamples(store.getStyles(), rec.area, rec.subject);
+  if (!picked) return null;
+  const k = styleKeyOf(rec);
+  const on = !S.styleOff.has(k);
+  return h('div', { class: 'stack gap-1 style-apply' },
+    h('label', { class: 'check-row', for: 'f-style-on' },
+      h('input', {
+        type: 'checkbox', id: 'f-style-on', role: 'switch', checked: on,
+        onchange: (e) => { if (e.target.checked) S.styleOff.delete(k); else S.styleOff.add(k); renderPanel(); },
+      }),
+      '내 스타일 적용'),
+    h('p', { class: ['small', !on && 'muted'] }, on ? `적용 중: ${picked.summary}` : '이번 초안에는 내 스타일을 쓰지 않습니다.',
+      ' ', h('a', { href: `#style?area=${encodeURIComponent(k)}` }, '내 스타일 고치기')));
 }
 
 function appendFinal(id, text) {
@@ -467,13 +630,14 @@ async function makeDrafts(id, student) {
       apiKey: store.getApiKey(),
       count: 3,
       fake: ctx.isFakeAI(),
+      style: styleFor(rec),
     });
     const drafts = (res?.drafts || []).filter((d) => d && d.trim()).slice(0, 3);
     if (res?.insufficient || !drafts.length) {
       S.insufficient.add(id);
       announce('메모에 쓸 내용이 부족해 초안을 만들지 않았습니다');
     } else {
-      store.updateRecord(id, { candidates: drafts });
+      store.updateRecord(id, { candidates: drafts.map(newCandidate) });
       toast(`초안 후보 ${drafts.length}개를 만들었습니다`);
     }
   } catch (e) {
@@ -508,6 +672,11 @@ function checkView(rec, text) {
   if (r.similar && r.similar.length) {
     const who = r.similar.map((s) => { const st = store.getStudent(s.id); return st ? `${s.id} ${st.name}` : s.id; });
     items.push(h('li', { class: 'is-warn' }, `같은 영역 다른 학생 글과 90% 이상 비슷합니다: ${who.join(', ')}`));
+  }
+  if (r.styleOverlap && r.styleOverlap.length) {
+    items.push(h('li', { class: 'is-warn stack gap-1' },
+      h('span', {}, `${STYLE_OVERLAP_TEXT}. 예시의 문장을 그대로 쓰지 않도록 고쳐 주세요.`),
+      r.styleOverlap.map((o) => h('span', { class: 'small' }, h('mark', {}, o.text)))));
   }
   return h('div', { class: 'stack' },
     h('div', { class: 'stack gap-1' },
@@ -625,6 +794,9 @@ function openBatchDialog() {
   let mode = selectedIds.length ? 'selected' : 'unwritten';
   const interval = Number(store.state.settings.batchIntervalSec) || 5;
   const noKey = !ctx.isFakeAI() && !ctx.hasKey();
+  // 일괄 초안도 같은 내 스타일 (기본 켬). 영역이 하나라 한 번만 고름
+  const picked = pickExamples(store.getStyles(), a.area, a.subject);
+  const styleBox = picked ? h('input', { type: 'checkbox', id: 'batch-style-on', role: 'switch', checked: !S.styleOff.has(styleKey(a.area, a.subject)) }) : null;
 
   const info = h('div', { class: 'stack' });
   const progress = progressBar('일괄 초안 진행');
@@ -690,7 +862,12 @@ function openBatchDialog() {
   const dlg = openDialog({
     title: `일괄 초안: ${c.name} ${a.label}`,
     wide: true,
-    body: [h('div', { class: 'field' }, h('span', { class: 'label' }, '대상'), modeSeg), info, progWrap],
+    body: [
+      h('div', { class: 'field' }, h('span', { class: 'label' }, '대상'), modeSeg),
+      styleBox ? h('div', { class: 'stack gap-1 style-apply' },
+        h('label', { class: 'check-row', for: 'batch-style-on' }, styleBox, '내 스타일 적용'),
+        h('p', { class: 'small muted' }, picked.summary)) : null,
+      info, progWrap],
     beforeClose: () => {
       if (batch?.state.running) { batch.stop(); toast('일괄 초안을 멈췄습니다'); }
       return true;
@@ -704,6 +881,7 @@ function openBatchDialog() {
     if (!targets.length) { toast('대상 학생이 없습니다'); return false; }
     const settings = store.state.settings;
     const roster = rosterAll();
+    const style = styleBox?.checked ? picked : null;
     batchShort = new Set();
     batch = createBatch({
       targets,
@@ -715,16 +893,17 @@ function openBatchDialog() {
         const st = store.getStudent(rec.studentId);
         const res = await generateDrafts({
           record: aiRecord(rec), studentName: st?.name || '', roster, settings,
-          apiKey: store.getApiKey(), count: 1, fake: ctx.isFakeAI(),
+          apiKey: store.getApiKey(), count: 1, fake: ctx.isFakeAI(), style,
         });
         const text = (res?.drafts || []).find((d) => d && d.trim());
         if (res?.insufficient || !text) { batchShort.add(rid); return 'skipped'; }
         const cur = store.state.records.get(rid);
         if (cur.status === 'done') return 'skipped';
-        store.updateRecord(rid, { draft: text, candidates: [text] });
+        store.updateRecord(rid, { draft: text, candidates: [newCandidate(text)] });
       },
     });
     modeSeg.querySelectorAll('button').forEach((b) => { b.disabled = true; });
+    if (styleBox) styleBox.disabled = true;
     Promise.resolve(batch.start()).catch(() => console.warn('일괄 초안 실행 중 예상 못 한 오류')).finally(() => batchUi?.showState());
     showState();
     return false;
@@ -751,6 +930,26 @@ function openBatchDialog() {
 }
 
 // ---------- 전체 그리기 ----------
+let staleAll = false; // 입력 중이라 미뤄 둔 전체 다시 그리기
+
+function typing() {
+  const ae = document.activeElement;
+  return !!root && root.contains(ae) && ae.matches('textarea,input:not([type="checkbox"])');
+}
+
+/** 전체를 다시 그리고 포커스를 같은 id 또는 data-fkey 요소로 되돌림 */
+function redrawAll() {
+  staleAll = false;
+  const ae = document.activeElement;
+  const had = root && root.contains(ae);
+  const fkey = had ? (ae.id || ae.dataset.fkey || null) : null;
+  pickDefaults(null);
+  renderAll();
+  if (fkey && !root.contains(document.activeElement)) {
+    (document.getElementById(fkey) || root.querySelector(`[data-fkey="${CSS.escape(fkey)}"]`))?.focus();
+  }
+}
+
 function pickDefaults(params) {
   const classes = store.listClasses();
   const pc = params?.get('class');
@@ -818,6 +1017,9 @@ export const writeView = {
     pickDefaults(params);
     syncParams();
     renderAll();
+    root.addEventListener('focusout', () => {
+      setTimeout(() => { if (staleAll && root && !typing()) { flushPending(); redrawAll(); } }, 0);
+    });
     root.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && S.open && els.panel?.contains(e.target) && !document.querySelector('dialog[open]')) {
         e.preventDefault();
@@ -839,21 +1041,19 @@ export const writeView = {
       if (openRec) {
         fillStatus(openRec);
         const ids = detail?.ids || [];
-        const typing = els.panel?.contains(document.activeElement) && document.activeElement.matches('textarea,input');
-        if (ids.includes(openRec.id) && !typing && !pending) {
+        if (ids.includes(openRec.id) && !typing() && !pending) {
           // 입력 중이 아닐 때만 패널을 새로 그림 (포커스는 renderPanel이 되돌림)
           renderPanel();
         }
       }
       return;
     }
-    if (['classes', 'students', 'settings', 'all'].includes(kind)) {
-      const active = document.activeElement?.id;
-      pickDefaults(null);
-      renderAll();
-      if (active) document.getElementById(active)?.focus();
+    if (['classes', 'students', 'settings', 'all', 'styles'].includes(kind)) {
+      // 동기화 반영('all') 등이 입력 중에 오면 포커스와 입력을 잃지 않게 칸을 벗어날 때까지 미룸
+      if (typing() || pending) { staleAll = true; return; }
+      redrawAll();
     }
   },
   flush() { flushPending(); },
-  unmount() { flushPending(); root = null; els = {}; },
+  unmount() { flushPending(); root = null; els = {}; staleAll = false; },
 };

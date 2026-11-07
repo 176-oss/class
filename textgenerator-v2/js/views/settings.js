@@ -1,11 +1,12 @@
-// 설정: API 키, 학교급, 학년도·학기, 바이트 한도, 모델 목록, 일괄 간격, 금지 표현, 모든 데이터 지우기, 개발용
+// 설정: API 키, 구글 드라이브, 학교급, 학년도·학기, 바이트 한도, 모델 목록, 일괄 간격, 금지 표현, 모든 데이터 지우기, 개발용
 import { h, clear, icon, focusEl, uid } from '../dom.js';
-import { toast, confirmDialog, seg, alertBox, viewHeader, field } from '../ui.js';
+import { toast, confirmDialog, openDialog, seg, alertBox, viewHeader, field } from '../ui.js';
 import * as store from '../store.js';
 import { AREAS, AREA_LABELS, DEFAULT_LIMITS, DEFAULT_MODELS, recordKey, newRecord, deriveStatus } from '../core/model.js';
 import { charsForBytes } from '../core/bytes.js';
 import { DEFAULT_FORBIDDEN } from '../core/forbidden.js';
 
+const FAKE_DRIVE_FLAG = 'sgb-v2-dev-fake-drive';
 const CATEGORIES = ['교외 수상', '어학시험', '사교육', '부모 정보', '기관·상표명', '논문·출판', '지식재산권', '교외 활동', '기타'];
 const MATCH_LABELS = [['word', '낱말'], ['prefix', '앞부분'], ['regex', '정규식']];
 
@@ -55,22 +56,78 @@ function keySection() {
           if (/\s/.test(v) || v.length < 20) { toast('키 모양이 이상합니다. 다시 복사해 주세요', { danger: true }); input.focus(); return; }
           store.setApiKey(v, S().keyStorage || 'local');
           input.value = '';
-          toast('API 키를 저장했습니다');
+          if (keyOnDrive()) store.setSecrets({ geminiKey: v, updatedAt: new Date().toISOString() });
+          toast(keyOnDrive() ? 'API 키를 저장했습니다. 구글 드라이브의 키도 바꿉니다' : 'API 키를 저장했습니다');
           render();
           focusEl(root.querySelector('#set-key-title'));
         },
       }, icon('key'), '키 저장하기'),
       h('button', {
         type: 'button', class: 'btn btn-ghost', disabled: !where,
-        onclick: () => { store.clearApiKey(); toast('API 키를 지웠습니다'); render(); focusEl(root.querySelector('#set-key-title')); },
+        onclick: () => {
+          const onDrive = keyOnDrive();
+          store.clearApiKey();
+          if (onDrive) store.setSecrets({ geminiKey: '', updatedAt: new Date().toISOString() });
+          toast(onDrive ? 'API 키를 이 브라우저와 구글 드라이브에서 지웠습니다' : 'API 키를 지웠습니다');
+          render();
+          focusEl(root.querySelector('#set-key-title'));
+        },
       }, icon('trash'), '키 지우기')),
+    keyDriveField(),
     h('details', { class: 'key-guide' },
       h('summary', {}, 'API 키 받는 방법'),
       h('ol', { class: 'stack small' },
         h('li', {}, '개인 구글 계정으로 Google AI Studio(', h('a', { href: 'https://aistudio.google.com/apikey', target: '_blank', rel: 'noopener noreferrer' }, 'aistudio.google.com'), ')에 들어갑니다. 학교 계정은 막혀 있을 수 있습니다.'),
         h('li', {}, '[Get API key] 또는 [API 키 만들기]를 눌러 새 키를 만듭니다.'),
         h('li', {}, '만든 키를 복사해 위 칸에 붙여 넣고 [키 저장하기]를 누릅니다.'),
-        h('li', {}, '키는 비밀번호처럼 다루고 다른 사람과 나누지 마세요. 학생 이름과 학번은 AI로 보내지 않습니다.'))));
+        h('li', {}, '키는 비밀번호처럼 다루고 다른 사람과 나누지 마세요. 학생 이름과 학번은 AI로 보내지 않습니다.'),
+        h('li', {}, '키 제한을 걸어 두면 더 안전합니다. 방법은 README의 \'API 키 제한하기\'에 있습니다: API 제한은 Generative Language API만, 웹사이트 제한은 https://176-oss.github.io/* 만.'))));
+}
+
+// ---------- API 키 드라이브 저장 (선택 기능, contract 18절) ----------
+const keyOnDrive = () => !!store.getSecrets()?.geminiKey;
+let keyConnected = null; // 키 칸을 그릴 때의 연결 상태 (바뀌면 다시 그림)
+
+function keyDriveField() {
+  if (!ctx.drive.isConfigured()) return null;
+  const connected = ctx.syncConnected();
+  keyConnected = connected;
+  const pc = !!S().publicPC;
+  const reason = pc ? '공용 PC에서는 키를 드라이브에 저장할 수 없습니다.'
+    : !connected ? '구글 드라이브에 연결해야 쓸 수 있습니다.' : null;
+  const box = h('input', {
+    type: 'checkbox', id: 'key-drive', checked: keyOnDrive(), disabled: !!reason,
+    'aria-describedby': 'key-drive-hint',
+    onchange: async (e) => {
+      const on = e.target.checked;
+      e.target.checked = !on; // 확인이 끝날 때까지 그대로
+      if (on) {
+        const key = store.getApiKey();
+        if (!key) { toast('먼저 API 키를 저장해 주세요'); return; }
+        const ok = await confirmDialog({
+          title: 'API 키를 구글 드라이브에도 저장할까요?',
+          body: h('ul', { class: 'stack small' },
+            h('li', {}, '결제를 연결하지 않은 무료 키만 쓰세요. 결제가 연결된 키가 새면 요금이 나올 수 있습니다.'),
+            h('li', {}, 'Google AI Studio 또는 Cloud 콘솔에서 키 제한을 걸어 두세요: API 제한은 Generative Language API만, 웹사이트 제한은 https://176-oss.github.io/* 만.'),
+            h('li', {}, '여러 사람이 쓰는 PC에서는 권하지 않습니다.'),
+            h('li', {}, '키가 샌 것 같으면 AI Studio에서 그 키를 지우고 새로 만드세요.'),
+            h('li', {}, '키는 백업 파일, 엑셀, 드라이브 자동 백업에는 들어가지 않습니다.')),
+          ok: '켜기',
+        });
+        if (!ok) return;
+        store.setSecrets({ geminiKey: key, updatedAt: new Date().toISOString() });
+        toast('API 키를 구글 드라이브에도 저장합니다');
+      } else {
+        store.setSecrets({ geminiKey: '', updatedAt: new Date().toISOString() });
+        toast('구글 드라이브에 저장한 API 키를 지웁니다');
+      }
+      render();
+      document.getElementById('key-drive')?.focus();
+    },
+  });
+  return h('div', { class: 'stack gap-1' },
+    h('label', { class: 'row check-row', for: 'key-drive' }, box, h('span', {}, '구글 드라이브에도 저장 (다른 PC에서 다시 입력하지 않아도 됨)')),
+    h('p', { class: 'hint', id: 'key-drive-hint' }, reason || '기본은 꺼짐입니다. 켜면 키가 구글 드라이브 앱 폴더의 데이터 파일에 함께 저장됩니다.'));
 }
 
 // ---------- 학교, 학기 ----------
@@ -276,10 +333,112 @@ function renderForbiddenOnly() {
   if (fbHost) clear(fbHost, forbiddenSection());
 }
 
+let driveHost = null;
+let saveHost = null;
+/** 동기화 상태가 바뀌면 드라이브 칸과 맨 아래 저장 칸만 다시 그림 (입력 중인 다른 칸은 그대로) */
+function renderSyncOnly() {
+  const active = document.activeElement?.id;
+  if (driveHost) clear(driveHost, driveSection());
+  if (saveHost) clear(saveHost, saveAllSection());
+  const el = active ? document.getElementById(active) : null;
+  if (el && document.activeElement !== el) el.focus();
+}
+
+// ---------- 구글 드라이브 (contract 14-5) ----------
+const lastSync = () => ctx.sync()?.status.lastSyncAt || null;
+
+function driveSection() {
+  const sync = ctx.sync();
+  const st = sync?.status || { state: 'off', connected: false };
+  const pc = !!S().publicPC;
+  if (!ctx.drive.isConfigured()) {
+    return section('set-drive-title', '구글 드라이브', alertBox('info', '이 주소에서는 구글 드라이브 연결을 쓸 수 없습니다. 데이터는 이 브라우저에만 저장됩니다.'));
+  }
+  const statusText = st.connected
+    ? `연결됨${lastSync() ? `, 마지막 저장 ${ctx.hhmm(lastSync())}` : ''}`
+    : '연결 안 됨: 이 브라우저에만 저장됩니다.';
+  const problem = ['auth', 'error', 'offline'].includes(st.state) && st.message ? alertBox(st.state === 'error' ? 'danger' : 'warn', st.message) : null;
+  const pcBox = h('input', {
+    type: 'checkbox', id: 'set-public-pc', checked: pc,
+    onchange: (e) => {
+      store.updateSettings({ publicPC: e.target.checked });
+      toast(e.target.checked ? '공용 PC로 씁니다. 구글 연결은 이 창을 닫으면 지워집니다' : '공용 PC 설정을 껐습니다');
+      render();
+      document.getElementById('set-public-pc')?.focus();
+    },
+  });
+  return section('set-drive-title', '구글 드라이브',
+    h('p', { class: ['small', st.connected ? null : 'text-danger'], role: 'status' }, statusText),
+    problem,
+    h('p', { class: 'small' }, '명단, 반, 기록, 설정, 내 스타일을 선생님 구글 드라이브의 앱 전용 폴더(sgb-data.json)에 저장합니다. 이 폴더는 드라이브 목록에 보이지 않고 공유되지 않습니다. 이 브라우저의 사본은 인터넷이 끊겼을 때를 위한 임시 저장입니다.'),
+    h('div', { class: 'row' },
+      st.connected ? null : h('button', { type: 'button', class: 'btn btn-primary', onclick: () => ctx.connectDrive() }, icon('drive'), '연결하기'),
+      st.connected ? h('button', { type: 'button', class: 'btn btn-primary', onclick: () => ctx.saveToDrive() }, icon('drive'), '지금 동기화하기') : null,
+      st.connected ? h('button', { type: 'button', class: 'btn btn-secondary', onclick: disconnectDialog }, '연결 끊기') : null),
+    h('label', { class: 'row check-row', for: 'set-public-pc' }, pcBox, h('span', {}, '공용 PC (여러 사람이 쓰는 PC)')),
+    h('p', { class: 'hint' }, '켜면 구글 연결 정보를 이 창에만 두고(창을 닫으면 지워짐), API 키를 드라이브에 저장하지 않습니다.'),
+    st.connected ? h('details', { class: 'key-guide' },
+      h('summary', {}, '드라이브의 생기부 데이터 지우기'),
+      h('div', { class: 'stack' },
+        h('p', { class: 'small' }, '구글 드라이브 앱 폴더의 생기부 데이터 파일과 자동 백업을 지우고 연결을 끊습니다. 출결 앱 파일은 지우지 않습니다. 이 브라우저 사본은 남습니다.'),
+        h('div', { class: 'row' }, h('button', { type: 'button', class: 'btn btn-danger', onclick: deleteDriveData }, icon('trash'), '드라이브의 생기부 데이터 지우기')))) : null);
+}
+
+async function disconnectDialog() {
+  const dlg = openDialog({
+    title: '구글 드라이브 연결을 끊을까요?',
+    body: h('p', {}, '드라이브의 데이터는 그대로 남습니다. 이 브라우저의 사본을 어떻게 할지 고르세요.'),
+    actions: [
+      { label: '취소', variant: 'ghost', value: null },
+      { label: '사본은 남기기', variant: 'secondary', value: 'keep' },
+      { label: '이 브라우저 사본도 지우기 (공용 PC 추천)', variant: 'danger', value: 'wipe' },
+    ],
+  });
+  const v = await dlg.closed;
+  if (v !== 'keep' && v !== 'wipe') return;
+  try {
+    await ctx.sync().disconnect({ wipeLocal: v === 'wipe' });
+    if (v === 'wipe') store.clearApiKey();
+    toast(v === 'wipe' ? '연결을 끊고 이 브라우저 사본과 API 키를 지웠습니다' : '구글 드라이브 연결을 끊었습니다');
+  } catch (e) {
+    console.error(e);
+    toast('연결을 끊지 못했습니다', { danger: true });
+  }
+  render();
+  focusEl(root?.querySelector('#set-drive-title'));
+}
+
+async function deleteDriveData() {
+  const ok1 = await confirmDialog({ title: '드라이브의 생기부 데이터를 지울까요?', body: '구글 드라이브에 저장된 명단, 기록, 설정, 자동 백업이 모두 지워집니다. 출결 앱 파일은 지우지 않습니다.', ok: '지우기', danger: true });
+  if (!ok1) return;
+  const ok2 = await confirmDialog({ title: '정말 지울까요?', body: '마지막 확인입니다. 이 브라우저 사본이나 백업 파일이 없으면 되살릴 수 없습니다.', ok: '드라이브에서 지우기', danger: true });
+  if (!ok2) return;
+  try {
+    const n = await ctx.sync().deleteDriveData();
+    toast(`드라이브에서 파일 ${n}개를 지우고 연결을 끊었습니다`);
+  } catch (e) {
+    toast(e?.userMessage || '드라이브에서 지우지 못했습니다', { danger: true });
+  }
+  render();
+}
+
+function saveAllSection() {
+  if (!ctx.drive.isConfigured()) return null;
+  const st = ctx.sync()?.status;
+  const unsaved = st?.connected && S().updatedAt && (!lastSync() || S().updatedAt > lastSync());
+  return h('section', { class: 'card stack', 'aria-labelledby': 'set-save-title' },
+    h('h2', { class: 'card-title sr-only', id: 'set-save-title' }, '설정 저장'),
+    h('p', { class: 'small', 'aria-live': 'polite' }, unsaved ? '저장 안 된 설정이 있습니다' : ''),
+    h('div', { class: 'row' }, h('button', {
+      type: 'button', class: 'btn btn-primary', id: 'set-save-drive', disabled: st?.state === 'saving',
+      onclick: () => ctx.saveToDrive(),
+    }, icon('drive'), st?.connected ? '설정을 구글 드라이브에 저장' : '구글 드라이브 연결')));
+}
+
 // ---------- 모든 데이터 지우기 ----------
 function wipeSection() {
   return section('set-wipe-title', '모든 데이터 지우기',
-    h('p', { class: 'small' }, '이 브라우저에 저장된 명단, 반, 기록, 설정과 API 키를 모두 지웁니다. 되돌릴 수 없으니 먼저 백업 파일을 내보내 두세요.'),
+    h('p', { class: 'small' }, '이 브라우저에 저장된 명단, 반, 기록, 설정과 API 키를 모두 지웁니다. 구글 드라이브의 데이터는 지우지 않습니다(위 구글 드라이브 칸에서 따로 지움). 드라이브에 연결하지 않았다면 되돌릴 수 없으니 먼저 백업 파일을 내보내 두세요.'),
     h('div', { class: 'row' }, h('button', {
       type: 'button', class: 'btn btn-danger',
       onclick: async () => {
@@ -321,10 +480,27 @@ function devSection() {
   return section('set-dev-title', '개발용',
     alertBox('info', '주소에 ?dev=1 이 있을 때만 보이는 시험용 기능입니다.'),
     h('label', { class: 'row check-row', for: 'dev-fake' }, cb, h('span', {}, '가짜 AI 켜기 (키 없이 초안 흐름 시험)')),
-    h('div', { class: 'row' }, h('button', {
-      type: 'button', class: 'btn btn-secondary',
-      onclick: () => makeFakeClass(),
-    }, icon('users'), '가상 학생 30명 반 만들기')));
+    h('label', { class: 'row check-row', for: 'dev-fake-drive' }, h('input', {
+      type: 'checkbox', id: 'dev-fake-drive', checked: ctx.fakeDrive,
+      onchange: (e) => {
+        try { if (e.target.checked) localStorage.setItem(FAKE_DRIVE_FLAG, '1'); else localStorage.removeItem(FAKE_DRIVE_FLAG); } catch { /* 넘어감 */ }
+        toast('새로고침하면 바뀝니다. 가짜 드라이브는 구글로 아무것도 보내지 않습니다.', { action: '새로고침', onAction: () => location.reload() });
+      },
+    }), h('span', {}, '가짜 드라이브 켜기 (새로고침 필요)')),
+    h('div', { class: 'row' },
+      h('button', {
+        type: 'button', class: 'btn btn-secondary',
+        onclick: () => makeFakeClass(),
+      }, icon('users'), '가상 학생 30명 반 만들기'),
+      h('button', {
+        type: 'button', class: 'btn btn-secondary',
+        onclick: async () => {
+          const ok = await confirmDialog({ title: '사본만 지울까요?', body: '사이트 데이터 지우기를 흉내 냅니다. 이 브라우저의 IndexedDB 사본과 동기화 상태만 지우고 새로고침합니다. 가짜 드라이브 파일과 API 키는 남습니다.', ok: '사본만 지우기', danger: true });
+          if (!ok) return;
+          await store.wipeLocalCopy();
+          location.reload();
+        },
+      }, icon('trash'), '사본만 지우기')));
 }
 
 function makeFakeClass() {
@@ -363,15 +539,20 @@ function render() {
   if (!root) return;
   const y = window.scrollY;
   fbHost = h('div', {});
+  driveHost = h('div', {});
+  saveHost = h('div', {});
   clear(root,
-    viewHeader('설정', '설정은 이 브라우저에 저장되고 백업 파일에도 들어갑니다. API 키만 백업에 들어가지 않습니다.'),
+    viewHeader('설정', '설정은 구글 드라이브(연결했을 때)와 백업 파일에 함께 저장됩니다. API 키는 백업 파일에 들어가지 않습니다.'),
     keySection(),
+    driveHost,
     h('div', { class: 'grid-2' }, schoolSection(), modelSection()),
     limitSection(),
     fbHost,
     wipeSection(),
-    devSection());
+    devSection(),
+    saveHost);
   renderForbiddenOnly();
+  renderSyncOnly();
   window.scrollTo(0, y);
 }
 
@@ -381,14 +562,21 @@ export const settingsView = {
     root = h('div', { class: 'view view-settings stack' });
     el.appendChild(root);
     render();
+    if (params?.get('card') === 'drive') focusEl(root.querySelector('#set-drive-title'));
   },
   update(kind) {
     if (kind === 'all') render();
+    if (kind === 'sync' || kind === 'settings') renderSyncOnly();
+    if (kind === 'secrets' || (kind === 'sync' && keyConnected !== ctx.syncConnected())) {
+      const active = document.activeElement?.id;
+      render();
+      if (active) document.getElementById(active)?.focus();
+    }
     if (kind === 'key') {
       const active = document.activeElement?.id;
       render();
       if (active) document.getElementById(active)?.focus();
     }
   },
-  unmount() { root = null; fbHost = null; },
+  unmount() { root = null; fbHost = null; driveHost = null; saveHost = null; },
 };

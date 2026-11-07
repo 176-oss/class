@@ -70,14 +70,16 @@ export async function loadAll() {
   const [meta, students, classes, records, settings, snapshots] = await Promise.all(
     Object.keys(STORES).map((name) => req(tx.objectStore(name).getAll())),
   );
-  const ver = meta.find((m) => m.key === 'schemaVersion')?.value;
+  const metaOf = (key) => meta.find((m) => m.key === key)?.value;
+  const ver = metaOf('schemaVersion');
   let data = {
     students,
     classes,
     records,
     settings: settings.find((s) => s.key === 'app')?.value || null,
+    styles: settings.find((s) => s.key === 'styles')?.value || null,
   };
-  const snapshot = snapshots.find((s) => s.id === 'before-import') || null;
+  const snaps = Object.fromEntries(snapshots.map((s) => [s.id, s]));
   let newer = false;
   if (ver === undefined) {
     await putMeta('schemaVersion', SCHEMA_VERSION);
@@ -88,7 +90,16 @@ export async function loadAll() {
   } else if (ver > SCHEMA_VERSION) {
     newer = true;
   }
-  return { ...data, snapshot, newer };
+  return {
+    ...data,
+    deleted: Array.isArray(metaOf('deleted')) ? metaOf('deleted') : [],
+    secrets: metaOf('secrets') || null,
+    syncState: metaOf('sync') || {},
+    syncPending: !!metaOf('syncPending'),
+    snapshots: snaps,
+    snapshot: snaps['before-import'] || null,
+    newer,
+  };
 }
 
 export async function putMeta(key, value) {
@@ -100,11 +111,12 @@ export async function putMeta(key, value) {
 
 /**
  * 바뀐 것만 한 번에 쓴다.
- * changes = { put: { records: [..], students: [..] }, del: { classes: [id, ..] }, settings: Settings|undefined }
+ * changes = { put: { records: [..] }, del: { classes: [id, ..] }, settings, styles, meta: { key: value } }
  */
-export async function writeChanges({ put = {}, del = {}, settings } = {}) {
+export async function writeChanges({ put = {}, del = {}, settings, styles, meta = {} } = {}) {
   const names = new Set([...Object.keys(put), ...Object.keys(del)]);
-  if (settings) names.add('settings');
+  if (settings || styles) names.add('settings');
+  if (Object.keys(meta).length) names.add('meta');
   if (!names.size) return;
   const db = await openDB();
   const tx = db.transaction([...names], 'readwrite');
@@ -117,28 +129,50 @@ export async function writeChanges({ put = {}, del = {}, settings } = {}) {
     for (const k of keys) os.delete(k);
   }
   if (settings) tx.objectStore('settings').put({ key: 'app', value: settings });
+  if (styles) tx.objectStore('settings').put({ key: 'styles', value: styles });
+  for (const [key, value] of Object.entries(meta)) tx.objectStore('meta').put({ key, value });
   await txDone(tx);
 }
 
-/** 학생·반·기록·설정을 통째로 바꾼다 (가져오기, 되돌리기) */
-export async function replaceAllData({ students = [], classes = [], records = [], settings }) {
+/** 학생·반·기록·설정·스타일(+삭제 기록, secrets)을 통째로 바꾼다 (가져오기, 되돌리기, 동기화 반영) */
+export async function replaceAllData({ students = [], classes = [], records = [], settings, styles, deleted, secrets, meta = {} }) {
   const db = await openDB();
-  const tx = db.transaction(['students', 'classes', 'records', 'settings'], 'readwrite');
+  const tx = db.transaction(['students', 'classes', 'records', 'settings', 'meta'], 'readwrite');
   for (const [name, items] of [['students', students], ['classes', classes], ['records', records]]) {
     const os = tx.objectStore(name);
     os.clear();
     for (const it of items) os.put(it);
   }
   if (settings) tx.objectStore('settings').put({ key: 'app', value: settings });
+  if (styles) tx.objectStore('settings').put({ key: 'styles', value: styles });
+  const m = { ...meta };
+  if (deleted !== undefined) m.deleted = deleted;
+  if (secrets !== undefined) m.secrets = secrets;
+  for (const [key, value] of Object.entries(m)) tx.objectStore('meta').put({ key, value });
   await txDone(tx);
 }
 
+/** 같은 id의 스냅숏만 바꾼다 */
 export async function putSnapshot(snapshot) {
   const db = await openDB();
   const tx = db.transaction('snapshots', 'readwrite');
-  const os = tx.objectStore('snapshots');
-  os.clear();
-  os.put(snapshot);
+  tx.objectStore('snapshots').put(snapshot);
+  await txDone(tx);
+}
+
+export async function deleteSnapshot(id) {
+  const db = await openDB();
+  const tx = db.transaction('snapshots', 'readwrite');
+  tx.objectStore('snapshots').delete(id);
+  await txDone(tx);
+}
+
+/** 사본만 비운다 (열린 채로). 스키마 버전은 다시 적는다 */
+export async function clearAllStores() {
+  const db = await openDB();
+  const tx = db.transaction(Object.keys(STORES), 'readwrite');
+  for (const name of Object.keys(STORES)) tx.objectStore(name).clear();
+  tx.objectStore('meta').put({ key: 'schemaVersion', value: SCHEMA_VERSION });
   await txDone(tx);
 }
 

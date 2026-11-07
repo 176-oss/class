@@ -1,13 +1,14 @@
 // 백업 만들기, 검사, 미리보기 통계, 병합. 순수 모듈.
-// 백업에는 API 키를 넣지 않는다.
+// 백업에는 API 키, secrets, 기기별 설정, 삭제 기록을 넣지 않는다.
 
-import { SCHEMA_VERSION, AREAS, migrate, defaultSettings } from './model.js';
+import { SCHEMA_VERSION, AREAS, AREAS_BY_KIND, STATUS_LABELS, DEVICE_SETTING_KEYS, migrate, defaultSettings, defaultStyles, recordKey } from './model.js';
+import { byteLength } from './bytes.js';
 
 export const BACKUP_KIND = 'sgb-v2-backup';
 export const APP_NAME = 'textgenerator-v2';
 
-// 키 관련 값과 이 PC에서만 쓰는 값(개발용 가짜 AI)은 백업에 넣지 않고, 가져올 때도 무시한다.
-const KEY_FIELDS = ['apiKey', 'geminiApiKey', 'key', 'apikey', 'api_key', 'devFakeAI'];
+// 키 관련 값과 이 PC에서만 쓰는 값은 백업에 넣지 않고, 가져올 때도 무시한다.
+const KEY_FIELDS = ['apiKey', 'geminiApiKey', 'geminiKey', 'secrets', 'key', 'apikey', 'api_key', ...DEVICE_SETTING_KEYS];
 
 function stripKeys(settings) {
   if (!settings || typeof settings !== 'object') return settings;
@@ -20,7 +21,12 @@ function arr(v) {
   return Array.isArray(v) ? v : [];
 }
 
-export function makeBackup({ students = [], classes = [], records = [], settings = {}, now = new Date() } = {}) {
+function cleanStyles(styles) {
+  return styles && typeof styles === 'object' && styles.areas && typeof styles.areas === 'object'
+    ? JSON.parse(JSON.stringify(styles)) : defaultStyles();
+}
+
+export function makeBackup({ students = [], classes = [], records = [], settings = {}, styles = null, now = new Date() } = {}) {
   const created = now instanceof Date ? now : new Date(now);
   return {
     kind: BACKUP_KIND,
@@ -31,6 +37,7 @@ export function makeBackup({ students = [], classes = [], records = [], settings
     classes: arr(classes).map((c) => ({ ...c, studentIds: arr(c.studentIds).slice() })),
     records: arr(records).map((r) => ({ ...r })),
     settings: stripKeys(settings),
+    styles: cleanStyles(styles),
   };
 }
 
@@ -71,7 +78,9 @@ export function validateBackup(obj) {
     if (!AREAS.includes(r.area)) return fail(`기록 ${i + 1}번째의 영역(${r.area})을 알 수 없습니다.`);
   }
   let backup = v < SCHEMA_VERSION ? migrate(data, v) : { ...data };
-  backup = { ...backup, settings: stripKeys(backup.settings ?? null) };
+  const { secrets, deleted, ...rest } = backup;
+  void secrets; void deleted;
+  backup = { ...rest, settings: stripKeys(backup.settings ?? null), styles: cleanStyles(backup.styles) };
   return { ok: true, error: null, backup };
 }
 
@@ -145,11 +154,19 @@ export function mergeBackup(current, incoming) {
   if (inc.settings && typeof inc.settings === 'object') {
     const base = cur.settings && typeof cur.settings === 'object' ? cur.settings : defaultSettings();
     settings = stripKeys({ ...base, ...inc.settings });
-    if (cur.settings && 'keyStorage' in cur.settings) settings.keyStorage = cur.settings.keyStorage;
-    settings.devFakeAI = Boolean(cur.settings?.devFakeAI);
   } else {
     settings = stripKeys(cur.settings ?? defaultSettings());
-    settings.devFakeAI = Boolean(cur.settings?.devFakeAI);
+  }
+  const def = defaultSettings();
+  for (const k of DEVICE_SETTING_KEYS) settings[k] = cur.settings && k in cur.settings ? cur.settings[k] : def[k];
+  settings.devFakeAI = Boolean(settings.devFakeAI);
+
+  // 스타일: 영역 키별로 들어온 것이 우선. 들어온 백업에 없으면 지금 것
+  const styles = cleanStyles(cur.styles);
+  if (inc.styles && typeof inc.styles === 'object' && inc.styles.areas) {
+    Object.assign(styles.areas, cleanStyles(inc.styles).areas);
+    const times = Object.values(styles.areas).map((a) => a?.updatedAt).filter(Boolean).sort();
+    styles.updatedAt = times.length ? times[times.length - 1] : (inc.styles.updatedAt || styles.updatedAt || null);
   }
 
   return {
@@ -157,5 +174,35 @@ export function mergeBackup(current, incoming) {
     classes: [...classes.values()],
     records: [...records.values()],
     settings,
+    styles,
   };
+}
+
+/**
+ * 영역별 엑셀 내보내기 행. 첫 행은 머리글. 키·비밀 정보는 넣지 않는다.
+ * 반은 만든 순서, 학생은 학번 순. 같은 학생이 여러 반에 있으면 반 이름을 합침
+ */
+export function excelRows({ classes = [], students = [], records = [], area } = {}) {
+  const rows = [['학번', '이름', '반', '과목', '최종본', '바이트', '상태']];
+  const studentMap = byKey(students, 'studentId');
+  const recordMap = byKey(records, 'id');
+  const byRecord = new Map();
+  const sorted = arr(classes).slice().sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
+  for (const c of sorted) {
+    if (!(AREAS_BY_KIND[c.kind] || []).includes(area)) continue;
+    const subject = area === 'subject' ? (c.subject || null) : null;
+    const list = arr(c.studentIds).map((id) => studentMap.get(String(id))).filter(Boolean)
+      .sort((a, b) => a.studentId.localeCompare(b.studentId));
+    for (const s of list) {
+      const key = `${s.studentId}|${subject || ''}`;
+      if (byRecord.has(key)) { byRecord.get(key).classes.push(c.name); continue; }
+      byRecord.set(key, { s, rec: recordMap.get(recordKey(s.studentId, area, subject)) || null, subject, classes: [c.name] });
+    }
+  }
+  const list = [...byRecord.values()].sort((a, b) => a.s.studentId.localeCompare(b.s.studentId) || String(a.subject).localeCompare(String(b.subject)));
+  for (const { s, rec, subject, classes: names } of list) {
+    const text = rec?.final || '';
+    rows.push([s.studentId, s.name, names.join(', '), subject || '', text, byteLength(text), STATUS_LABELS[rec?.status || 'empty']]);
+  }
+  return rows;
 }

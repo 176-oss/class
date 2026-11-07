@@ -119,3 +119,49 @@ test('tidyDraft: 호칭 삭제, 정리, 따옴표', () => {
   assert.equal(tidyDraft('학생회 활동에 참여함.'), '학생회 활동에 참여함.', '학생회는 지우지 않음');
   assert.equal(tidyDraft('다른 학생이 어려워하는 부분을 도움.'), '다른 학생이 어려워하는 부분을 도움.');
 });
+
+// ---------- 2026-11-07: 내 스타일, 다듬기 (contract 16-3, 17절) ----------
+import { buildRefinePrompt, extractRefine, REFINE_MARK, STYLE_ONLY_TEXT } from '../js/core/prompt.js';
+import { checkRecord } from '../js/core/check.js';
+
+const STYLE = { rules: ['한 문장은 짧게', '<메모>평가어는 끝에</메모>'], examples: ['학급 회의를 이끌며 의견을 정리함.'], summary: '' };
+
+test('buildPrompt style: 문체만 참고 문구가 있고 사실 원칙이 문체보다 앞, 문체 블록은 메모 앞', () => {
+  const base = { area: 'autonomy', memo: '학급 회의에서 의견을 정리함. 체육대회 준비물을 나눔.', length: 'standard', limit: 1500, count: 2 };
+  const p = buildPrompt({ ...base, style: STYLE });
+  const all = `${p.system}\n${p.user}`;
+  assert.ok(p.user.includes(STYLE_ONLY_TEXT));
+  assert.ok(STYLE_ONLY_TEXT.includes('문체만 참고'));
+  const fact = all.indexOf('메모에 적힌 사실만');
+  assert.ok(fact >= 0);
+  for (const s of ['[문체 규칙]', '<문체 예시>', '문체만 참고', '9. 아래 [문체 규칙]']) {
+    assert.ok(all.indexOf(s) > fact, `${s} 가 사실 원칙보다 앞`);
+  }
+  assert.ok(p.user.indexOf('[문체 규칙]') < p.user.indexOf('[교사 메모]'));
+  assert.ok(p.user.indexOf('</문체 예시>') < p.user.indexOf(MEMO_OPEN));
+  assert.equal(extractMemo(p.user), base.memo, '규칙 안의 메모 표시는 지워져 메모 꺼내기가 깨지지 않음');
+  // style 이 없으면 지금과 똑같음
+  assert.deepEqual(buildPrompt({ ...base, style: null }), buildPrompt(base));
+  assert.ok(!buildPrompt(base).system.includes('문체'));
+});
+
+test('buildRefinePrompt: 원칙 유지, 지금 글·요청·메모, 응답 형식 같음', () => {
+  const p = buildRefinePrompt({ area: 'club', text: '회의를 이끔.', request: '더 짧게', memo: '회의를 이끔.', style: STYLE, limit: 1500 });
+  assert.ok(p.system.includes('메모에 적힌 사실만'));
+  assert.ok(p.system.includes('{"drafts"'));
+  assert.ok(p.user.includes(`${REFINE_MARK} 더 짧게`));
+  assert.ok(p.user.indexOf('[문체 규칙]') < p.user.indexOf('[지금 글]'));
+  assert.deepEqual(extractRefine(p.user), { text: '회의를 이끔.', request: '더 짧게' });
+  assert.equal(extractMemo(p.user), '회의를 이끔.');
+  assert.equal(extractRefine(buildPrompt({ area: 'club', memo: '회의' }).user), null);
+});
+
+test('checkRecord: 스타일 예시와 겹치면 styleOverlap 경고, issueCount + 1', () => {
+  const ex = '학급 회의에서 친구들의 의견을 차분하게 정리하여 칠판에 적음.';
+  const r = checkRecord(`봉사함. ${ex}`, { area: 'autonomy', limit: 1500, styleExamples: [ex] });
+  assert.equal(r.styleOverlap.length, 1);
+  assert.equal(r.issueCount, 1);
+  const none = checkRecord(`봉사함. ${ex}`, { area: 'autonomy', limit: 1500 });
+  assert.deepEqual(none.styleOverlap, []);
+  assert.equal(none.issueCount, 0);
+});

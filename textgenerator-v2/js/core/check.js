@@ -2,6 +2,7 @@
 // 순수 모듈. 경고는 저장을 막지 않는다.
 
 import { byteLength, byteLevel } from './bytes.js';
+import { styleOverlap } from './style.js';
 
 const WORD_CHAR = /[가-힣ㄱ-ㅣA-Za-z0-9]/;
 const ASCII_ALNUM = /[A-Za-z0-9]/;
@@ -151,16 +152,19 @@ export function findSimilar(text, others, threshold = 0.9) {
 
 /**
  * 종합 검사.
- * issueCount = 초과(1) + 금지 표현 수 + NEIS 문자 문제 종류 수 + 비슷한 글 수.
+ * issueCount = 초과(1) + 금지 표현 수 + NEIS 문자 문제 종류 수 + 비슷한 글 수 + 스타일 예시와 겹침(있으면 1).
  * '한도에 가까움'(near)은 알림일 뿐 issueCount에 넣지 않는다.
  */
-export function checkRecord(text, { area, limit, entries = [], others = [] } = {}) {
+export function checkRecord(text, { area, limit, entries = [], others = [], styleExamples = [] } = {}) {
   const src = String(text ?? '');
   const bytes = byteLength(src);
   const level = byteLevel(bytes, limit);
   const forbidden = findForbidden(src, area, entries);
   const neis = findNeisIssues(src);
   const similar = findSimilar(src, others);
-  const issueCount = (level === 'over' ? 1 : 0) + forbidden.length + neis.length + similar.length;
-  return { bytes, limit, level, forbidden, neis, similar, issueCount };
+  const overlap = styleOverlap(src, styleExamples);
+  const issueCount = (level === 'over' ? 1 : 0) + forbidden.length + neis.length + similar.length + (overlap.length ? 1 : 0);
+  return { bytes, limit, level, forbidden, neis, similar, styleOverlap: overlap, issueCount };
 }
+
+export const STYLE_OVERLAP_TEXT = '스타일 예시와 같은 문장이 있습니다';
