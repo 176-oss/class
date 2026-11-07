@@ -157,3 +157,57 @@
 ## 개발 책임자 후속 조치
 - 10-2 (b) 되돌리기 뒤 가짜 AI 꺼짐: `js/views/backup.js:140`에서 되돌릴 때 `devFakeAI`도 현재 값을 넣도록 고침.
 - 10-2 (a) SheetJS SRI: 남김. 지금 버전(textgenerator/)과 같은 cdnjs 주소를 쓰며, 무결성 값은 배포 전에 cdnjs에 표시된 값을 확인해 넣기로 함 (PR 확인 필요 목록).
+
+---
+
+## 드라이브·내 스타일 검수 (2026-11-07)
+
+대상: 브랜치 `feat/textgenerator-v2-drive-style` (origin/main 이후 커밋 14개, `27afaba`..`fb100e8`). 검수 담당은 이번 코드를 쓰지 않았고 앱 코드는 고치지 않음.
+방법: 저장소 루트에서 `python -m http.server 8767`, 내장 브라우저로 `http://localhost:8767/textgenerator-v2/?dev=1` (새 포트라 옛 저장소 없음). 실제 입력(Tab, Enter, 글자 입력, 클릭)과 `javascript_tool`(값 넣기, store 상태 읽기)을 함께 씀. 끝난 뒤 서버 종료(`curl` 응답 없음 확인), 탭 닫음.
+
+### 8장 완료 기준
+
+| 번호 | 결과 | 근거 |
+|---|---|---|
+| 1 node 테스트 | 통과 | `node textgenerator-v2/tests/run.mjs` -> `tests 137 / pass 137 / fail 0` (sync-merge, sync, secrets, style, candidates, privacy 포함) |
+| 2 콘솔 오류 없음 | 통과 (조건부 1건) | 7개 화면(명단, 작성, 내 스타일, 현황, NEIS, 백업, 설정)을 데스크톱과 375px 폭에서 모두 옮겨 다니고 아래 3·4·6 흐름을 돌린 뒤 `read_console_messages`: 오류 0건 (시험용 `console.info` 한 줄만). 예외 1건: 가짜 드라이브로 연결한 채 `?dev=1` 없이 열면 `[GSI_LOGGER]: Failed to open popup window ... prompt=none` 오류. 개발용 상태가 진짜 모드로 새는 문제(A-1) |
+| 3 가짜 드라이브 복원 | 통과 | 가짜 드라이브 켜고 새로고침 -> 머리 배지 '가짜 드라이브 모드' -> 머리 줄 버튼을 Enter로 연결('구글 드라이브에 연결했습니다. 저장됨 14:48') -> 가상 반 1개·학생 30명, 기록 8건(후보 3개, 최종본), 설정(2학기, `updatedAt`), 스타일(자율·자치 예시 3개, 규칙, AI 규칙)을 만들고 상태를 sessionStorage에 적어 둠 -> 가짜 드라이브 파일에 `settings`(기기별 값 `keyStorage`·`devFakeAI`·`publicPC` 없음), `styles`, 최종본이 있고 `secrets: null` -> 개발용 [사본만 지우기] -> 새로고침 뒤 학생 0, 반 0, '드라이브 연결 안 됨' -> 머리 줄 버튼 Enter로 다시 연결 -> `studentsSame`, `classesSame`, `recsSame`, `stylesSame`, `settings` 모두 `true` (기록은 memo·draft·final·candidates까지 JSON 비교) |
+| 4 가짜 AI 흐름 | 통과 (문제 1건) | 내 스타일 자율·자치에 예시 3개(이름·학번·'3학년 5반 2번' 섞음) -> 넣기 전 확인 'OO으로 바꾼 곳 2개: 이아라(1번째 글자), 3학년 5반 2번(9번째 글자)' -> [이대로 저장] -> 규칙 2줄 -> [AI로 스타일 정리] 규칙 5줄 -> [이 규칙 쓰기] (`aiRules` 저장 확인) -> 작성 패널 '내 스타일 적용' 켜짐, '적용 중: 규칙 7개, 예시 2개' -> [초안 만들기] 후보 3개(라벨 '후보 1~3') -> 후보 1에 실제 글자 입력: '고침' 배지, 바이트 `aria-live="polite"` '297 / 1500 byte', store `edited: true` -> 칩 [더 짧게]와 다듬기 칸 Enter 요청 -> 새 판, '후보 n을 다듬었습니다' -> [이전 판] 실제 클릭(versions 2 -> 1) -> [최종본 끝에 붙이기] 실제 클릭, `final`에 들어감. 다듬는 동안 다른 글 칸에 포커스가 있으면 카드가 '다듬는 중'으로 멈춤(B-1) |
+| 5 머리 줄 저장 버튼 | 통과 | 7개 화면 모두 `#sync-save` 보임(183x44). 페이지 처음부터 실제 Tab 3번 -> '본문으로 건너뛰기', 상태 글, `#sync-save` 순서, `:focus-visible` 3px 외곽선, Enter로 연결·저장. `resize_window` mobile(375x812): 7개 화면 모두 44x44, SVG 아이콘 + `aria-label="구글 드라이브에 저장"`, 문서 폭 375(넘침 없음). 같은 폭에서 button·tab·select·input·summary와 작성 패널 후보 카드 버튼·칩 중 44px 미만 0개. 끝난 뒤 preset desktop으로 되돌림. 설정 맨 아래 [설정을 구글 드라이브에 저장]과 '저장 안 된 설정이 있습니다' 표시도 확인 |
+| 6 연결 안 한 상태 | 통과 | 처음 실행 대화상자 '구글 드라이브에 연결 (추천)' -> [나중에] -> 7개 화면 모두 경고 배너 '드라이브 연결 안 됨'과 머리 줄 '드라이브 연결 안 됨: 이 브라우저에만 저장', 버튼 [구글 드라이브 연결]. 가상 반 만들기 뒤 새로고침해도 남음. 연결 끊기('사본은 남기기') + 가짜 드라이브 끄고 `?dev=1` 없이 열어 메모를 실제로 입력 -> 새로고침 -> 메모 남음, GIS 스크립트 안 붙음, `google` 주소 요청 0건 |
+| 7 innerHTML·이모지 | 통과 | `grep -rnE "inner[H]TML|outer[H]TML|insertAdjacent|document\.[w]rite" textgenerator-v2 --exclude-dir=lib --exclude-dir=docs` -> 0곳. python 유니코드 검사(U+2190–U+2BFF, U+2600–U+27BF, U+FE0F, U+1F000 이상; .js .mjs .html .css .md .json; lib 제외) -> 코드·CSS·HTML 0개. 걸린 것은 `docs/수정지시서.md`의 화살표(U+2192) 29개뿐(선생님이 쓴 지시서 본문, 화면에 안 나옴) |
+| 8 밖의 파일 변경 | 통과 | `git diff --stat origin/main -- . ':!textgenerator-v2'` -> 출력 없음(0개). `git status --short` 깨끗함 |
+| 9 외부 코드 | 통과 | `grep -rnE "src=\"http|href=\"http|from ['\"]http|import\(['\"]http|\.src *= *['\"]http" textgenerator-v2 --exclude-dir=docs` -> 0건. `index.html`의 script·link는 `css/*.css`, `../lib/xlsx.full.min.js`, `js/app.js`뿐. GIS는 `js/drive.js:7` `GIS_SRC = 'https://accounts.google.com/gsi/client'`를 `:23-24`에서 `createElement('script')`로 연결할 때만 붙임(동적 로드). 그 밖의 http 문자열은 API 주소(`drive.js:8-9` Drive, `gemini.js:12` Gemini, `drive-common.js:3` scope), 안내 링크(`settings.js:80,84`), SVG 이름공간뿐. 글꼴은 `tokens.css:6-8`이 `../lib/fonts/*.woff2`. `lib/README.md`: IBM Plex Sans KR 1.1.0, OFL 1.1(`fonts/OFL-LICENSE.txt`), 받은 곳 npm `@ibm/plex-sans-kr`. SheetJS는 루트 `lib/README.md`에 0.18.5와 원래 주소(선생님 결정으로 공용 파일 사용). 브라우저 네트워크 기록에도 localhost 밖 요청 0건(가짜 드라이브·가짜 AI) |
+
+### 절대 규칙 점검
+
+| 항목 | 결과 | 근거 |
+|---|---|---|
+| API 키: 백업·엑셀·자동 백업 | 통과 | `tests/secrets.test.mjs`: `makeBackup`(settings에 `apiKey`·`geminiKey`가 섞여도), `excelRows`(모든 영역), `withoutSecrets`(`secrets: null`)에 키 없음. 브라우저에서 가짜 드라이브 파일 `settings` 키 목록에 키 칸 없음 |
+| API 키: console·오류 문구 | 통과 | `grep -rn "console\." textgenerator-v2/js` 29곳: `console.error(e)`는 화면·저장·동기화 예외 객체, `console.warn`은 고정 문구 + `e.name`만. `AiError` 문구는 HTTP 상태와 응답 본문 300자(`gemini.js:39-41`), 요청 헤더·URL은 넣지 않음. 키는 `x-goog-api-key` 헤더에만(`gemini.js:32`). `DriveError` 문구는 `DRIVE_MESSAGES` 고정 문구만. secrets 테스트에 '드라이브 오류 문구에 키·토큰 없음' 있음 |
+| 학생 이름·학번이 AI로 안 감 | 통과 | `tests/privacy.test.mjs` 6개: 초안·일괄·다듬기·스타일 정리 요청 본문을 `fetchImpl`로 잡아 이름(성 뺀 이름 포함)·학번·'3학년 5반 2번'·키가 없고 키는 헤더에만 있음. 화면에서도 예시 넣기 때 이름·학번·반 번호가 'OO'으로 바뀜 |
+| 버튼 44px (CSS) | 통과 | `tokens.css:129 --touch-min: 44px`. `.btn`·`.btn-sm`·탭·입력이 `min-height: var(--touch-min)`, `.appbar .sync-save`는 `min-width`도. 실측은 5번 |
+
+### 문제 목록
+
+| 번호 | 담당 | 파일:줄 | 증상 | 재현 |
+|---|---|---|---|---|
+| B-1 (중간) | B | `js/views/write.js:557-559` | 다듬기가 끝날 때 다른 글 칸(또는 같은 카드 textarea)에 포커스가 있으면 `staleAll`만 세우고 다시 그리지 않음. 결과는 store에 들어갔는데 그 카드는 '다듬는 중', textarea `readonly`, 칩·버튼 `disabled`, 옛 글로 남고 칸을 벗어나야(focusout) 풀림. 맥 Safari처럼 버튼을 눌러도 포커스가 옮겨지지 않는 브라우저에서는 같은 카드 textarea에 커서를 둔 채 칩을 누르면 늘 생김 | `?dev=1` 가짜 AI. 후보 1 칩을 누른 직후(2초 안에) 후보 2 textarea를 눌러 입력 시작 -> 후보 1이 '다듬는 중'으로 남음. 검수에서는 후보 1 textarea에 포커스를 둔 채 칩을 `click()`해 재현: store `text` 134자, 화면 81자, `readOnly: true`, 버튼 모두 disabled -> `blur()` 뒤 풀림 |
+| A-1 (낮음, 개발용) | A | `js/app.js:36-37`, meta.sync 상태 | 가짜 드라이브로 연결한 상태(`connected: true`, 가짜 `fileId`)가 IndexedDB에 남아, `?dev=1` 없이 열면 진짜 드라이브로 조용한 토큰을 시도함: GIS 스크립트를 붙이고 콘솔 오류 `[GSI_LOGGER] Failed to open popup window`, 배너 '구글 연결 확인'. 진짜로 연결하면 가짜 `fileId`로 `getMeta`를 부를 수 있음 | `?dev=1`에서 가짜 드라이브 켜기 -> 연결 -> 주소에서 `?dev=1`을 빼고 열기 |
+| A-2 (낮음) | A | `js/app.js:157`, `js/sync.js:217` | 사본을 지운 뒤 [구글 드라이브 연결]로 복원하면 '드라이브에서 학생 N명, 기록 N건을 불러왔습니다'가 보이지 않고 '구글 드라이브에 연결했습니다'만 남음(뒤 토스트가 덮었거나 안 나옴). 데이터는 모두 돌아옴 | 3번 흐름의 다시 연결 단계. `#live`와 `.toast` 모두 연결 문구 하나 |
+| B-2 (낮음, 문구) | B | `js/views/write.js:466, 504, 549` 등 | '후보 2을 다듬었습니다', aria-label '후보 2을 최종본 끝에 붙이기'. 2·4·5 뒤에는 '를'이 맞음 | 후보 2 다듬기 |
+| A-3 (확인 필요) | A | `js/drive.js:91` | 시작할 때 조용한 재요청이 `prompt: 'none'` 팝업이라, 사용자 동작 없이 부르면 팝업 차단으로 실패할 수 있음(A-1 재현에서 'Failed to open popup window'). 그러면 토큰이 끝난(약 1시간) 뒤 새로 열 때마다 '구글 연결 확인' 배너와 [다시 연결]이 필요함. 출결 앱도 같은 방식이면 알려진 동작일 수 있음 | 진짜 구글 계정으로 연결 -> 1시간 뒤 새 탭에서 열기 (검수 환경에서는 확인 못 함) |
+
+### 확인 못 한 것
+- 진짜 구글 계정 연결, 동의 화면, 401·403·학교 계정 차단 문구, 토큰 1시간 뒤 조용한 재요청(A-3), 두 PC 사이 동기화, 'secrets-offer' 대화상자. 모두 가짜 드라이브와 node 테스트로만 봄.
+- 실제 Gemini 응답 (가짜 AI만).
+- 처음 연결 고르기 화면([합치기] 등)과 드라이브 백업 되돌리기는 화면에서 누르지 않음(sync 테스트로만 확인).
+- 맥 Safari, 휴대폰 실제 기기.
+
+### 확인한 명령과 도구
+- `node textgenerator-v2/tests/run.mjs`
+- `grep -rnE "inner[H]TML|outer[H]TML|insertAdjacent|document\.[w]rite" textgenerator-v2 --exclude-dir=lib --exclude-dir=docs`
+- python 유니코드 범위 검사 (위 7번)
+- `git diff --stat origin/main -- . ':!textgenerator-v2'`, `git status --short`
+- 외부 주소 grep (위 9번), `grep -rn "console\." textgenerator-v2/js`
+- `python -m http.server 8767` (끝난 뒤 종료), 내장 브라우저: 실제 Tab·Enter·글자 입력, 실제 클릭(이전 판, 최종본 붙이기), `javascript_tool`, `resize_window` mobile/desktop, `read_console_messages`, `read_network_requests`
