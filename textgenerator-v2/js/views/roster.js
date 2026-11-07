@@ -3,11 +3,12 @@ import { h, clear, icon, focusEl, uid } from '../dom.js';
 import { toast, confirmDialog, openDialog, seg, badge, alertBox, emptyState, viewHeader, field } from '../ui.js';
 import * as store from '../store.js';
 import { KIND_LABELS, AREAS_BY_KIND, AREA_LABELS } from '../core/model.js';
-import { parseRosterRows, parsePastedRoster, parseClassNumbers, TEMPLATE_ROWS } from '../core/roster-parse.js';
+import { parseRosterRows, parsePastedRoster, parseClassNumbers, sectionOfName, splitBySection, TEMPLATE_ROWS } from '../core/roster-parse.js';
 import { hasXlsx, readSheetFile, downloadSheet, XLSX_MISSING_TEXT } from '../xlsx-io.js';
 
 let selectedId = null;
 let pasteText = '';
+let splitMode = false; // 명단을 같은 과목 반들에 학번의 반 번호대로 나눠 넣기
 let root = null;
 let resultEl = null;
 
@@ -181,8 +182,15 @@ function errorBox(errors) {
   { title: `${errors.length}개 행에 문제가 있습니다` });
 }
 
-async function importParsed(cls, result) {
-  const students = result?.students || [];
+/** 같은 과목이고 이름이 '학년-반'으로 끝나는 교과반들 (cls 포함, 2개 이상일 때만) */
+function sectionSiblings(cls) {
+  if (cls.kind !== 'subject' || !sectionOfName(cls.name)) return [];
+  const list = store.listClasses().filter((c) => c.kind === 'subject' && c.subject === cls.subject && sectionOfName(c.name));
+  return list.length >= 2 ? list : [];
+}
+
+async function importParsed(cls, result, { split = null } = {}) {
+  let students = result?.students || [];
   const errors = result?.errors || [];
   if (!students.length && !errors.length) {
     showResult(alertBox('warn', '읽을 학생이 없습니다. 학번과 이름이 들어 있는지 확인해 주세요.'));
@@ -197,6 +205,26 @@ async function importParsed(cls, result) {
       ok: `${students.length}명 등록하기`,
     });
     if (!ok) return;
+  }
+  let groups = [{ classId: cls.id, studentIds: students.map((s) => s.studentId) }];
+  if (split) {
+    const r = splitBySection(students, split);
+    const sec = (st) => `${Number(String(st.studentId).slice(0, 1))}-${Number(String(st.studentId).slice(1, 3))}`;
+    if (!r.groups.length) {
+      showResult(alertBox('warn', `학번의 반 번호와 맞는 반이 없습니다. 만든 반: ${split.map((c) => c.name).join(', ')}. 학번의 반: ${[...new Set(r.unmatched.map(sec))].join(', ')}.`));
+      return;
+    }
+    const ok = await confirmDialog({
+      title: '학번의 반 번호대로 나눠 넣을까요?',
+      body: h('div', { class: 'stack' },
+        h('ul', { class: 'issue-list' }, r.groups.map((g) => h('li', { class: 'is-info' }, `${store.getClass(g.classId).name}: ${g.studentIds.length}명`))),
+        r.unmatched.length ? h('p', { class: 'small' }, `맞는 반이 없는 ${r.unmatched.length}명은 넣지 않습니다 (학번의 반: ${[...new Set(r.unmatched.map(sec))].join(', ')}). 필요하면 그 반을 먼저 만들어 주세요.`) : null),
+      ok: `${students.length - r.unmatched.length}명 나눠 넣기`,
+    });
+    if (!ok) return;
+    groups = r.groups;
+    const matched = new Set(groups.flatMap((g) => g.studentIds));
+    students = students.filter((s) => matched.has(s.studentId));
   }
   const conflicts = students.filter((s) => {
     const cur = store.getStudent(s.studentId);
@@ -226,9 +254,10 @@ async function importParsed(cls, result) {
     return !cur || (replaceNames && cur.name !== s.name);
   }).map((s) => ({ studentId: s.studentId, name: s.name }));
   if (toUpsert.length) store.upsertStudents(toUpsert);
-  const added = store.addStudentsToClass(cls.id, students.map((s) => s.studentId));
+  const added = groups.reduce((n, g) => n + store.addStudentsToClass(g.classId, g.studentIds), 0);
   const already = students.length - added;
-  const msg = `'${cls.name}'에 ${added}명을 등록했습니다${already ? ` (${already}명은 이미 있었습니다)` : ''}`;
+  const where = groups.length > 1 ? `${groups.length}개 반` : `'${store.getClass(groups[0].classId).name}'`;
+  const msg = `${where}에 ${added}명을 등록했습니다${already ? ` (${already}명은 이미 있었습니다)` : ''}`;
   toast(msg);
   if (!errors.length) showResult(alertBox('ok', msg));
   pasteText = '';
@@ -243,7 +272,7 @@ function registerSection(cls) {
       if (!file) return;
       try {
         const rows = await readSheetFile(file);
-        await importParsed(cls, parseRosterRows(rows));
+        await importParsed(cls, parseRosterRows(rows), { split: splitOn() });
       } catch (e) {
         console.error(e);
         showResult(alertBox('danger', e.name === 'XlsxMissingError' ? e.message : `파일을 읽지 못했습니다. 엑셀(.xlsx) 또는 CSV 파일인지 확인해 주세요. (${e.message || '알 수 없는 오류'})`, { role: 'alert' }));
@@ -257,9 +286,17 @@ function registerSection(cls) {
     oninput: () => { pasteText = pasteArea.value; },
   });
   const xlsxNote = hasXlsx() ? null : alertBox('warn', XLSX_MISSING_TEXT);
+  const siblings = sectionSiblings(cls);
+  const splitOn = () => (splitMode && siblings.length ? siblings : null);
+  const splitRow = siblings.length ? h('div', { class: 'stack gap-1' },
+    h('label', { class: 'row check-row', for: 'roster-split' },
+      h('input', { type: 'checkbox', id: 'roster-split', checked: splitMode, onchange: (e) => { splitMode = e.target.checked; } }),
+      h('span', {}, `${cls.subject} 반 ${siblings.length}개에 학번의 반 번호대로 나눠 넣기`)),
+    h('p', { class: 'hint' }, `예: 학번 10305는 '${cls.subject} 1-3' 반에 들어갑니다. 한 학년 전체 명단(NEIS 출석부 등)을 한 번에 올릴 때 씁니다.`)) : null;
   return h('section', { class: 'stack', 'aria-labelledby': 'register-title' },
     h('h3', { id: 'register-title', class: 'section-title' }, '명단 등록'),
     xlsxNote,
+    splitRow,
     h('div', { class: 'grid-2' },
       h('div', { class: 'stack' },
         h('p', { class: 'small' }, '엑셀로 등록: 양식에 학번과 이름을 채워 올리거나, NEIS 출석부 엑셀을 그대로 올립니다. 머리글(학번, 이름 또는 학년·반·번호, 성명)은 자동으로 찾습니다.'),
@@ -282,7 +319,7 @@ function registerSection(cls) {
           type: 'button', class: 'btn btn-primary',
           onclick: () => {
             if (!pasteArea.value.trim()) { toast('붙여넣은 명단이 없습니다'); pasteArea.focus(); return; }
-            importParsed(cls, parsePastedRoster(pasteArea.value));
+            importParsed(cls, parsePastedRoster(pasteArea.value), { split: splitOn() });
           },
         }, '붙여넣은 명단 등록하기')))),
     h('div', { id: 'roster-result', class: 'stack', ref: (el) => { resultEl = el; } }));

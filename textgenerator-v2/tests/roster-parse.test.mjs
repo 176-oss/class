@@ -128,3 +128,16 @@ test('parseClassNumbers: 범위, 쉼표, 공백, 중복', async () => {
   assert.equal(parseClassNumbers('0').ok, false);
   assert.match(parseClassNumbers('1-40').error, /30개/);
 });
+
+test('sectionOfName, splitBySection: 학번의 학년·반으로 나누기', async () => {
+  const { sectionOfName, splitBySection } = await import('../js/core/roster-parse.js');
+  assert.equal(sectionOfName('통합과학 1-3'), '1-3');
+  assert.equal(sectionOfName('통합과학 1-03'), '1-3');
+  assert.equal(sectionOfName('3학년 5반'), null);
+  assert.equal(sectionOfName('물리 2-10'), '2-10');
+  const classes = [{ id: 'a', name: '통합과학 1-1' }, { id: 'b', name: '통합과학 1-2' }, { id: 'c', name: '통합과학 1-10' }];
+  const students = [{ studentId: '10101', name: '가' }, { studentId: '10203', name: '나' }, { studentId: '10102', name: '다' }, { studentId: '11001', name: '라' }, { studentId: '10301', name: '마' }, { studentId: '20101', name: '바' }];
+  const r = splitBySection(students, classes);
+  assert.deepEqual(r.groups, [{ classId: 'a', studentIds: ['10101', '10102'] }, { classId: 'b', studentIds: ['10203'] }, { classId: 'c', studentIds: ['11001'] }]);
+  assert.deepEqual(r.unmatched.map((s) => s.studentId), ['10301', '20101']);
+});

@@ -177,3 +177,25 @@ export function parseClassNumbers(text) {
   if (set.size > 30) return { ok: false, numbers: [], error: `한 번에 30개 반까지 만들 수 있습니다 (지금 ${set.size}개).` };
   return { ok: true, numbers: [...set].sort((x, y) => x - y), error: null };
 }
+
+/** 반 이름 끝의 '학년-반' (예: '통합과학 1-3' -> '1-3'). 없으면 null */
+export function sectionOfName(name) {
+  const m = String(name ?? '').trim().match(/(?:^|\s)([1-6])-(\d{1,2})$/);
+  return m ? `${Number(m[1])}-${Number(m[2])}` : null;
+}
+
+/** 학번의 학년·반으로 반 나누기. classes: [{id, name}] -> { groups: [{classId, studentIds}], unmatched: [student] } */
+export function splitBySection(students, classes) {
+  const bySection = new Map();
+  for (const c of classes) { const s = sectionOfName(c.name); if (s && !bySection.has(s)) bySection.set(s, c.id); }
+  const groups = new Map();
+  const unmatched = [];
+  for (const st of students) {
+    const id = String(st.studentId);
+    const classId = bySection.get(`${Number(id.slice(0, 1))}-${Number(id.slice(1, 3))}`);
+    if (!classId) { unmatched.push(st); continue; }
+    if (!groups.has(classId)) groups.set(classId, []);
+    groups.get(classId).push(id);
+  }
+  return { groups: classes.filter((c) => groups.has(c.id)).map((c) => ({ classId: c.id, studentIds: groups.get(c.id) })), unmatched };
+}
