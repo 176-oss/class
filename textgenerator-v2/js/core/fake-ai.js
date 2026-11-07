@@ -1,7 +1,8 @@
 // 가짜 AI (개발용). 실제 호출 없이 프롬프트의 메모 부분을 읽어 명사형 문장 JSON 을 돌려준다.
 // 결정적: 같은 입력이면 같은 출력. 후보끼리는 문장 순서와 마무리 문장이 다르다.
 
-import { INSUFFICIENT_TEXT, extractMemo, extractCount } from './prompt.js';
+import { INSUFFICIENT_TEXT, extractMemo, extractCount, extractRefine } from './prompt.js';
+import { STYLE_SUMMARY_MARK, EXAMPLE_OPEN, EXAMPLE_CLOSE } from './style.js';
 
 function sleep(ms, signal) {
   return new Promise((resolve) => {
@@ -57,7 +58,50 @@ const CLOSINGS = [
   '함께하는 사람들과 생각을 나누며 활동을 이어감.',
 ];
 
+function splitSentences(text) {
+  return String(text ?? '').split(/(?<=[.!?])\s+/).map((x) => x.trim()).filter(Boolean);
+}
+
+/** 스타일 정리: 예시의 평균 문장 길이와 끝말을 보고 정해진 모양의 규칙을 만든다 */
+function fakeStyleRules(user) {
+  const s = String(user);
+  const a = s.indexOf(EXAMPLE_OPEN);
+  const b = s.lastIndexOf(EXAMPLE_CLOSE);
+  const body = a >= 0 && b > a ? s.slice(a + EXAMPLE_OPEN.length, b) : '';
+  const sentences = body.split(/\n---\n/).flatMap(splitSentences);
+  const avg = sentences.length ? sentences.reduce((n, x) => n + x.length, 0) / sentences.length : 40;
+  const nounEnd = sentences.filter((x) => /[함임됨음][.]?$/.test(x)).length;
+  return [
+    `한 문장은 ${Math.max(20, Math.round(avg / 5) * 5)}자 안팎으로 씀`,
+    nounEnd >= sentences.length / 2 ? '문장은 ~함, ~임 같은 명사형으로 끝냄' : '문장 끝말을 명사형으로 맞춤',
+    '활동, 과정, 변화 순서로 씀',
+    '평가하는 말은 마지막 문장에 한 번만 씀',
+    '구체적인 행동을 나타내는 말을 앞에 둠',
+  ];
+}
+
+const PRAISE = /(?:매우|아주|무척|탁월한|탁월하게|뛰어난|뛰어나게|훌륭한|훌륭하게|우수한|남다른)\s*/g;
+
+/** 다듬기: 요청 말에 따라 정해진 방식으로 바꾼다. 메모에 없는 사실은 더하지 않는다 */
+function fakeRefine(text, request, memo) {
+  const sentences = splitSentences(text);
+  const req = String(request);
+  let out;
+  if (req.includes('짧게')) out = sentences.slice(0, Math.max(1, Math.ceil(sentences.length * 0.6))).join(' ');
+  else if (req.includes('자세히')) {
+    const extra = memo.split(/\r?\n|[.!?](?=\s|$)/).map(toNounEnding).filter((x) => x && !text.includes(x.slice(0, -1)));
+    out = [...sentences, extra[0] || '활동 과정을 차근차근 이어감.'].join(' ');
+  } else if (req.includes('나누')) {
+    // '보이며 ' -> '보임. ' (받침 없는 글자에 받침 ㅁ을 붙임)
+    out = text.replace(/([가-힣])며,?\s+/g, (m, ch) => ((ch.charCodeAt(0) - 0xac00) % 28 === 0 ? `${String.fromCharCode(ch.charCodeAt(0) + 16)}. ` : m));
+  }
+  else if (req.includes('평가어')) out = text.replace(PRAISE, '');
+  else out = sentences.length > 1 ? [...sentences.slice(1), sentences[0]].join(' ') : text;
+  return out.trim() === String(text).trim() ? `${String(text).trim()} 맡은 일을 끝까지 해냄.` : out;
+}
+
 /**
+ * 프롬프트 종류: 스타일 정리(STYLE_SUMMARY_MARK) -> {"rules"}, 다듬기(REFINE_MARK) -> {"drafts": [1개]}, 그 밖 -> 초안.
  * @param {{system: string, user: string}} prompt
  * @param {{delayMs?: number, signal?: AbortSignal}} [opts]
  * @returns {Promise<{ text: string, model: 'fake' }>}
@@ -65,6 +109,9 @@ const CLOSINGS = [
 export async function fakeGenerate(prompt, { delayMs = 300, signal } = {}) {
   await sleep(delayMs, signal);
   const user = typeof prompt === 'string' ? prompt : prompt?.user;
+  if (String(user ?? '').includes(STYLE_SUMMARY_MARK)) return { text: JSON.stringify({ rules: fakeStyleRules(user) }), model: 'fake' };
+  const refine = extractRefine(user);
+  if (refine) return { text: JSON.stringify({ drafts: [fakeRefine(refine.text, refine.request, extractMemo(user))] }), model: 'fake' };
   const memo = extractMemo(user);
   const count = extractCount(user);
   if (memo.includes('부족') || memo.replace(/\s+/g, '').length < 10) {
