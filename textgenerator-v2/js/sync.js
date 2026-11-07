@@ -214,7 +214,11 @@ export function createSync({
         await saveState({ connected: true, fileId: meta?.id || null, stamp: null });
         lastPulled = null;
         const res = await syncNow({ reason: 'button' });
-        if (wasEmpty && lastPulled && hasData(lastPulled)) emit({ type: 'restored', ...summarize(lastPulled) });
+        if (wasEmpty && lastPulled && hasData(lastPulled)) {
+          const restored = summarize(lastPulled);
+          emit({ type: 'restored', ...restored });
+          return { ...res, restored };
+        }
         return res;
       } catch (e) {
         return handleError(e);

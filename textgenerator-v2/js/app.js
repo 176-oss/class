@@ -154,7 +154,8 @@ async function connectDrive() {
   renderSync();
   try {
     const res = await sync.connect();
-    if (res.ok) toast(`구글 드라이브에 연결했습니다. 저장됨 ${hhmm(sync.status.lastSyncAt)}`);
+    if (res.ok && res.restored) toast(`드라이브에서 학생 ${res.restored.students}명, 기록 ${res.restored.records}건을 불러왔습니다`);
+    else if (res.ok) toast(`구글 드라이브에 연결했습니다. 저장됨 ${hhmm(sync.status.lastSyncAt)}`);
     else if (!res.cancelled) failToast(res, connectDrive);
     return res;
   } finally {
@@ -311,11 +312,27 @@ function firstRunIntro() {
   dlg.closed.then((v) => { if (v) connectDrive(); });
 }
 
+// 가짜 드라이브로 연결한 상태는 가짜 드라이브 모드에서만 쓴다. 모드가 다르면 '연결 안 됨'으로 다뤄 진짜 드라이브를 부르지 않는다
+function syncLocalFor(mode) {
+  const base = store.syncLocal;
+  // driveMode가 없던 예전 상태: 가짜 드라이브 파일 id는 'f1' 꼴
+  const modeOf = (s) => s.driveMode || (/^f\d+$/.test(String(s.fileId || '')) ? 'fake' : 'real');
+  return {
+    ...base,
+    async readState() {
+      const s = await base.readState();
+      if (!s.connected || modeOf(s) === mode) return s;
+      return { ...s, connected: false, fileId: null, stamp: null, lastSyncAt: null };
+    },
+    writeState: (patch) => base.writeState({ ...patch, driveMode: mode }),
+  };
+}
+
 async function start() {
   await store.init();
   document.getElementById('boot-msg')?.remove();
   drive.setTokenMode(store.state.settings.publicPC ? 'session' : 'local');
-  sync = createSync({ drive, local: store.syncLocal, isOnline: () => navigator.onLine !== false, choose: chooseFirstSync });
+  sync = createSync({ drive, local: syncLocalFor(fakeDrive ? 'fake' : 'real'), isOnline: () => navigator.onLine !== false, choose: chooseFirstSync });
   sync.on(onSyncEvent);
   store.setBeforeSyncRead(() => current?.view.flush?.());
   syncSaveBtn.addEventListener('click', saveToDrive);

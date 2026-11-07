@@ -727,3 +727,6 @@ export async function refineDraft({ record, text, request, studentName, roster, 
 - 작성 화면: 동기화 반영('all')과 classes·students·settings·styles 알림이 입력 중(포커스가 textarea 또는 글 input)이거나 저장 대기 입력이 있을 때 오면 다시 그리기를 미루고, 칸을 벗어날 때(focusout) 그린다. 내 스타일 화면도 같은 방식.
 - 내 스타일 화면의 [지우기]·[AI 규칙 지우기] 되돌리기는 이전 상태로 되돌리되 그 영역 `updatedAt`을 지금으로 한다 (동기화에서 지운 쪽에 지지 않게).
 - 일괄 초안 대화상자의 '내 스타일 적용' 체크는 작성 패널 스위치 상태를 기본값으로 가져온다 (영역별 화면 메모리).
+- `connect()`가 비어 있던 사본을 드라이브에서 채웠으면 Result에 `restored: { students, records, updatedAt }`. 화면은 이때 '연결했습니다' 대신 '드라이브에서 학생 N명, 기록 N건을 불러왔습니다'를 띄운다.
+- meta.sync에 `driveMode: 'real'|'fake'`를 함께 쓴다 (app.js의 LocalPort 감싸기). 지금 모드와 다르면 시작할 때 '연결 안 됨'으로 다뤄, 가짜 드라이브로 연결한 상태가 `?dev=1` 없이 진짜 구글을 부르지 않게 한다. driveMode가 없는 예전 상태는 fileId가 'f숫자'면 가짜로 본다.
+- 시작할 때 연결 상태면 토큰이 없을 때 `prompt: 'none'`으로 조용히 다시 요청한다 (출결 앱과 같은 방식). 브라우저가 막거나 8초 안에 답이 없으면 status 'auth'와 '구글 연결 확인' 배너가 뜨고, 사용자가 [다시 연결]을 눌러 대화형으로 받는다. 이때 GSI가 콘솔에 팝업 경고를 남길 수 있다.

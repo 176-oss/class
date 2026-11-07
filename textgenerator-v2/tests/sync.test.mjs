@@ -80,6 +80,7 @@ test('sync: 사본을 지운 뒤 다시 연결하면 전부 돌아옴', async ()
   assert.equal(s2.status.state, 'off', '연결 상태도 지워짐');
   const r2 = await s2.connect();
   assert.equal(r2.ok, true);
+  assert.deepEqual(r2.restored, { students: 1, records: 1, updatedAt: r2.restored.updatedAt }, 'connect 결과로 불러온 수를 돌려줌');
   assert.deepEqual(local.data.students.map((s) => s.name), ['김가온']);
   assert.equal(local.data.classes.length, 1);
   assert.equal(local.data.records[0].memo, '메모');
