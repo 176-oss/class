@@ -2,9 +2,8 @@
 import { h, clear, icon } from '../dom.js';
 import { toast, confirmDialog, alertBox, viewHeader, downloadJSON, readFileText, stamp, formatDateTime, field } from '../ui.js';
 import * as store from '../store.js';
-import { AREAS, AREA_LABELS, AREAS_BY_KIND, STATUS_LABELS } from '../core/model.js';
-import { byteLength } from '../core/bytes.js';
-import { makeBackup, validateBackup, previewImport, mergeBackup } from '../core/backup-format.js';
+import { AREAS, AREA_LABELS } from '../core/model.js';
+import { makeBackup, validateBackup, previewImport, mergeBackup, excelRows } from '../core/backup-format.js';
 import { downloadSheet, hasXlsx, XLSX_MISSING_TEXT } from '../xlsx-io.js';
 
 let root = null;
@@ -148,24 +147,8 @@ function restoreCard() {
 }
 
 function exportRows(area) {
-  const rows = [['학번', '이름', '반', '과목', '최종본', '바이트', '상태']];
-  const byRecord = new Map();
-  for (const c of store.listClasses()) {
-    if (!AREAS_BY_KIND[c.kind].includes(area)) continue;
-    const subject = area === 'subject' ? c.subject : null;
-    for (const s of store.studentsOf(c)) {
-      const rec = store.findRecord(s.studentId, area, subject);
-      const key = `${s.studentId}|${subject || ''}`;
-      if (byRecord.has(key)) { byRecord.get(key).classes.push(c.name); continue; }
-      byRecord.set(key, { s, rec, subject, classes: [c.name] });
-    }
-  }
-  const list = [...byRecord.values()].sort((a, b) => a.s.studentId.localeCompare(b.s.studentId) || String(a.subject).localeCompare(String(b.subject)));
-  for (const { s, rec, subject, classes } of list) {
-    const text = rec?.final || '';
-    rows.push([s.studentId, s.name, classes.join(', '), subject || '', text, byteLength(text), STATUS_LABELS[rec?.status || 'empty']]);
-  }
-  return rows;
+  const d = store.snapshotData();
+  return excelRows({ classes: d.classes, students: d.students, records: d.records, area });
 }
 
 function excelCard() {

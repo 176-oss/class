@@ -5,7 +5,7 @@ import {
   progressBar, LEVEL_TEXT, formatDateTime,
 } from '../ui.js';
 import * as store from '../store.js';
-import { STATUS_LABELS, LENGTH_LABELS, TRAITS_BY_AREA, KIND_LABELS, deriveStatus } from '../core/model.js';
+import { STATUS_LABELS, LENGTH_LABELS, TRAITS_BY_AREA, KIND_LABELS, deriveStatus, newCandidate } from '../core/model.js';
 import { byteLength, byteLevel } from '../core/bytes.js';
 import { cleanText } from '../core/check.js';
 import { generateDrafts, AiError } from '../core/gemini.js';
@@ -406,7 +406,8 @@ function draftStep(rec, student) {
   const done = rec.status === 'done';
   if (cands.length) {
     out.push(h('h3', { class: 'section-title' }, `초안 후보 ${cands.length}개`));
-    out.push(h('ol', { class: 'candidate-list stack' }, cands.map((text, i) => h('li', { class: 'card stack candidate' },
+    // 호환: v1 문자열과 v2 Candidate 객체 모두 읽음 (후보 고치기 화면은 B 담당)
+    out.push(h('ol', { class: 'candidate-list stack' }, cands.map((c) => (typeof c === 'string' ? c : c?.text || '')).map((text, i) => h('li', { class: 'card stack candidate' },
       h('p', { class: 'candidate-text' }, text),
       h('p', { class: 'small muted num' }, `후보 ${i + 1}, ${byteLength(text)} byte`),
       h('div', { class: 'row' },
@@ -473,7 +474,7 @@ async function makeDrafts(id, student) {
       S.insufficient.add(id);
       announce('메모에 쓸 내용이 부족해 초안을 만들지 않았습니다');
     } else {
-      store.updateRecord(id, { candidates: drafts });
+      store.updateRecord(id, { candidates: drafts.map(newCandidate) });
       toast(`초안 후보 ${drafts.length}개를 만들었습니다`);
     }
   } catch (e) {
@@ -721,7 +722,7 @@ function openBatchDialog() {
         if (res?.insufficient || !text) { batchShort.add(rid); return 'skipped'; }
         const cur = store.state.records.get(rid);
         if (cur.status === 'done') return 'skipped';
-        store.updateRecord(rid, { draft: text, candidates: [text] });
+        store.updateRecord(rid, { draft: text, candidates: [newCandidate(text)] });
       },
     });
     modeSeg.querySelectorAll('button').forEach((b) => { b.disabled = true; });

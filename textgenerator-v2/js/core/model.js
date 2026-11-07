@@ -3,7 +3,15 @@
 
 import { DEFAULT_FORBIDDEN } from './forbidden.js';
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
+
+// 이 브라우저에서만 쓰는 설정. 드라이브 파일과 백업에 넣지 않고, 합치기·가져오기에서는 언제나 이 브라우저 값
+export const DEVICE_SETTING_KEYS = ['keyStorage', 'devFakeAI', 'publicPC'];
+
+// 내 스타일 영역. 교과는 'subject:<과목명>'
+export const STYLE_AREAS = ['common', 'autonomy', 'career', 'behavior', 'club'];
+
+export const MAX_CANDIDATE_VERSIONS = 3;
 
 export const AREAS = ['autonomy', 'career', 'behavior', 'club', 'subject'];
 
@@ -73,7 +81,30 @@ export function defaultSettings(now = new Date()) {
     batchIntervalSec: 5,
     keyStorage: 'local',
     devFakeAI: false,
+    publicPC: false,
+    updatedAt: null,
   };
+}
+
+export function defaultStyles() {
+  return { updatedAt: null, areas: {} };
+}
+
+export function newCandidate(text) {
+  const t = String(text ?? '');
+  return { original: t, text: t, versions: [], edited: false };
+}
+
+/** 문자열이면 newCandidate, 객체면 빈 칸 채움. 최대 3개 */
+export function normalizeCandidates(list) {
+  if (!Array.isArray(list)) return [];
+  return list.filter((c) => typeof c === 'string' || (c && typeof c === 'object')).slice(0, 3).map((c) => {
+    if (typeof c === 'string') return newCandidate(c);
+    const text = String(c.text ?? c.original ?? '');
+    const original = String(c.original ?? text);
+    const versions = Array.isArray(c.versions) ? c.versions.map(String).slice(-MAX_CANDIDATE_VERSIONS) : [];
+    return { original, text, versions, edited: text !== original };
+  });
 }
 
 export function recordKey(studentId, area, subject = null) {
@@ -124,9 +155,22 @@ export function splitStudentId(id) {
   };
 }
 
-// MIGRATIONS[n]: 버전 n-1 데이터를 버전 n 으로 바꾸는 함수. 지금은 1뿐이라 비어 있다.
+// MIGRATIONS[n]: 버전 n-1 데이터를 버전 n 으로 바꾸는 함수.
+// data는 IndexedDB 묶음, 백업, 드라이브 파일 중 하나. 없는 필드는 건너뛴다.
 export const MIGRATIONS = {
-  // 2: (data) => ({ ...data, schemaVersion: 2 }),
+  2: (data) => {
+    if (!data || typeof data !== 'object') return data;
+    const out = { ...data };
+    if (Array.isArray(out.records)) out.records = out.records.map((r) => (r && typeof r === 'object' ? { ...r, candidates: normalizeCandidates(r.candidates) } : r));
+    if (out.settings && typeof out.settings === 'object') {
+      out.settings = { ...out.settings };
+      if (!('updatedAt' in out.settings)) out.settings.updatedAt = null;
+      if (!('publicPC' in out.settings)) out.settings.publicPC = false;
+    }
+    if (!out.styles || typeof out.styles !== 'object') out.styles = defaultStyles();
+    if (out.kind === 'sgb-v2-data' && !Array.isArray(out.deleted)) out.deleted = [];
+    return out;
+  },
 };
 
 export function migrate(data, fromVersion) {
