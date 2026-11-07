@@ -33,7 +33,8 @@ function withoutKeys(obj, keys) {
   for (const k of keys) delete out[k];
   return out;
 }
-const sharedSettings = (s) => withoutKeys(s, DEVICE_SETTING_KEYS);
+// 기기별 값과, 혹시 섞여 들어온 키 칸은 드라이브 파일 settings에 넣지 않는다 (키는 secrets에만)
+const sharedSettings = (s) => withoutKeys(s, [...DEVICE_SETTING_KEYS, 'apiKey', 'geminiKey', 'geminiApiKey', 'secrets']);
 
 function byId(list, key) {
   const m = new Map();

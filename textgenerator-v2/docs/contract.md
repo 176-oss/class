@@ -699,3 +699,18 @@ export async function refineDraft({ record, text, request, studentName, roster, 
 11. 다듬기 결과·[처음 상태로]는 모두 판(versions)을 남겨 [이전 판]으로 되돌릴 수 있다.
 12. 확장은 파일을 다시 올리므로 `secrets`를 내려받기는 한다. '읽지 않는다'는 값을 쓰거나 저장·기록하지 않는다는 뜻으로 적었다 (19절).
 13. 계정 이메일은 받지 않는다 (범위가 drive.appdata 하나라서). 연결 상태는 '연결됨'과 마지막 저장 시각만 보인다.
+
+## 23. A 구현하며 바뀐 점 (12~15절, 18절 보충)
+- `sync.answerSecrets(updatedAt)` 추가: 'secrets-offer'에 답한 뒤 `secretsSeen`을 저장 (화면은 LocalPort를 직접 만지지 않음). 'secrets-offer' 이벤트에 `geminiKey`도 담는다 (화면이 이 브라우저 키와 같은지 보고, 같으면 묻지 않고 답함). 공용 PC면 화면이 묻지 않는다.
+- 'merged' 이벤트에 `reason`(syncNow의 reason). 화면은 'start'·'button'일 때는 토스트를 띄우지 않는다. `connect()`가 고르기에서 취소되면 Result에 `cancelled: true`.
+- `sync.listBackups()`는 조용한 토큰만 쓴다 (백업 화면을 열 때 팝업이 뜨지 않게). 되돌리기·지우기는 대화형.
+- `store.getRecord`가 메모리에 새로 만드는 빈 기록은 `updatedAt: null`. `getSyncData()`는 `updatedAt`이 null인 기록을 빼고, 합치기에서는 언제나 진다 (화면을 열기만 한 기기가 빈 기록으로 다른 기기의 글을 덮지 않게).
+- `store.firstRun`(설정을 새로 만든 첫 실행), `store.setBeforeSyncRead(fn)`(app.js가 지금 화면의 `flush`를 넣음, `syncLocal.read`가 먼저 부름) 추가.
+- `db.replaceAllData`에 `meta` 인자(같은 트랜잭션에 meta 저장소 키), `db.deleteSnapshot`, `db.clearAllStores()`(사본 비우기, 스키마 버전은 다시 씀) 추가.
+- `drive-common.js`에 `kindFromStatus(status, body)`와 `DRIVE_MESSAGES.notfound` 추가.
+- `prepareReplace`: current의 삭제 기록을 잃지 않는다. next에 없는 스타일 영역은 빈 영역(`updatedAt = now`)으로 둔다 (지운 영역이 합치기로 되살아나지 않게).
+- `toDriveFile`·`sameData`의 settings에서는 기기별 값과 함께, 혹시 섞여 들어온 키 칸(`apiKey`, `geminiKey`, `geminiApiKey`, `secrets`)도 뺀다. 키는 `secrets`에만.
+- 백업(`makeBackup`·`validateBackup`·`mergeBackup`)은 2절대로 DEVICE_SETTING_KEYS를 모두 빼고, 가져올 때는 현재 값을 쓴다.
+- 머리 줄 [구글 드라이브에 저장]은 머리 줄 배경이 주 색이라 `btn btn-primary`에 `.appbar .sync-save`(밝은 바탕) 덧칠을 둔다.
+- 화면 ctx(app.js가 views에 넘김)에 `sync()`, `syncConnected()`, `saveToDrive()`, `connectDrive()`, `drive`, `fakeDrive`, `hhmm(iso)` 추가. 화면의 `update(kind, detail)`에 `'sync'`(detail = sync.status)가 온다.
+- 주의(B): 동기화가 다른 기기 변경을 반영하면 `'all'`이 온다. 지금 write.js는 `'all'`에 `renderAll()`을 하므로, 입력 중이면 패널을 다시 그리지 않게 하는 것을 B가 검토.

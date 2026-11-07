@@ -276,6 +276,7 @@ function onSyncEvent(e) {
 }
 
 async function offerSecrets(e) {
+  if (store.state.settings.publicPC) return; // 공용 PC에는 드라이브의 키를 내려받지 않는다
   if (e.geminiKey === store.getApiKey()) { await sync.answerSecrets(e.updatedAt); return; }
   const dlg = openDialog({
     title: '드라이브에 저장된 API 키를 쓸까요?',

@@ -56,22 +56,78 @@ function keySection() {
           if (/\s/.test(v) || v.length < 20) { toast('키 모양이 이상합니다. 다시 복사해 주세요', { danger: true }); input.focus(); return; }
           store.setApiKey(v, S().keyStorage || 'local');
           input.value = '';
-          toast('API 키를 저장했습니다');
+          if (keyOnDrive()) store.setSecrets({ geminiKey: v, updatedAt: new Date().toISOString() });
+          toast(keyOnDrive() ? 'API 키를 저장했습니다. 구글 드라이브의 키도 바꿉니다' : 'API 키를 저장했습니다');
           render();
           focusEl(root.querySelector('#set-key-title'));
         },
       }, icon('key'), '키 저장하기'),
       h('button', {
         type: 'button', class: 'btn btn-ghost', disabled: !where,
-        onclick: () => { store.clearApiKey(); toast('API 키를 지웠습니다'); render(); focusEl(root.querySelector('#set-key-title')); },
+        onclick: () => {
+          const onDrive = keyOnDrive();
+          store.clearApiKey();
+          if (onDrive) store.setSecrets({ geminiKey: '', updatedAt: new Date().toISOString() });
+          toast(onDrive ? 'API 키를 이 브라우저와 구글 드라이브에서 지웠습니다' : 'API 키를 지웠습니다');
+          render();
+          focusEl(root.querySelector('#set-key-title'));
+        },
       }, icon('trash'), '키 지우기')),
+    keyDriveField(),
     h('details', { class: 'key-guide' },
       h('summary', {}, 'API 키 받는 방법'),
       h('ol', { class: 'stack small' },
         h('li', {}, '개인 구글 계정으로 Google AI Studio(', h('a', { href: 'https://aistudio.google.com/apikey', target: '_blank', rel: 'noopener noreferrer' }, 'aistudio.google.com'), ')에 들어갑니다. 학교 계정은 막혀 있을 수 있습니다.'),
         h('li', {}, '[Get API key] 또는 [API 키 만들기]를 눌러 새 키를 만듭니다.'),
         h('li', {}, '만든 키를 복사해 위 칸에 붙여 넣고 [키 저장하기]를 누릅니다.'),
-        h('li', {}, '키는 비밀번호처럼 다루고 다른 사람과 나누지 마세요. 학생 이름과 학번은 AI로 보내지 않습니다.'))));
+        h('li', {}, '키는 비밀번호처럼 다루고 다른 사람과 나누지 마세요. 학생 이름과 학번은 AI로 보내지 않습니다.'),
+        h('li', {}, '키 제한을 걸어 두면 더 안전합니다. 방법은 README의 \'API 키 제한하기\'에 있습니다: API 제한은 Generative Language API만, 웹사이트 제한은 https://176-oss.github.io/* 만.'))));
+}
+
+// ---------- API 키 드라이브 저장 (선택 기능, contract 18절) ----------
+const keyOnDrive = () => !!store.getSecrets()?.geminiKey;
+let keyConnected = null; // 키 칸을 그릴 때의 연결 상태 (바뀌면 다시 그림)
+
+function keyDriveField() {
+  if (!ctx.drive.isConfigured()) return null;
+  const connected = ctx.syncConnected();
+  keyConnected = connected;
+  const pc = !!S().publicPC;
+  const reason = pc ? '공용 PC에서는 키를 드라이브에 저장할 수 없습니다.'
+    : !connected ? '구글 드라이브에 연결해야 쓸 수 있습니다.' : null;
+  const box = h('input', {
+    type: 'checkbox', id: 'key-drive', checked: keyOnDrive(), disabled: !!reason,
+    'aria-describedby': 'key-drive-hint',
+    onchange: async (e) => {
+      const on = e.target.checked;
+      e.target.checked = !on; // 확인이 끝날 때까지 그대로
+      if (on) {
+        const key = store.getApiKey();
+        if (!key) { toast('먼저 API 키를 저장해 주세요'); return; }
+        const ok = await confirmDialog({
+          title: 'API 키를 구글 드라이브에도 저장할까요?',
+          body: h('ul', { class: 'stack small' },
+            h('li', {}, '결제를 연결하지 않은 무료 키만 쓰세요. 결제가 연결된 키가 새면 요금이 나올 수 있습니다.'),
+            h('li', {}, 'Google AI Studio 또는 Cloud 콘솔에서 키 제한을 걸어 두세요: API 제한은 Generative Language API만, 웹사이트 제한은 https://176-oss.github.io/* 만.'),
+            h('li', {}, '여러 사람이 쓰는 PC에서는 권하지 않습니다.'),
+            h('li', {}, '키가 샌 것 같으면 AI Studio에서 그 키를 지우고 새로 만드세요.'),
+            h('li', {}, '키는 백업 파일, 엑셀, 드라이브 자동 백업에는 들어가지 않습니다.')),
+          ok: '켜기',
+        });
+        if (!ok) return;
+        store.setSecrets({ geminiKey: key, updatedAt: new Date().toISOString() });
+        toast('API 키를 구글 드라이브에도 저장합니다');
+      } else {
+        store.setSecrets({ geminiKey: '', updatedAt: new Date().toISOString() });
+        toast('구글 드라이브에 저장한 API 키를 지웁니다');
+      }
+      render();
+      document.getElementById('key-drive')?.focus();
+    },
+  });
+  return h('div', { class: 'stack gap-1' },
+    h('label', { class: 'row check-row', for: 'key-drive' }, box, h('span', {}, '구글 드라이브에도 저장 (다른 PC에서 다시 입력하지 않아도 됨)')),
+    h('p', { class: 'hint', id: 'key-drive-hint' }, reason || '기본은 꺼짐입니다. 켜면 키가 구글 드라이브 앱 폴더의 데이터 파일에 함께 저장됩니다.'));
 }
 
 // ---------- 학교, 학기 ----------
@@ -511,6 +567,11 @@ export const settingsView = {
   update(kind) {
     if (kind === 'all') render();
     if (kind === 'sync' || kind === 'settings') renderSyncOnly();
+    if (kind === 'secrets' || (kind === 'sync' && keyConnected !== ctx.syncConnected())) {
+      const active = document.activeElement?.id;
+      render();
+      if (active) document.getElementById(active)?.focus();
+    }
     if (kind === 'key') {
       const active = document.activeElement?.id;
       render();
