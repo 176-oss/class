@@ -3,11 +3,12 @@ import { h, clear, icon, focusEl, uid } from '../dom.js';
 import { toast, confirmDialog, openDialog, seg, badge, alertBox, emptyState, viewHeader, field } from '../ui.js';
 import * as store from '../store.js';
 import { KIND_LABELS, AREAS_BY_KIND, AREA_LABELS } from '../core/model.js';
-import { parseRosterRows, parsePastedRoster, TEMPLATE_ROWS } from '../core/roster-parse.js';
+import { parseRosterRows, parsePastedRoster, parseClassNumbers, sectionOfName, splitBySection, TEMPLATE_ROWS } from '../core/roster-parse.js';
 import { hasXlsx, readSheetFile, downloadSheet, XLSX_MISSING_TEXT } from '../xlsx-io.js';
 
 let selectedId = null;
 let pasteText = '';
+let splitMode = false; // 명단을 같은 과목 반들에 학번의 반 번호대로 나눠 넣기
 let root = null;
 let resultEl = null;
 
@@ -30,11 +31,24 @@ function createForm() {
   const nameInput = h('input', { class: 'input', type: 'text', id: 'new-class-name', autocomplete: 'off', placeholder: '예: 3학년 5반, 통합과학 1-3, 과학탐구반', maxlength: '40' });
   const subjectInput = h('input', { class: 'input', type: 'text', id: 'new-class-subject', autocomplete: 'off', placeholder: '예: 통합과학', maxlength: '40' });
   const achInput = h('textarea', { class: 'textarea', id: 'new-class-ach', rows: '3', placeholder: '선택. 교과세특 초안에 기본으로 쓰는 성취기준' });
-  const subjectWrap = h('div', { class: 'stack', hidden: true },
-    field('과목명', subjectInput),
-    field('기본 성취기준 (선택)', achInput, '학생마다 따로 적을 수도 있습니다.'));
+  const subjectWrap = h('div', { class: 'stack', hidden: true });
+  // 교과반 일괄 만들기: 과목 하나로 '과목 학년-반' 이름의 반을 여러 개
+  const gradeInput = h('input', { class: 'input', type: 'number', id: 'new-class-grade', min: '1', max: '6', inputmode: 'numeric', placeholder: '예: 1' });
+  const numsInput = h('input', { class: 'input', type: 'text', id: 'new-class-nums', autocomplete: 'off', placeholder: '예: 1-5, 7', maxlength: '60' });
+  const batchWrap = h('div', { class: 'stack', hidden: true },
+    field('학년', gradeInput),
+    field('반 번호', numsInput, '범위는 -로, 여러 개는 쉼표로 적습니다. 반 이름은 "과목명 학년-반"으로 만듭니다 (예: 통합과학 1-3).'));
+  const nameField = field('반 이름', nameInput);
+  const setBatch = (on) => { batchWrap.hidden = !on; nameField.hidden = on; submitLabel.textContent = on ? '반 한꺼번에 만들기' : '반 만들기'; };
+  const batchBox = h('input', { type: 'checkbox', id: 'new-class-batch', onchange: (e) => setBatch(e.target.checked) });
+  const batchRow = h('label', { class: 'row check-row', for: 'new-class-batch' }, batchBox, h('span', {}, '같은 과목 반을 여러 개 한꺼번에 만들기'));
+  const submitLabel = h('span', {}, '반 만들기');
+  subjectWrap.append(field('과목명', subjectInput), batchRow, batchWrap, field('기본 성취기준 (선택)', achInput, '학생마다 따로 적을 수도 있습니다. 한꺼번에 만들면 모든 반에 같이 들어갑니다.'));
   const errEl = h('p', { class: 'hint form-error', role: 'alert' });
-  const kindSeg = seg({ label: '반 종류', options: KIND_OPTIONS, value: kind, onChange: (v) => { kind = v; subjectWrap.hidden = v !== 'subject'; areaHint.textContent = areaText(v); } });
+  const kindSeg = seg({ label: '반 종류', options: KIND_OPTIONS, value: kind, onChange: (v) => {
+    kind = v; subjectWrap.hidden = v !== 'subject'; areaHint.textContent = areaText(v);
+    if (v !== 'subject' && batchBox.checked) { batchBox.checked = false; setBatch(false); }
+  } });
   const areaText = (k) => `쓸 영역: ${AREAS_BY_KIND[k].map((a) => AREA_LABELS[a]).join(', ')}`;
   const areaHint = h('p', { class: 'hint' }, areaText(kind));
   const form = h('form', {
@@ -44,6 +58,9 @@ function createForm() {
       errEl.textContent = '';
       nameInput.removeAttribute('aria-invalid');
       subjectInput.removeAttribute('aria-invalid');
+      gradeInput.removeAttribute('aria-invalid');
+      numsInput.removeAttribute('aria-invalid');
+      if (kind === 'subject' && batchBox.checked) { createBatch(); return; }
       const name = nameInput.value.trim();
       if (!name) { nameInput.setAttribute('aria-invalid', 'true'); errEl.textContent = '반 이름을 적어 주세요.'; nameInput.focus(); return; }
       if (nameTaken(name)) { nameInput.setAttribute('aria-invalid', 'true'); errEl.textContent = `'${name}' 반이 이미 있습니다. 다른 이름을 적어 주세요 (예: ${name} 동아리).`; nameInput.focus(); return; }
@@ -56,11 +73,29 @@ function createForm() {
       focusEl(root.querySelector('#class-detail-title'));
     },
   },
-  field('반 이름', nameInput),
+  nameField,
   h('div', { class: 'field' }, h('span', { class: 'label', id: 'new-class-kind-label' }, '종류'), kindSeg, areaHint),
   subjectWrap,
   errEl,
-  h('div', { class: 'row' }, h('button', { type: 'submit', class: 'btn btn-primary' }, icon('plus'), '반 만들기')));
+  h('div', { class: 'row' }, h('button', { type: 'submit', class: 'btn btn-primary' }, icon('plus'), submitLabel)));
+
+  function createBatch() {
+    const subject = subjectInput.value.trim();
+    if (!subject) { subjectInput.setAttribute('aria-invalid', 'true'); errEl.textContent = '교과반은 과목명을 적어 주세요.'; subjectInput.focus(); return; }
+    const grade = Number(gradeInput.value);
+    if (!Number.isInteger(grade) || grade < 1 || grade > 6) { gradeInput.setAttribute('aria-invalid', 'true'); errEl.textContent = '학년은 1~6 사이 숫자로 적어 주세요.'; gradeInput.focus(); return; }
+    const nums = parseClassNumbers(numsInput.value);
+    if (!nums.ok) { numsInput.setAttribute('aria-invalid', 'true'); errEl.textContent = nums.error; numsInput.focus(); return; }
+    const names = nums.numbers.map((n) => `${subject} ${grade}-${n}`);
+    const skipped = names.filter((n) => nameTaken(n));
+    const made = names.filter((n) => !nameTaken(n)).map((n) => store.createClass({ name: n, kind: 'subject', subject, achievement: achInput.value }));
+    if (!made.length) { numsInput.setAttribute('aria-invalid', 'true'); errEl.textContent = `만들 반이 없습니다. ${skipped.join(', ')} 반이 이미 있습니다.`; numsInput.focus(); return; }
+    selectedId = made[0].id;
+    numsInput.value = '';
+    toast(`${subject} 반 ${made.length}개를 만들었습니다.${skipped.length ? ` 이미 있는 ${skipped.length}개(${skipped.join(', ')})는 건너뛰었습니다.` : ''} 반마다 명단을 등록해 주세요.`);
+    render();
+    focusEl(root.querySelector('#class-detail-title'));
+  }
   return h('section', { class: 'card stack', 'aria-labelledby': 'create-class-title' },
     h('h2', { class: 'card-title', id: 'create-class-title' }, '반 만들기'), form);
 }
@@ -147,8 +182,15 @@ function errorBox(errors) {
   { title: `${errors.length}개 행에 문제가 있습니다` });
 }
 
-async function importParsed(cls, result) {
-  const students = result?.students || [];
+/** 같은 과목이고 이름이 '학년-반'으로 끝나는 교과반들 (cls 포함, 2개 이상일 때만) */
+function sectionSiblings(cls) {
+  if (cls.kind !== 'subject' || !sectionOfName(cls.name)) return [];
+  const list = store.listClasses().filter((c) => c.kind === 'subject' && c.subject === cls.subject && sectionOfName(c.name));
+  return list.length >= 2 ? list : [];
+}
+
+async function importParsed(cls, result, { split = null } = {}) {
+  let students = result?.students || [];
   const errors = result?.errors || [];
   if (!students.length && !errors.length) {
     showResult(alertBox('warn', '읽을 학생이 없습니다. 학번과 이름이 들어 있는지 확인해 주세요.'));
@@ -163,6 +205,26 @@ async function importParsed(cls, result) {
       ok: `${students.length}명 등록하기`,
     });
     if (!ok) return;
+  }
+  let groups = [{ classId: cls.id, studentIds: students.map((s) => s.studentId) }];
+  if (split) {
+    const r = splitBySection(students, split);
+    const sec = (st) => `${Number(String(st.studentId).slice(0, 1))}-${Number(String(st.studentId).slice(1, 3))}`;
+    if (!r.groups.length) {
+      showResult(alertBox('warn', `학번의 반 번호와 맞는 반이 없습니다. 만든 반: ${split.map((c) => c.name).join(', ')}. 학번의 반: ${[...new Set(r.unmatched.map(sec))].join(', ')}.`));
+      return;
+    }
+    const ok = await confirmDialog({
+      title: '학번의 반 번호대로 나눠 넣을까요?',
+      body: h('div', { class: 'stack' },
+        h('ul', { class: 'issue-list' }, r.groups.map((g) => h('li', { class: 'is-info' }, `${store.getClass(g.classId).name}: ${g.studentIds.length}명`))),
+        r.unmatched.length ? h('p', { class: 'small' }, `맞는 반이 없는 ${r.unmatched.length}명은 넣지 않습니다 (학번의 반: ${[...new Set(r.unmatched.map(sec))].join(', ')}). 필요하면 그 반을 먼저 만들어 주세요.`) : null),
+      ok: `${students.length - r.unmatched.length}명 나눠 넣기`,
+    });
+    if (!ok) return;
+    groups = r.groups;
+    const matched = new Set(groups.flatMap((g) => g.studentIds));
+    students = students.filter((s) => matched.has(s.studentId));
   }
   const conflicts = students.filter((s) => {
     const cur = store.getStudent(s.studentId);
@@ -192,9 +254,10 @@ async function importParsed(cls, result) {
     return !cur || (replaceNames && cur.name !== s.name);
   }).map((s) => ({ studentId: s.studentId, name: s.name }));
   if (toUpsert.length) store.upsertStudents(toUpsert);
-  const added = store.addStudentsToClass(cls.id, students.map((s) => s.studentId));
+  const added = groups.reduce((n, g) => n + store.addStudentsToClass(g.classId, g.studentIds), 0);
   const already = students.length - added;
-  const msg = `'${cls.name}'에 ${added}명을 등록했습니다${already ? ` (${already}명은 이미 있었습니다)` : ''}`;
+  const where = groups.length > 1 ? `${groups.length}개 반` : `'${store.getClass(groups[0].classId).name}'`;
+  const msg = `${where}에 ${added}명을 등록했습니다${already ? ` (${already}명은 이미 있었습니다)` : ''}`;
   toast(msg);
   if (!errors.length) showResult(alertBox('ok', msg));
   pasteText = '';
@@ -209,7 +272,7 @@ function registerSection(cls) {
       if (!file) return;
       try {
         const rows = await readSheetFile(file);
-        await importParsed(cls, parseRosterRows(rows));
+        await importParsed(cls, parseRosterRows(rows), { split: splitOn() });
       } catch (e) {
         console.error(e);
         showResult(alertBox('danger', e.name === 'XlsxMissingError' ? e.message : `파일을 읽지 못했습니다. 엑셀(.xlsx) 또는 CSV 파일인지 확인해 주세요. (${e.message || '알 수 없는 오류'})`, { role: 'alert' }));
@@ -223,9 +286,17 @@ function registerSection(cls) {
     oninput: () => { pasteText = pasteArea.value; },
   });
   const xlsxNote = hasXlsx() ? null : alertBox('warn', XLSX_MISSING_TEXT);
+  const siblings = sectionSiblings(cls);
+  const splitOn = () => (splitMode && siblings.length ? siblings : null);
+  const splitRow = siblings.length ? h('div', { class: 'stack gap-1' },
+    h('label', { class: 'row check-row', for: 'roster-split' },
+      h('input', { type: 'checkbox', id: 'roster-split', checked: splitMode, onchange: (e) => { splitMode = e.target.checked; } }),
+      h('span', {}, `${cls.subject} 반 ${siblings.length}개에 학번의 반 번호대로 나눠 넣기`)),
+    h('p', { class: 'hint' }, `예: 학번 10305는 '${cls.subject} 1-3' 반에 들어갑니다. 한 학년 전체 명단(NEIS 출석부 등)을 한 번에 올릴 때 씁니다.`)) : null;
   return h('section', { class: 'stack', 'aria-labelledby': 'register-title' },
     h('h3', { id: 'register-title', class: 'section-title' }, '명단 등록'),
     xlsxNote,
+    splitRow,
     h('div', { class: 'grid-2' },
       h('div', { class: 'stack' },
         h('p', { class: 'small' }, '엑셀로 등록: 양식에 학번과 이름을 채워 올리거나, NEIS 출석부 엑셀을 그대로 올립니다. 머리글(학번, 이름 또는 학년·반·번호, 성명)은 자동으로 찾습니다.'),
@@ -248,7 +319,7 @@ function registerSection(cls) {
           type: 'button', class: 'btn btn-primary',
           onclick: () => {
             if (!pasteArea.value.trim()) { toast('붙여넣은 명단이 없습니다'); pasteArea.focus(); return; }
-            importParsed(cls, parsePastedRoster(pasteArea.value));
+            importParsed(cls, parsePastedRoster(pasteArea.value), { split: splitOn() });
           },
         }, '붙여넣은 명단 등록하기')))),
     h('div', { id: 'roster-result', class: 'stack', ref: (el) => { resultEl = el; } }));
