@@ -430,6 +430,8 @@ function draftStep(rec, student) {
 
 // ---------- 후보 카드 (contract 17절) ----------
 const REFINE_CHIPS = ['더 짧게', '더 자세히', '문장 나누기', '평가어 줄이기'];
+/** '후보 1을', '후보 2를': 숫자 끝자리 읽는 소리에 받침이 없으면(2, 4, 5, 9) '를' */
+const hubo = (n) => `후보 ${n}${[2, 4, 5, 9].includes(n % 10) ? '를' : '을'}`;
 
 /** 지금 보이는 후보 목록 (저장 전 입력 포함). v1 문자열도 Candidate로 */
 function candidatesOf(id) {
@@ -463,7 +465,7 @@ function candidateCard(rec, i, c, { done, noKey, student }) {
   const undoBtn = h('button', {
     type: 'button', class: 'btn btn-ghost btn-sm', 'data-fkey': `cand-undo-${i}`, disabled: !c.versions.length || refining,
     'aria-label': `후보 ${n} 이전 판으로`,
-    onclick: () => { if (setCandidate(rec.id, i, undoVersion)) { renderPanel(); announce(`후보 ${n}을 이전 판으로 되돌렸습니다`); } },
+    onclick: () => { if (setCandidate(rec.id, i, undoVersion)) { renderPanel(); announce(`${hubo(n)} 이전 판으로 되돌렸습니다`); } },
   }, icon('undo'), '이전 판');
   const ta = h('textarea', {
     class: ['textarea', b0.level === 'over' && 'is-over'], id: `cand-${i}`, rows: '6', value: c.text, readonly: refining,
@@ -491,25 +493,25 @@ function candidateCard(rec, i, c, { done, noKey, student }) {
     bytesEl,
     h('div', { class: 'row' },
       h('button', {
-        type: 'button', class: 'btn btn-secondary btn-sm', 'data-fkey': `cand-draft-${i}`, 'aria-label': `후보 ${n}을 초안 칸에 저장`,
+        type: 'button', class: 'btn btn-secondary btn-sm', 'data-fkey': `cand-draft-${i}`, 'aria-label': `${hubo(n)} 초안 칸에 저장`,
         onclick: () => {
           flushPending();
           const prev = store.state.records.get(rec.id).draft;
           store.updateRecord(rec.id, { draft: textNow() });
           renderPanel();
-          toast(`후보 ${n}을 초안 칸에 저장했습니다`, { action: '되돌리기', onAction: () => { store.updateRecord(rec.id, { draft: prev }); renderPanel(); } });
+          toast(`${hubo(n)} 초안 칸에 저장했습니다`, { action: '되돌리기', onAction: () => { store.updateRecord(rec.id, { draft: prev }); renderPanel(); } });
         },
       }, '초안 칸에 저장'),
       h('button', {
-        type: 'button', class: 'btn btn-ghost btn-sm', 'data-fkey': `cand-final-${i}`, disabled: done, 'aria-label': `후보 ${n}을 최종본 끝에 붙이기`,
+        type: 'button', class: 'btn btn-ghost btn-sm', 'data-fkey': `cand-final-${i}`, disabled: done, 'aria-label': `${hubo(n)} 최종본 끝에 붙이기`,
         onclick: () => appendFinal(rec.id, textNow().trim()),
       }, '최종본 끝에 붙이기'),
       h('button', {
-        type: 'button', class: 'btn btn-ghost btn-sm', 'data-fkey': `cand-reset-${i}`, disabled: refining, 'aria-label': `후보 ${n}을 처음 상태로`,
+        type: 'button', class: 'btn btn-ghost btn-sm', 'data-fkey': `cand-reset-${i}`, disabled: refining, 'aria-label': `${hubo(n)} 처음 상태로`,
         onclick: () => {
           if (!setCandidate(rec.id, i, resetCandidate)) { toast('이미 AI가 처음 준 글입니다'); return; }
           renderPanel();
-          toast(`후보 ${n}을 처음 상태로 되돌렸습니다. [이전 판]으로 고친 글에 돌아갈 수 있습니다.`);
+          toast(`${hubo(n)} 처음 상태로 되돌렸습니다. [이전 판]으로 고친 글에 돌아갈 수 있습니다.`);
         },
       }, '처음 상태로'),
       undoBtn),
@@ -526,7 +528,7 @@ function candidateCard(rec, i, c, { done, noKey, student }) {
           type: 'button', class: 'btn btn-secondary btn-sm', 'data-fkey': `cand-refine-${i}`, disabled: refining || noKey,
           onclick: () => refine(rec.id, i, reqInput.value, student),
         }, icon('spark'), refining ? '다듬는 중' : 'AI에게 다듬기 요청')),
-      refining ? h('p', { class: 'small muted', role: 'status' }, `AI가 후보 ${n}을 다듬고 있습니다.`) : null));
+      refining ? h('p', { class: 'small muted', role: 'status' }, `AI가 ${hubo(n)} 다듬고 있습니다.`) : null));
 }
 
 async function refine(id, i, request, student) {
@@ -540,13 +542,13 @@ async function refine(id, i, request, student) {
   S.refining.add(key);
   S.errors.delete(id);
   renderPanel();
-  announce(`후보 ${i + 1}을 다듬고 있습니다`);
+  announce(`${hubo(i + 1)} 다듬고 있습니다`);
   try {
     const res = await refineDraft({
       record: aiRecord(rec), text: c.text, request: req, studentName: student?.name || '', roster: rosterAll(),
       settings: store.state.settings, apiKey: store.getApiKey(), style: styleFor(rec), fake: ctx.isFakeAI(),
     });
-    if (setCandidate(id, i, (x) => pushVersion(x, res.text))) toast(`후보 ${i + 1}을 다듬었습니다. [이전 판]으로 되돌릴 수 있습니다.`);
+    if (setCandidate(id, i, (x) => pushVersion(x, res.text))) toast(`${hubo(i + 1)} 다듬었습니다. [이전 판]으로 되돌릴 수 있습니다.`);
     else toast('AI가 같은 글을 돌려주었습니다');
   } catch (e) {
     if (!(e instanceof AiError)) console.warn('다듬기 중 예상 못 한 오류:', e?.name || 'Error');
@@ -556,10 +558,24 @@ async function refine(id, i, request, student) {
   } finally {
     S.refining.delete(key);
     if (S.open === rec.studentId && S.step === 'draft') {
-      if (typing()) staleAll = true; // 다른 칸에 입력 중이면 칸을 벗어날 때 그림
-      else { renderPanel(); document.getElementById(`cand-${i}`)?.focus(); }
+      // 다른 칸에 입력 중이면 그 카드만 바로 바꿔 입력·포커스를 지킨다 (오류 안내는 토스트로 이미 보임)
+      if (typing() && !replaceCard(id, i, student)) staleAll = true;
+      else if (!typing()) { renderPanel(); document.getElementById(`cand-${i}`)?.focus(); }
     }
   }
+}
+
+/** 후보 카드 하나만 새로 그림. 포커스가 그 카드 안에 있었으면 같은 칸으로 되돌림 */
+function replaceCard(id, i, student) {
+  const li = document.getElementById(`cand-${i}`)?.closest('li.candidate');
+  const rec = store.state.records.get(id);
+  const c = candidatesOf(id)[i];
+  if (!li || !rec || !c || !els.panel?.contains(li)) return false;
+  const ae = document.activeElement;
+  const own = li.contains(ae) ? (ae.id || ae.dataset.fkey || null) : null;
+  li.replaceWith(candidateCard(rec, i, c, { done: rec.status === 'done', noKey: !ctx.isFakeAI() && !ctx.hasKey(), student }));
+  if (own) (document.getElementById(own) || els.panel.querySelector(`[data-fkey="${CSS.escape(own)}"]`))?.focus();
+  return true;
 }
 
 // ---------- 내 스타일 적용 (contract 16-5) ----------
