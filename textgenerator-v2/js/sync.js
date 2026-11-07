@@ -259,7 +259,7 @@ export function createSync({
     },
 
     async listBackups() {
-      await ensureToken(true);
+      await ensureToken(false);
       return drive.listBackups();
     },
 

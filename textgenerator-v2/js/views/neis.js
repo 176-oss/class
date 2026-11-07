@@ -1,4 +1,4 @@
-// NEIS 옮기기: 완료 기록을 한 명씩 [복사] 다음 [옮김, 다음]. 확장프로그램으로 보내기
+// NEIS 옮기기: 완료 기록을 한 명씩 [복사] 다음 [옮김, 다음]. 드라이브 경로 안내와 확장프로그램으로 보내기(예비)
 import { h, clear, icon, focusEl } from '../dom.js';
 import { toast, announce, badge, alertBox, emptyState, viewHeader, progressBar, downloadJSON, stamp } from '../ui.js';
 import * as store from '../store.js';
@@ -14,6 +14,8 @@ let area = null;
 const positions = new Map(); // `${classId}|${area}` 별 지금 위치 (세션 동안 유지)
 const hashCache = new Map(); // 글별 hash
 let sendResult = null; // { ok, count } | { ok: false, batch }
+let ctx = null;
+let lastConnected = false;
 
 async function hashOf(text) {
   if (hashCache.has(text)) return hashCache.get(text);
@@ -158,8 +160,28 @@ function listTable(items, pos) {
       }))));
 }
 
+// 드라이브에 연결되어 있으면 확장이 드라이브에서 바로 가져가고, 보내기·파일은 예비 경로 (contract 9절)
+function extCard(items) {
+  const connected = !!ctx?.syncConnected();
+  return h('section', { class: 'card stack', 'aria-labelledby': 'ext-title' },
+    h('h2', { class: 'card-title', id: 'ext-title' }, '확장프로그램으로 옮기기'),
+    connected
+      ? alertBox('ok', '학교 PC 확장프로그램이 드라이브에서 완료 기록을 바로 가져갑니다. 나이스에 저장한 뒤 이 화면을 다시 열면 입력 완료가 표시됩니다.')
+      : h('p', { class: 'small' }, '구글 드라이브에 연결하면 학교 PC 확장프로그램이 드라이브에서 완료 기록을 바로 가져갑니다. 지금은 아래의 드라이브 없이 보내기를 쓰세요.'),
+    h('details', { class: 'key-guide', open: !connected },
+      h('summary', {}, '드라이브 없이 보내기'),
+      h('div', { class: 'stack' },
+        h('p', { class: 'small' }, '학교 PC 크롬에 생기부 NEIS 확장프로그램이 있으면, 이 반과 영역의 완료 글을 한 번에 넘겨 자동 입력할 수 있습니다. 데이터는 이 PC 안에서만 오갑니다.'),
+        h('div', { class: 'row' }, h('button', {
+          type: 'button', class: 'btn btn-primary', disabled: !items.length, onclick: sendToExtension,
+        }, icon('send'), `확장프로그램으로 보내기 (${items.length}명)`)),
+        sendHost,
+        h('p', { class: 'small muted' }, '나이스에 저장한 뒤 이 화면을 다시 열면 확장프로그램이 알려 준 입력 완료가 표시됩니다.'))));
+}
+
 function render() {
   if (!root) return;
+  lastConnected = !!ctx?.syncConnected();
   const head = viewHeader('NEIS 옮기기', '완료로 표시한 글만 학번 순서로 보여 줍니다. [복사]한 뒤 나이스에 붙여 넣고 [옮김, 다음]을 누르세요.');
   const classes = store.listClasses();
   if (!classes.length) {
@@ -188,19 +210,13 @@ function render() {
     items.length ? h('div', { class: 'stack gap-1' }, prog, h('p', { class: 'small num' }, `${items.length}명 중 ${Math.min(pos, items.length)}명 옮김`)) : null,
     h('div', { class: 'neis-layout' },
       h('div', { class: 'stack' }, currentCard(items, pos), listTable(items, pos)),
-      h('section', { class: 'card stack', 'aria-labelledby': 'ext-title' },
-        h('h2', { class: 'card-title', id: 'ext-title' }, '확장프로그램으로 보내기'),
-        h('p', { class: 'small' }, '학교 PC 크롬에 생기부 NEIS 확장프로그램이 있으면, 이 반과 영역의 완료 글을 한 번에 넘겨 자동 입력할 수 있습니다. 데이터는 이 PC 안에서만 오갑니다.'),
-        h('div', { class: 'row' }, h('button', {
-          type: 'button', class: 'btn btn-primary', disabled: !items.length, onclick: sendToExtension,
-        }, icon('send'), `확장프로그램으로 보내기 (${items.length}명)`)),
-        sendHost,
-        h('p', { class: 'small muted' }, '나이스에 저장한 뒤 이 화면을 다시 열면 확장프로그램이 알려 준 입력 완료가 표시됩니다.'))));
+      extCard(items)));
   renderSend();
 }
 
 export const neisView = {
-  mount(el, params) {
+  mount(el, params, c) {
+    ctx = c;
     root = h('div', { class: 'view view-neis stack' });
     el.appendChild(root);
     pickDefaults(params);
@@ -208,7 +224,8 @@ export const neisView = {
     requestDone();
   },
   update(kind) {
-    if (kind === 'save' || kind === 'key') return;
+    if (['save', 'key', 'styles', 'secrets'].includes(kind)) return;
+    if (kind === 'sync' && lastConnected === !!ctx?.syncConnected()) return;
     const active = document.activeElement?.id;
     render();
     if (active) document.getElementById(active)?.focus();

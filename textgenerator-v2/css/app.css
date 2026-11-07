@@ -151,3 +151,21 @@ body { margin: 0; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
 }
+
+/* 동기화 */
+.appbar-sync { order: 2; display: flex; align-items: center; gap: var(--sp-2); flex: none; margin-left: auto; }
+.sync-status { font-size: var(--fs-sm); color: var(--color-on-primary); white-space: nowrap; }
+.sync-status-text.is-warn {
+  display: inline-flex; align-items: center; min-height: var(--touch-min);
+  padding: 0 var(--sp-2); border-radius: var(--r-sm);
+  background: var(--color-warn-bg); color: var(--color-warn-text); font-weight: var(--fw-semibold);
+}
+a.sync-status-text { text-decoration: underline; }
+.appbar .sync-save { min-height: var(--touch-min); min-width: var(--touch-min); background: var(--color-surface); color: var(--color-primary); border-color: var(--color-surface); }
+.appbar .sync-save:hover:not(:disabled) { background: var(--color-accent-soft); }
+.drive-backup-list { list-style: none; margin: 0; padding: 0; gap: var(--sp-2); }
+@media (max-width: 640px) {
+  .appbar-sync { order: 0; }
+  .sync-save-text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .appbar .sync-save { padding: 0; justify-content: center; }
+}
