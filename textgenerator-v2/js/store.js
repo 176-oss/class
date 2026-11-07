@@ -1,18 +1,24 @@
 // 메모리 상태 + 자동 저장(디바운스) + 변경 알림
 // 화면은 state를 읽기만 하고, 바꿀 때는 이 파일의 함수를 부른다.
 import * as db from './db.js';
-import { defaultSettings, newRecord, deriveStatus, recordKey, AREAS_BY_KIND, AREA_LABELS } from './core/model.js';
+import { defaultSettings, defaultStyles, newRecord, deriveStatus, recordKey, AREAS_BY_KIND, AREA_LABELS, DEVICE_SETTING_KEYS } from './core/model.js';
 import { checkRecord } from './core/check.js';
+import { prepareReplace } from './core/sync-merge.js';
 
 const SAVE_DELAY = 300; // 화면 쪽 0.6초 디바운스 뒤에 한 번 더 모아서 쓴다
 const KEY_STORAGE_NAME = 'sgb-v2-api-key';
+const TOKEN_KEY = 'sgb-v2-token';
 
 export const state = {
   students: new Map(),
   classes: new Map(),
   records: new Map(),
   settings: null,
+  styles: null,
+  deleted: [], // Tombstone[] (contract 12-2)
+  secrets: null, // 드라이브 저장을 켰을 때만 (contract 18절)
   snapshot: null,
+  snapshots: {},
   persistent: true, // IndexedDB를 못 열면 false (메모리에서만)
   loadError: null,
   newer: false,
@@ -21,7 +27,7 @@ export const state = {
 
 // ---------- 변경 알림 ----------
 const listeners = new Set();
-/** fn(kind, detail). kind: 'records' | 'classes' | 'students' | 'settings' | 'all' | 'save' | 'key' */
+/** fn(kind, detail). kind: 'records' | 'classes' | 'students' | 'settings' | 'styles' | 'secrets' | 'all' | 'save' | 'key' | 'local-change' */
 export function subscribe(fn) {
   listeners.add(fn);
   return () => listeners.delete(fn);
@@ -36,11 +42,36 @@ function emit(kind, detail = {}) {
 const dirty = { students: new Set(), classes: new Set(), records: new Set() };
 const deleted = { students: new Set(), classes: new Set(), records: new Set() };
 let settingsDirty = false;
+let stylesDirty = false;
+let tombsDirty = false;
+let secretsDirty = false;
+let userDirty = false; // 드라이브에 올릴 사용자 변경 (flush가 meta.syncPending = true)
 let saveTimer = null;
 let saving = null;
 
-function markDirty(store, id) { dirty[store].add(id); deleted[store].delete(id); scheduleSave(); }
-function markDeleted(store, id) { deleted[store].add(id); dirty[store].delete(id); scheduleSave(); }
+/** 사용자 변경: 드라이브에 올릴 것으로 친다 */
+function localChange() {
+  userDirty = true;
+  scheduleSave();
+  emit('local-change');
+}
+
+function markDirty(store, id) {
+  dirty[store].add(id);
+  deleted[store].delete(id);
+  // 같은 id를 다시 만들면 이 브라우저의 그 삭제 기록을 지운다
+  const before = state.deleted.length;
+  state.deleted = state.deleted.filter((d) => !(d.store === store && d.id === id));
+  if (state.deleted.length !== before) tombsDirty = true;
+  localChange();
+}
+function markDeleted(store, id) {
+  deleted[store].add(id);
+  dirty[store].delete(id);
+  state.deleted = [...state.deleted.filter((d) => !(d.store === store && d.id === id)), { store, id, deletedAt: now() }];
+  tombsDirty = true;
+  localChange();
+}
 
 function setSave(status, message = '') {
   state.save = { status, message };
@@ -69,14 +100,21 @@ export async function flush() {
     deleted[name].clear();
   }
   const settings = settingsDirty ? state.settings : undefined;
-  settingsDirty = false;
-  if (!Object.keys(put).length && !Object.keys(del).length && !settings) {
+  const styles = stylesDirty ? state.styles : undefined;
+  const meta = {};
+  if (tombsDirty) meta.deleted = state.deleted;
+  if (secretsDirty) meta.secrets = state.settings?.publicPC ? null : state.secrets;
+  if (userDirty) meta.syncPending = true;
+  const flags = { settingsDirty, stylesDirty, tombsDirty, secretsDirty, userDirty };
+  settingsDirty = false; stylesDirty = false; tombsDirty = false; secretsDirty = false; userDirty = false;
+  if (!Object.keys(put).length && !Object.keys(del).length && !settings && !styles && !Object.keys(meta).length) {
     if (state.save.status === 'pending') setSave('saved');
     return;
   }
+  if (meta.syncPending) syncMeta.pending = true;
   if (!state.persistent) { setSave('saved', '이 창을 닫으면 사라집니다'); return; }
   setSave('saving');
-  saving = db.writeChanges({ put, del, settings });
+  saving = db.writeChanges({ put, del, settings, styles, meta });
   try {
     await saving;
     setSave('saved');
@@ -86,7 +124,12 @@ export async function flush() {
     for (const [name, items] of Object.entries(put)) {
       for (const it of items) dirty[name].add(it[name === 'students' ? 'studentId' : 'id']);
     }
-    if (settings) settingsDirty = true;
+    for (const [name, ids] of Object.entries(del)) for (const id of ids) deleted[name].add(id);
+    if (flags.settingsDirty) settingsDirty = true;
+    if (flags.stylesDirty) stylesDirty = true;
+    if (flags.tombsDirty) tombsDirty = true;
+    if (flags.secretsDirty) secretsDirty = true;
+    if (flags.userDirty) userDirty = true;
     setSave('error', '저장하지 못했습니다. 저장 공간이 부족하거나 브라우저가 저장을 막았을 수 있습니다.');
   } finally {
     saving = null;
@@ -100,13 +143,21 @@ function fillSettings(s) {
   return { ...base, ...s, limits: { ...base.limits, ...(s.limits || {}) } };
 }
 
+/** init이 설정을 새로 만든 첫 실행이면 true (처음 연결 안내용) */
+export let firstRun = false;
+let syncMeta = { state: {}, pending: false }; // meta.sync, meta.syncPending 사본
+
 export async function init() {
   try {
     const data = await db.loadAll();
     loadInto(data);
+    state.deleted = data.deleted || [];
+    state.secrets = data.secrets || null;
+    state.snapshots = data.snapshots || {};
     state.snapshot = data.snapshot;
     state.newer = data.newer;
-    if (!data.settings) { settingsDirty = true; scheduleSave(); }
+    syncMeta = { state: data.syncState || {}, pending: !!data.syncPending };
+    if (!data.settings) { firstRun = true; settingsDirty = true; scheduleSave(); }
   } catch (e) {
     console.error(e);
     state.persistent = false;
@@ -116,11 +167,12 @@ export async function init() {
   loadKeyFromStorage();
 }
 
-function loadInto({ students = [], classes = [], records = [], settings }) {
+function loadInto({ students = [], classes = [], records = [], settings, styles }) {
   state.students = new Map(students.map((s) => [s.studentId, s]));
   state.classes = new Map(classes.map((c) => [c.id, c]));
   state.records = new Map(records.map((r) => [r.id, r]));
   state.settings = fillSettings(settings);
+  state.styles = styles && styles.areas ? styles : defaultStyles();
 }
 
 const now = () => new Date().toISOString();
@@ -149,7 +201,8 @@ export function getRecord(studentId, area, subject = null) {
   const id = recordKey(studentId, area, sub);
   let r = state.records.get(id);
   if (!r) {
-    r = newRecord(studentId, area, sub);
+    // updatedAt null: 아직 저장 안 된 빈 기록. 동기화에 올리지 않고, 합치기에서 언제나 진다
+    r = { ...newRecord(studentId, area, sub), updatedAt: null };
     state.records.set(id, r);
   }
   return r;
@@ -160,6 +213,20 @@ export function snapshotData() {
     classes: [...state.classes.values()],
     records: [...state.records.values()].filter(hasContent),
     settings: state.settings,
+    styles: state.styles,
+  };
+}
+
+/** 동기화용: 저장된 기록 전부 + styles, deleted, secrets (contract 15절) */
+export function getSyncData() {
+  return {
+    students: [...state.students.values()],
+    classes: [...state.classes.values()],
+    records: [...state.records.values()].filter((r) => r.updatedAt != null),
+    settings: state.settings,
+    styles: state.styles,
+    deleted: state.deleted,
+    secrets: state.secrets,
   };
 }
 function hasContent(r) {
@@ -274,37 +341,86 @@ export function renameSubjectRecords(studentIds, oldSubject, newSubject) {
 
 // ---------- 설정 ----------
 export function updateSettings(patch) {
-  state.settings = { ...state.settings, ...patch };
+  const shared = Object.keys(patch).some((k) => !DEVICE_SETTING_KEYS.includes(k));
+  state.settings = { ...state.settings, ...patch, ...(shared ? { updatedAt: now() } : {}) };
   settingsDirty = true;
-  scheduleSave();
+  if ('publicPC' in patch) secretsDirty = true; // 공용 PC면 secrets 사본을 지움
   emit('settings', { keys: Object.keys(patch) });
+  if (shared) localChange(); else scheduleSave();
+}
+
+// ---------- 내 스타일, secrets ----------
+export function getStyles() { return state.styles; }
+/** 통째로 바꿈. B가 core/style.js 순수 함수로 만든 결과를 넣는다 */
+export function setStyles(next) {
+  state.styles = next && next.areas ? next : defaultStyles();
+  stylesDirty = true;
+  emit('styles');
+  localChange();
+}
+
+export function getSecrets() { return state.secrets; }
+/** 공용 PC면 IndexedDB에 쓰지 않고 메모리에만 */
+export function setSecrets(next) {
+  state.secrets = next || null;
+  secretsDirty = true;
+  emit('secrets');
+  localChange();
+}
+
+/** 그 기록 영역(+common)의 스타일 예시 글. checkOf가 겹침 검사에 씀 */
+export function styleExamplesFor(record) {
+  const areas = state.styles?.areas || {};
+  const key = record.area === 'subject' ? `subject:${record.subject || ''}` : record.area;
+  return [areas[key], areas.common].flatMap((a) => (a?.examples || []).map((e) => e.text)).filter(Boolean);
 }
 
 // ---------- 통째로 바꾸기, 스냅숏 ----------
-export async function replaceAll(data) {
+function resetDirty() {
   clearTimeout(saveTimer);
   for (const name of ['students', 'classes', 'records']) { dirty[name].clear(); deleted[name].clear(); }
-  settingsDirty = false;
-  const keyStorage = state.settings?.keyStorage;
+  settingsDirty = false; stylesDirty = false; tombsDirty = false; secretsDirty = false; userDirty = false;
+}
+
+/** 메모리를 data로 바꾼다 (기기별 설정은 이 브라우저 값). 동기적으로 끝난다 */
+function loadAllInto(data) {
+  const device = Object.fromEntries(DEVICE_SETTING_KEYS.filter((k) => state.settings && k in state.settings).map((k) => [k, state.settings[k]]));
   loadInto(data);
-  if (keyStorage) state.settings.keyStorage = keyStorage;
-  if (state.persistent) {
-    setSave('saving');
-    try {
-      await db.replaceAllData(snapshotData());
-      setSave('saved');
-    } catch (e) {
-      console.error(e);
-      setSave('error', '저장하지 못했습니다.');
-      throw e;
-    }
+  Object.assign(state.settings, device);
+  state.deleted = Array.isArray(data.deleted) ? data.deleted : [];
+  if ('secrets' in data) state.secrets = data.secrets || null;
+}
+
+async function writeAll(meta = {}) {
+  if (!state.persistent) return;
+  const d = getSyncData();
+  await db.replaceAllData({ ...d, secrets: state.settings.publicPC ? null : d.secrets, meta });
+}
+
+/** 가져오기·되돌리기: prepareReplace를 거쳐 드라이브에서도 이기게 하고, 올릴 변경으로 친다 */
+export async function replaceAll(data) {
+  await flush();
+  const next = prepareReplace(getSyncData(), data);
+  resetDirty();
+  loadAllInto(next);
+  setSave('saving');
+  try {
+    await writeAll({ syncPending: true });
+    syncMeta.pending = true;
+    setSave('saved');
+  } catch (e) {
+    console.error(e);
+    setSave('error', '저장하지 못했습니다.');
+    throw e;
   }
   emit('all');
+  emit('local-change');
 }
 
 export async function saveSnapshot(backup) {
   const snap = { id: 'before-import', createdAt: now(), data: backup };
   state.snapshot = snap;
+  state.snapshots = { ...state.snapshots, [snap.id]: snap };
   if (state.persistent) await db.putSnapshot(snap);
 }
 
@@ -312,8 +428,59 @@ export async function wipeAll() {
   clearTimeout(saveTimer);
   clearApiKey();
   try { localStorage.removeItem(KEY_STORAGE_NAME); } catch { /* 막혀 있으면 넘어감 */ }
+  try { localStorage.removeItem(TOKEN_KEY); sessionStorage.removeItem(TOKEN_KEY); } catch { /* 넘어감 */ }
   if (state.persistent) await db.deleteDatabase();
 }
+
+/** IndexedDB 사본과 동기화 상태만 지움 (API 키, 가짜 드라이브 파일은 남김) */
+export async function wipeLocalCopy() {
+  resetDirty();
+  const device = Object.fromEntries(DEVICE_SETTING_KEYS.map((k) => [k, state.settings?.[k]]));
+  loadInto({ students: [], classes: [], records: [], settings: null });
+  Object.assign(state.settings, device);
+  state.deleted = [];
+  state.secrets = null;
+  state.snapshots = {};
+  state.snapshot = null;
+  syncMeta = { state: {}, pending: false };
+  if (state.persistent) await db.clearAllStores();
+  emit('all');
+}
+
+// ---------- 동기화 연결 (LocalPort, contract 14-1) ----------
+let beforeSyncRead = null;
+/** 화면 디바운스를 먼저 끝내는 함수 (app.js가 지금 화면의 flush를 넣음) */
+export function setBeforeSyncRead(fn) { beforeSyncRead = fn; }
+
+export const syncLocal = {
+  async read() {
+    try { beforeSyncRead?.(); } catch (e) { console.error(e); }
+    await flush();
+    return getSyncData();
+  },
+  /** 합친 결과 반영. 메모리는 첫 await 전에 바꾼다. 'local-change'는 내지 않는다 */
+  async apply(data) {
+    resetDirty();
+    loadAllInto(data);
+    emit('all');
+    try { await writeAll(); } catch (e) { console.error(e); setSave('error', '저장하지 못했습니다.'); }
+  },
+  async readState() { return { ...syncMeta.state, pending: syncMeta.pending }; },
+  async writeState(patch) {
+    syncMeta.state = { ...syncMeta.state, ...patch };
+    if (state.persistent) await db.putMeta('sync', syncMeta.state);
+  },
+  async setPending(b) {
+    syncMeta.pending = !!b;
+    if (state.persistent) await db.putMeta('syncPending', !!b);
+  },
+  async snapshot(id, data) {
+    const snap = { id, createdAt: now(), data };
+    state.snapshots = { ...state.snapshots, [id]: snap };
+    if (state.persistent) await db.putSnapshot(snap);
+  },
+  async wipe() { await wipeLocalCopy(); },
+};
 
 // ---------- API 키 (IndexedDB와 백업에 넣지 않음) ----------
 let memoryKey = '';
@@ -375,5 +542,6 @@ export function checkOf(record, text = record.final) {
     limit: limitOf(record.area),
     entries: state.settings?.forbidden || [],
     others: othersFor(record),
+    styleExamples: styleExamplesFor(record),
   });
 }

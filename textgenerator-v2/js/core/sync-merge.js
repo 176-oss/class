@@ -228,7 +228,7 @@ export function prepareReplace(current, next, now = new Date()) {
   const at = iso(now);
   const out = { ...N };
   const tombs = new Map();
-  for (const d of arr(N.deleted)) if (d && STORES[d.store]) tombs.set(`${d.store}|${d.id}`, d);
+  for (const d of [...arr(C.deleted), ...arr(N.deleted)]) if (d && STORES[d.store]) tombs.set(`${d.store}|${d.id}`, d);
 
   for (const [name, key] of Object.entries(STORES)) {
     const cm = byId(C[name], key);

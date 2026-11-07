@@ -136,7 +136,7 @@ function restoreCard() {
           const v = validateBackup(snap.data);
           if (!v.ok) throw new Error(v.error);
           const d = v.backup;
-          await store.replaceAll({ students: d.students, classes: d.classes, records: d.records, settings: { ...d.settings, keyStorage: store.state.settings.keyStorage, devFakeAI: store.state.settings.devFakeAI } });
+          await store.replaceAll({ students: d.students, classes: d.classes, records: d.records, styles: d.styles, settings: { ...d.settings, keyStorage: store.state.settings.keyStorage, devFakeAI: store.state.settings.devFakeAI } });
           toast('가져오기 전 상태로 되돌렸습니다');
         } catch (e) {
           console.error(e);
