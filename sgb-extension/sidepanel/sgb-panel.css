@@ -1,0 +1,6 @@
+/* 생기부 탭 보충 스타일 (토큰 변수만 사용) */
+.sgb-texts { display: grid; gap: var(--sp-2); margin-top: var(--sp-2); }
+.sgb-text { white-space: pre-wrap; font-size: var(--fs-xs); padding: var(--sp-2); border: 1px solid var(--color-border); border-radius: var(--r-sm); background: var(--color-surface); max-height: 140px; overflow: auto; }
+.sgb-text-label { font-size: var(--fs-xs); font-weight: var(--fw-semibold); color: var(--color-text-muted); }
+.sgb-survey { width: 100%; min-height: 120px; font-size: var(--fs-xs); font-family: inherit; }
+.sgb-progress { font-size: var(--fs-sm); color: var(--color-text-muted); }

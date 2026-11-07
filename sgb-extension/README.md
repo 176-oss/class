@@ -1,0 +1,63 @@
+# 생기부 도우미 - 나이스 연동 (크롬 확장, v0.1.0)
+
+생기부 작성 도우미에서 '완료'로 표시한 글을 나이스 생기부 입력 화면에 반자동으로 입력합니다.
+기획: 「생기부 NEIS 자동 입력 확장프로그램 기획 초안 v0.1」. 출결 확장(`attendance/attendance-extension.zip`)과 따로 만들고 나중에 합칩니다.
+
+## 지금 상태 (중요)
+- **실제 나이스 생기부 화면 구조를 아직 확인하지 않았습니다.** 화면 id·컬럼 이름·버튼 id는 모두 가정이며 [content/sgb-config.js](content/sgb-config.js) 한 파일에 모여 있습니다.
+- `sgb-config.js`의 `verified: false` 동안 **진짜 나이스 주소에서는 읽기만** 합니다 (화면 감지, 화면 구조 기록). 입력·저장 명령은 거부합니다.
+- 입력부터 저장까지의 흐름은 **가상 나이스 화면**(`mock-neis/sgb.html`)에서만 시험했습니다.
+
+## 흐름
+1. 사이드 패널에서 글 불러오기: [파일 불러오기] (웹앱의 'NEIS 입력 파일', `kind: sgb-neis-batch`) 또는 [구글 드라이브에서 받기] (`sgb-data.json`, 상태 '완료'만)
+2. 나이스 생기부 화면을 열면 화면·조건(학년도, 학기, 학년, 반, 영역, 과목)을 감지하고 맞는 학생 목록을 보여 줍니다
+3. [입력 시작] → 학생 순서대로 본문 넣기 → 나이스 값을 다시 읽어 보낸 글과 같은지 비교
+   - 자동으로 넣지 않고 '직접 확인'으로: 나이스에 다른 글이 있음, 이름 불일치, 표에 없는 번호, 바이트 초과, 같은 학생 글 2개 이상
+4. 선생님 확인 → [확인 완료 · 저장] → 저장 목록 → [이대로 저장] → 나이스 [저장], 확인창("저장하시겠습니까?")·알림("저장했습니다.") → 저장 결과 검증
+5. 저장된 글은 '저장됨' (이 PC). 드라이브에 연결되어 있으면 `sgb-data.json`의 해당 기록 `neis` 필드만 고칩니다
+
+## 안전 규칙 (코드에서 지키는 것)
+- 누를 수 있는 버튼은 허용 목록(`clickableIds`: 저장, 확인)뿐입니다. 금지 목록(마감, 확정, 일괄 삭제, 가져오기, 반영, 출력)은 이중 차단입니다
+- 조회 조건은 바꾸지 않습니다. 입력·저장 직전마다 조건이 시작할 때와 같은지 확인합니다
+- 저장 직전: 바뀐 행이 모두 이번에 확장이 넣은 행이고, 본문 해시가 확인한 글과 같을 때만 [저장]
+- 확인창 문구가 정확히 "저장하시겠습니까?"가 아니면 멈춥니다. [저장]을 누른 뒤에는 [멈추기]가 없습니다
+- 이미 글이 있는 학생은 덮어쓰지 않습니다 (v0.1)
+- 작업 기록에는 번호만 남기고, 나이스 콘솔에는 아무것도 출력하지 않습니다
+- 학생 이름과 글은 이 PC의 `chrome.storage.local`(`sgb.data`, `sgb.done`)에만. [이 PC의 생기부 데이터 모두 지우기]
+
+## 같은 규칙 (웹앱과 맞춰야 함)
+- 비교·해시 전 정리: 유니코드 NFC, 줄바꿈 `\n`, 줄 끝 공백과 앞뒤 공백 제거 (`shared/sgb-model.js`의 `normText`, `sgb-page.js`에 같은 줄)
+- 해시: 정리한 글의 sha256 앞 16자리
+- 바이트(가정): 한글 3, 영문·숫자 1, 줄바꿈 2. 한도(가정): 자율·동아리·행특·세특 1500, 진로 2100 (`BYTE_LIMITS`)
+
+## 설치 (집에서 시험)
+1. `chrome://extensions` → 개발자 모드 → **압축해제된 확장 프로그램을 로드합니다** → 이 `sgb-extension` 폴더
+2. 확장 ID는 manifest `key`로 고정: `fjgpgoehdihombkkjepcpppnokoiklkl`. 개인키는 레포 `keys/sgb-extension-key.pem` (`.gitignore` 처리, 공유 금지)
+3. 가상 화면: 이 폴더에서 `python -m http.server 8091` → `http://localhost:8091/mock-neis/sgb.html`
+   - 주소 옵션: `screen=creative|behavior|subject`, `grade=3&cls=5`, `area=1|2|3`(자율·동아리·진로), `subject=통합과학`, `existing=7,12`(이미 글 있는 번호), `rename=9:다른이름`, `savemsg=...`(확인창 문구 바꾸기)
+4. 확장 아이콘 → 사이드 패널
+
+## 구글 드라이브
+- `config.js`는 출결 확장과 같은 Client ID입니다. 구글 클라우드 콘솔의 그 클라이언트에 **리디렉션 URI `https://fjgpgoehdihombkkjepcpppnokoiklkl.chromiumapp.org/`를 추가**해야 합니다 (출결 확장과 ID가 달라서)
+- `sgb-data.json` 형식은 웹앱 v2가 아직 없어 가정입니다 (`{records:[{id, status, grade, classNo, no, name, area, subject, text, neis}]}`). 정해지면 `fromDriveData`만 고칩니다
+- 확장은 `sgb-data.json`을 새로 만들지 않습니다 (없으면 안내만)
+
+## 실제 화면 분석 뒤 할 일
+1. 나이스 생기부 화면에서 사이드 패널 [도구와 작업 기록] → **[화면 구조 기록 (읽기 전용)]** → 나온 내용을 분석 문서에 붙이기 (앱 id, 컨트롤 id·종류, 버튼 글자, 데이터 컬럼 이름. 학생 정보 값은 읽지 않음)
+2. `content/sgb-config.js`의 id·컬럼·영역 코드·입력 방식(`dataset` 또는 `control`)·금지 버튼을 실제 값으로 고치기
+3. 가상 화면(`mock-neis/sgb.html`)도 실제 구조에 맞게 고친 뒤 테스트 통과
+4. 바이트 계산과 한도를 나이스 표시와 맞추기
+5. `verified: true` → 학교 시험 (학생 1명, 저장 없이 → [조회]로 되돌리기 → 1명 저장 → 여러 명)
+
+## 출결 확장과 합칠 때
+- 이름이 겹치지 않게 해 두었습니다: 파일 `sgb-*`, 저장소 키 `sgb.*`, 메시지 꼬리표 `sgb`, 페이지 채널 `sgb-neis-bridge-v1`
+- `content/sgb-bridge.js`는 출결 `bridge.js` 복사본(채널 이름만 다름), `sidepanel/sgb-drive.js`는 출결 `drive.js` 복사본(파일 이름·토큰 키만 다름), CSS 3개는 그대로 복사
+- 사이드 패널은 `sgb-panel.js`의 `mount(root)` 하나로 그려지므로 출결 패널의 '생기부' 탭에서 부르면 됩니다
+- 합칠 때 manifest는 출결 확장의 `key`를 씁니다 (설치된 출결 확장 ID 유지). 이 확장의 `chrome.storage` 데이터는 옮겨지지 않으니 글은 다시 불러옵니다
+
+## 배포 전 정리
+`http://localhost/*`, `http://127.0.0.1/*`를 manifest(`host_permissions`, `content_scripts.matches` 두 곳)와 `sidepanel/sgb-panel.js`의 `NEIS_URLS`에서 지우고 `mock-neis/`, `tests/`를 뺍니다.
+
+## 테스트
+- `node tests/model.test.mjs`: 정리 규칙, 바이트, 해시, 파일 검사, 조건 맞추기, 드라이브 반영
+- `python tests/e2e_mock.py`: 크로미움에 확장을 로드해 가상 화면에서 입력 → 확인 → 저장, 직접 확인 5가지, 덮어쓰기 안 함, 금지 버튼 차단, 다른 행이 바뀌면 저장 거부, 멈추기, 조건 불일치 안내, 화면 구조 기록에 이름 없음, 교과세특 화면 감지

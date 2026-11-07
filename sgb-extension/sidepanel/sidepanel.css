@@ -1,0 +1,59 @@
+/* 사이드 패널 전용 보충 스타일 (토큰 변수만 사용) */
+html, body { background: var(--color-bg); }
+.panel { max-width: none; }
+.panel-body { padding-bottom: var(--sp-6); }
+.panel .toast { bottom: calc(76px + var(--sp-2)); }
+.panel-header .icon-btn[aria-busy="true"] .icon { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.conn { display: flex; align-items: center; gap: var(--sp-3); }
+.conn-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; background: var(--color-text-disabled); }
+.conn.is-ok .conn-dot { background: var(--color-accent); box-shadow: 0 0 0 3px var(--color-accent-line); }
+.conn-main { flex: 1; min-width: 0; }
+.conn-title { font-weight: var(--fw-semibold); font-size: var(--fs-sm); }
+.conn-meta { font-size: var(--fs-xs); color: var(--color-text-muted); }
+
+.group-head-actions { display: flex; align-items: center; gap: var(--sp-2); }
+.list-group-head .btn-sm { min-height: 30px; }
+.list-group-head { padding-top: var(--sp-1); padding-bottom: var(--sp-1); }
+
+.step.is-error .step-mark { background: var(--color-danger); border-color: var(--color-danger); color: var(--color-on-primary); }
+.step.is-error { color: var(--color-danger); font-weight: var(--fw-semibold); }
+
+.callout.is-done { border-color: var(--color-done); }
+.callout-do .kbd { margin: 0 2px; }
+.warn-list { margin: var(--sp-1) 0 0; padding-left: var(--sp-4); }
+.warn-list li { margin: 2px 0; }
+
+.roster-grid { display: grid; grid-template-columns: 1fr 1fr; }
+.roster-grid .list-row { border-right: 1px solid var(--color-divider); }
+.roster-grid .list-row:nth-child(2n) { border-right: 0; }
+.roster-grid .list-row:last-child { border-bottom: 1px solid var(--color-divider); }
+.roster-grid .list-no { width: 30px; height: 30px; font-size: var(--fs-sm); }
+
+.field-row { display: flex; gap: var(--sp-2); }
+.field-row .input { flex: 1; min-width: 0; font-size: var(--fs-xs); }
+.input { min-height: var(--control-sm); }
+.btn-row { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+
+details.log { font-size: var(--fs-xs); color: var(--color-text-muted); }
+details.log summary { cursor: pointer; font-weight: var(--fw-semibold); padding: var(--sp-1) 0; }
+.log-lines { margin: var(--sp-2) 0 0; padding: var(--sp-2); max-height: 180px; overflow: auto; background: var(--color-surface);
+  border: 1px solid var(--color-border); border-radius: var(--r-sm); list-style: none; }
+.log-lines li { padding: 1px 0; }
+.log-lines li.is-warn { color: var(--color-primary); font-weight: var(--fw-semibold); }
+.log-lines li.is-error { color: var(--color-danger); }
+
+/* hidden 속성이 컴포넌트의 display 값에 덮이지 않도록 */
+[hidden] { display: none !important; }
+
+/* v0.4 일괄 입력 */
+.list-meta.wrap, .panel .list-meta { white-space: normal; }
+.pre { white-space: pre-line; }
+.seg-sm { margin-top: var(--sp-2); }
+.seg-sm .seg-item { min-height: var(--control-sm); font-size: var(--fs-sm); }
+.plan-row { align-items: flex-start; }
+.panel-footer .btn { padding: 0 var(--sp-2); }
+.items-foot { padding: var(--sp-2) var(--sp-3); border-top: 1px solid var(--color-divider); }
+.editor { border-color: var(--color-accent); }
+.panel .list-side .btn-sm { min-height: 30px; }

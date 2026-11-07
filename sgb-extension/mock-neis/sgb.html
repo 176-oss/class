@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>가상 나이스 - 생기부 입력 (시험용)</title>
+<style>
+  body { font: 13px/1.4 sans-serif; margin: 12px; color: #222; }
+  .bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 8px; background: #eef2f8; border: 1px solid #c8d3e6; }
+  table { border-collapse: collapse; width: 100%; margin-top: 8px; }
+  th, td { border: 1px solid #ccd; padding: 4px 6px; vertical-align: top; }
+  th { background: #f3f5f9; }
+  tr.sel { background: #fff7d6; }
+  tr.dirty td:first-child { box-shadow: inset 3px 0 0 #2f5bd3; }
+  td.text { white-space: pre-wrap; max-width: 520px; }
+  textarea { width: 100%; height: 90px; margin-top: 8px; }
+  .dlg { position: fixed; inset: 0; background: rgba(0,0,0,.3); display: flex; align-items: center; justify-content: center; }
+  .dlg > div { background: #fff; padding: 16px; min-width: 260px; border: 1px solid #888; }
+  .note { color: #a33; font-weight: bold; }
+</style>
+</head>
+<body>
+<p class="note">가상 나이스 화면입니다. 실제 나이스 구조를 확인하기 전의 가정으로 만든 시험용입니다. 학생 이름은 모두 가명입니다.</p>
+<div class="bar" id="bar"></div>
+<table><thead><tr><th>번호</th><th>성명</th><th>특기사항</th><th>바이트</th><th>상태</th></tr></thead><tbody id="rows"></tbody></table>
+<textarea id="detail" placeholder="학생 행을 고르면 여기에서 고칩니다"></textarea>
+<div id="dlgs"></div>
+<script>
+(function () {
+  const q = new URLSearchParams(location.search);
+  const SCREENS = { creative: 'MOCK_SGB_CREATIVE', behavior: 'MOCK_SGB_BEHAVIOR', subject: 'MOCK_SGB_SUBJECT' };
+  const screen = SCREENS[q.get('screen')] ? q.get('screen') : 'creative';
+  const NAMES = ['김가람', '이나래', '박다온', '최라온', '정마루', '강바다', '조사랑', '윤아라', '장자람', '임차오', '한카라', '오타미', '서파랑', '신하늘', '권가온', '황나비', '안다솜', '송라희', '류마음', '전보람', '홍새봄', '고아인', '문지안', '양초롱', '손하람'];
+  const dm = {
+    id: 'dmSearch', type: 'datamap',
+    v: { schYr: q.get('year') || '2026', shtm: q.get('sem') || '2', grd: q.get('grade') || '3', clsCd: q.get('cls') || '5',
+         actvAreaCd: screen === 'creative' ? (q.get('area') || '1') : '', sbjtNm: screen === 'subject' ? (q.get('subject') || '통합과학') : '' },
+    getValue(c) { return this.v[c]; }, setValue(c, x) { this.v[c] = String(x); }, getColumnNames() { return Object.keys(this.v); },
+  };
+  const condKey = () => `mockSgb:${screen}:${JSON.stringify(dm.v)}`;
+  window.__mockViolations = [];
+  window.__mockSaves = 0;
+
+  // 저장된 값 (탭이 열려 있는 동안 sessionStorage)
+  function stored() {
+    const s = sessionStorage.getItem(condKey());
+    if (s) return JSON.parse(s);
+    const init = {};
+    for (const n of String(q.get('existing') || '').split(',').filter(Boolean)) init[n] = `이미 저장된 다른 글입니다 (${n}번).`;
+    return init;
+  }
+  let rows = [], sel = -1;
+  function load() {
+    const saved = stored();
+    rows = NAMES.map((name, i) => { const t = saved[i + 1] || ''; return { v: { clsNo: String(i + 1), stuFlnm: name, spcfCn: t }, orig: t, st: 1 }; });
+    if (q.get('rename')) { const [no, nm] = q.get('rename').split(':'); rows[no - 1].v.stuFlnm = nm; }
+    sel = -1;
+    render();
+  }
+  const bytes = (s) => { let n = 0; for (const ch of String(s).replace(/\r\n?/g, '\n')) { const c = ch.codePointAt(0); n += ch === '\n' ? 2 : c < 0x80 ? 1 : c < 0x800 ? 2 : c < 0x10000 ? 3 : 4; } return n; };
+
+  const ds = {
+    id: 'dsList', type: 'dataset',
+    getRowCount: () => rows.length,
+    getColumnNames: () => ['clsNo', 'stuFlnm', 'spcfCn'],
+    getValue: (r, c) => (rows[r] ? rows[r].v[c] : undefined),
+    setValue(r, c, x) { const row = rows[r]; row.v[c] = String(x); if (c === 'spcfCn') row.st = row.v.spcfCn === row.orig ? 1 : 4; render(); },
+    getRowState: (r) => rows[r].st,
+  };
+  function btn(id, label, fn) { return { id, type: 'button', value: label, enabled: true, click: fn }; }
+  const forbidden = (id) => () => { window.__mockViolations.push(id); };
+  const controls = {
+    grdMain: { id: 'grdMain', type: 'grid', dataSet: ds, selectRows(a) { sel = a[0]; render(); } },
+    txaSpcfCn: { id: 'txaSpcfCn', type: 'textarea', get value() { return sel >= 0 ? rows[sel].v.spcfCn : ''; }, set value(x) { if (sel >= 0) ds.setValue(sel, 'spcfCn', x); } },
+    btnSearch: btn('btnSearch', '조회', () => load()),
+    btnSave: btn('btnSave', '저장', save),
+    btnMagam: btn('btnMagam', '마감', forbidden('btnMagam')),
+    btnCfm: btn('btnCfm', '확정', forbidden('btnCfm')),
+    btnBatchDel: btn('btnBatchDel', '일괄삭제', forbidden('btnBatchDel')),
+    btnImport: btn('btnImport', '가져오기', forbidden('btnImport')),
+    btnPrint: btn('btnPrint', '출력', forbidden('btnPrint')),
+  };
+  const main = {
+    app: { id: SCREENS[screen] },
+    lookup: (id) => (id === 'dmSearch' ? dm : controls[id] || null),
+    getContainer: () => ({ getAllRecursiveChildren: () => Object.values(controls) }),
+    getAllDataControls: () => [ds, dm],
+  };
+
+  // 공통 확인창·알림창 (app/cmn/confirm, app/cmn/alert)
+  let dialogs = [];
+  function openDialog(kind, msg, onOk) {
+    const inst = {
+      app: { id: `app/cmn/${kind}` },
+      lookup(id) { return this.c[id] || null; },
+      c: {
+        optMsg: { id: 'optMsg', value: msg },
+        btnConfirm: btn('btnConfirm', '확인', () => { close(); if (onOk) onOk(); }),
+        btnCancel: btn('btnCancel', '취소', () => close()),
+      },
+    };
+    function close() { dialogs = dialogs.filter((d) => d !== inst); renderDialogs(); }
+    dialogs.push(inst);
+    renderDialogs();
+  }
+  function renderDialogs() {
+    document.getElementById('dlgs').innerHTML = dialogs.map((d, i) => `<div class="dlg"><div><p>${d.c.optMsg.value}</p><button data-dlg="${i}" data-b="btnConfirm">확인</button> ${d.app.id.includes('confirm') ? `<button data-dlg="${i}" data-b="btnCancel">취소</button>` : ''}</div></div>`).join('');
+  }
+  document.getElementById('dlgs').addEventListener('click', (e) => { const b = e.target.closest('[data-dlg]'); if (b) dialogs[b.dataset.dlg].c[b.dataset.b].click(); });
+
+  function save() {
+    if (!rows.some((r) => r.st !== 1)) { openDialog('alert', '저장할 내용이 없습니다.'); return; }
+    openDialog('confirm', q.get('savemsg') || '저장하시겠습니까?', () => setTimeout(() => {
+      const saved = stored();
+      for (const r of rows) if (r.st !== 1) saved[r.v.clsNo] = r.v.spcfCn;
+      sessionStorage.setItem(condKey(), JSON.stringify(saved));
+      window.__mockSaves++;
+      load();
+      openDialog('alert', '저장했습니다.');
+    }, 300));
+  }
+
+  window.cpr = { core: { Platform: { INSTANCE: { getAllRunningAppInstances: () => [main, ...dialogs] } } } };
+
+  function render() {
+    const areaSel = screen === 'creative'
+      ? `영역 <select data-dm="actvAreaCd">${[['1', '자율·자치'], ['2', '동아리'], ['3', '진로']].map(([v, l]) => `<option value="${v}" ${dm.v.actvAreaCd === v ? 'selected' : ''}>${l}</option>`).join('')}</select>`
+      : screen === 'subject' ? `과목 <input data-dm="sbjtNm" value="${dm.v.sbjtNm}">` : '';
+    document.getElementById('bar').innerHTML = `<b>${{ creative: '창의적 체험활동 특기사항', behavior: '행동특성 및 종합의견', subject: '교과 세부능력 및 특기사항' }[screen]}</b>
+      ${dm.v.schYr}학년도 ${dm.v.shtm}학기 <input data-dm="grd" value="${dm.v.grd}" size="2">학년 <input data-dm="clsCd" value="${dm.v.clsCd}" size="2">반 ${areaSel}
+      ${Object.values(controls).filter((c) => c.type === 'button').map((c) => `<button data-btn="${c.id}">${c.value}</button>`).join(' ')}`;
+    document.getElementById('rows').innerHTML = rows.map((r, i) => `<tr data-row="${i}" class="${i === sel ? 'sel' : ''} ${r.st !== 1 ? 'dirty' : ''}">
+      <td>${r.v.clsNo}</td><td>${r.v.stuFlnm}</td><td class="text">${r.v.spcfCn.replace(/</g, '&lt;')}</td><td>${bytes(r.v.spcfCn)}</td><td>${r.st === 1 ? '' : '수정'}</td></tr>`).join('');
+    const ta = document.getElementById('detail');
+    if (document.activeElement !== ta) ta.value = sel >= 0 ? rows[sel].v.spcfCn : '';
+  }
+  document.getElementById('bar').addEventListener('click', (e) => { const b = e.target.closest('[data-btn]'); if (b) controls[b.dataset.btn].click(); });
+  document.getElementById('bar').addEventListener('change', (e) => { const el = e.target.closest('[data-dm]'); if (el) dm.setValue(el.dataset.dm, el.value); });
+  document.getElementById('rows').addEventListener('click', (e) => { const tr = e.target.closest('[data-row]'); if (tr) { sel = Number(tr.dataset.row); render(); } });
+  document.getElementById('detail').addEventListener('input', (e) => { if (sel >= 0) ds.setValue(sel, 'spcfCn', e.target.value); });
+  load();
+})();
+</script>
+</body>
+</html>

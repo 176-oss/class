@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>생기부 도우미</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="components.css">
+<link rel="stylesheet" href="sidepanel.css">
+<link rel="stylesheet" href="sgb-panel.css">
+</head>
+<body>
+<div class="panel">
+  <header class="panel-header">
+    <h1 class="panel-title">생기부 도우미</h1>
+  </header>
+  <!-- 나중에 출결 확장에 합칠 때 이 영역이 '생기부' 탭이 된다 (sgb-panel.js 의 mount) -->
+  <main class="panel-body" id="sgb-root"></main>
+</div>
+<input type="file" id="sgbFile" accept=".json,application/json" hidden>
+<div class="toast" id="toast" role="status" hidden></div>
+<script type="module" src="sgb-panel.js"></script>
+</body>
+</html>
