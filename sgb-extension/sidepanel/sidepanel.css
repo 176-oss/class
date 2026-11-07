@@ -57,3 +57,9 @@ details.log summary { cursor: pointer; font-weight: var(--fw-semibold); padding:
 .items-foot { padding: var(--sp-2) var(--sp-3); border-top: 1px solid var(--color-divider); }
 .editor { border-color: var(--color-accent); }
 .panel .list-side .btn-sm { min-height: 30px; }
+
+/* v0.4.1 새 버전 안내 띠 (탭 아래 얇게) */
+.update-band { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-1) var(--sp-3);
+  background: var(--color-accent-soft); border-bottom: 1px solid var(--color-accent-line); font-size: var(--fs-xs); color: var(--color-text); }
+.update-band-text { flex: 1; min-width: 0; }
+.update-band .btn-sm { min-height: 28px; padding: 0 var(--sp-2); font-size: var(--fs-xs); }

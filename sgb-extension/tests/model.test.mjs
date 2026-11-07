@@ -1,21 +1,26 @@
 // node tests/model.test.mjs
 import assert from 'node:assert/strict';
-import { normText, neisBytes, textHash, parseBatch, fromDriveData, applyNeisDone, itemsFor, groupSummary } from '../shared/sgb-model.js';
+import { normText, neisBytes, textHash, splitStudentId, parseBatch, fromDriveData, applyNeisDone, itemsFor, limitFor, groupSummary } from '../shared/sgb-model.js';
+import { textHash as webHash, buildNeisBatch } from '../../textgenerator-v2/js/core/neis-export.js';
+import { byteLength as webBytes } from '../../textgenerator-v2/js/core/bytes.js';
 
-// 정리 규칙: 줄바꿈·끝 공백·NFC
+// 나이스 비교용 정리 규칙: 줄바꿈·끝 공백·NFC
 assert.equal(normText('가나 \r\n다라\t\n'), '가나\n다라');
-assert.equal(normText('가'), '가'); // 조합형 -> 완성형
-assert.equal(await textHash('가나\r\n'), await textHash('가나\n'));
-assert.equal((await textHash('a')).length, 16);
+assert.equal(normText('가'), '가');
 
-// 바이트: 한글 3, ASCII 1, 줄바꿈 2
-assert.equal(neisBytes('가a'), 4);
-assert.equal(neisBytes('가\n나'), 8);
+// 해시·바이트는 웹앱과 똑같아야 한다 (원문 그대로)
+for (const t of ['가나\r\n다 ', 'abc', '이모지😀 포함\n줄바꿈', '가']) {
+  assert.equal(await textHash(t), await webHash(t), `hash: ${t}`);
+  assert.equal(neisBytes(t), webBytes(t), `bytes: ${t}`);
+}
+assert.notEqual(await textHash('가나\r\n'), await textHash('가나\n'));
+assert.equal(neisBytes('가a\n'), 5);
+assert.deepEqual(splitStudentId('30503'), { grade: 3, classNo: 5, no: 3 });
 
 const batch = {
   kind: 'sgb-neis-batch', version: 1, schoolYear: 2026, semester: 2,
   items: [
-    { id: 'a', grade: 3, classNo: 5, no: 3, name: '박 다온', area: 'autonomy', text: '학급 회의를 진행함.' },
+    { id: '30503|autonomy', grade: 3, classNo: 5, no: 3, name: '박 다온', area: 'autonomy', text: '학급 회의를 진행함. ' },
     { id: 'b', grade: 3, classNo: 5, no: 4, name: '최라온', area: 'autonomy', text: '봉사', bytes: 1, hash: 'fake' },
     { id: 'c', grade: 3, classNo: 5, no: 4, name: '최라온', area: 'autonomy', text: '두 번째 글' },
     { id: 'd', grade: 3, classNo: 5, no: 5, name: '정마루', area: 'subject', subject: '통합 과학', text: '실험' },
@@ -23,8 +28,9 @@ const batch = {
 };
 const d = await parseBatch(JSON.stringify(batch));
 assert.equal(d.items.length, 4);
-assert.equal(d.items[1].bytes, 6); // 받은 bytes 는 무시하고 다시 계산
-assert.notEqual(d.items[1].hash, 'fake');
+assert.equal(d.items[0].text, '학급 회의를 진행함. '); // 본문은 원문 그대로
+assert.equal(d.items[1].bytes, 6); // 받은 bytes·hash 는 무시하고 다시 계산
+assert.equal(d.items[1].hash, await webHash('봉사'));
 
 // 형식 오류는 거부
 await assert.rejects(parseBatch('{'), /JSON/);
@@ -35,22 +41,51 @@ await assert.rejects(parseBatch({ ...batch, items: [{ ...batch.items[3], subject
 
 // 조건 맞추기 + 같은 학생 글 2개 표시 + 과목명 공백 무시
 const auto = itemsFor(d.items, { grade: 3, classNo: 5, area: 'autonomy' });
-assert.deepEqual(auto.map((x) => [x.id, x.dup]), [['a', false], ['b', true], ['c', true]]);
+assert.deepEqual(auto.map((x) => [x.id, x.dup]), [['30503|autonomy', false], ['b', true], ['c', true]]);
 assert.equal(itemsFor(d.items, { grade: 3, classNo: 5, area: 'subject', subject: '통합과학' }).length, 1);
 assert.equal(itemsFor(d.items, { grade: 3, classNo: 6, area: 'autonomy' }).length, 0);
 assert.deepEqual(groupSummary(d.items), ['3학년 5반 자율·자치 3명', '3학년 5반 교과세특 (통합 과학) 1명']);
 
-// 드라이브: '완료'만, 결과는 neis 필드만, 글이 바뀐 기록은 그대로
-const drive = { records: [
-  { id: 'a', status: '완료', grade: 3, classNo: 5, no: 3, name: '박다온', area: 'autonomy', text: '글 A' },
-  { id: 'b', status: 'draft', grade: 3, classNo: 5, no: 4, name: '최라온', area: 'autonomy', text: '글 B' },
-  { id: 'c', status: 'done', grade: 3, classNo: 5, no: 6, name: '강바다', area: 'club', text: '글 C' },
-] };
-const dd = await fromDriveData(drive);
-assert.deepEqual(dd.items.map((x) => x.id), ['a', 'c']);
-const n = await applyNeisDone(drive, [{ id: 'a', hash: await textHash('글 A'), at: 1 }, { id: 'c', hash: await textHash('옛 글'), at: 1 }]);
+// 웹앱이 만든 batch 를 그대로 읽으면 hash 가 같다
+const students = [{ studentId: '30503', name: '박다온' }, { studentId: '30506', name: '강바다' }, { studentId: '30507', name: '조사랑' }];
+const records = [
+  { id: '30503|autonomy', studentId: '30503', area: 'autonomy', subject: null, status: 'done', final: '글 A\r\n둘째 줄 ', neis: null, updatedAt: 'T1' },
+  { id: '30503|career', studentId: '30503', area: 'career', subject: null, status: 'draft', final: '글 B', neis: null, updatedAt: 'T1' },
+  { id: '30506|club', studentId: '30506', area: 'club', subject: null, status: 'done', final: '글 C', neis: null, updatedAt: 'T1' },
+  { id: '30599|club', studentId: '30599', area: 'club', subject: null, status: 'done', final: '이름 없는 학생', neis: null, updatedAt: 'T1' },
+  { id: '30507|behavior', studentId: '30507', area: 'behavior', subject: null, status: 'done', final: '글 D', updatedAt: 'T1' },
+];
+const settings = { schoolYear: 2026, semester: 2, limits: { autonomy: 1500, career: 1500, behavior: 900, club: 1500, subject: 1500 } };
+const webBatch = await buildNeisBatch({ records, students: students.slice(0, 2), settings });
+const fromWeb = await parseBatch(webBatch);
+assert.deepEqual(fromWeb.items.map((x) => x.hash), webBatch.items.filter((x) => x.name).map((x) => x.hash));
+assert.equal(fromWeb.skipped, 2); // 30599, 30507: 명단에 이름 없음
+
+// 드라이브 파일: kind·schemaVersion 확인, done + final 만, 이름 없는 학생은 건너뜀, 이미 입력된 표시 읽기
+const file = { kind: 'sgb-v2-data', schemaVersion: 2, updatedAt: 'U', students, classes: [], records, settings, deleted: [], secrets: { geminiKey: 'k' } };
+records[4].neis = { hash: await webHash('글 D'), doneAt: '2026-11-01T00:00:00.000Z' };
+const dd = await fromDriveData(file);
+assert.deepEqual(dd.items.map((x) => x.id), ['30503|autonomy', '30506|club', '30507|behavior']);
+assert.equal(dd.skipped, 1);
+assert.equal(dd.items[0].no, 3);
+assert.equal(dd.items[2].neisHash, dd.items[2].hash);
+assert.equal(limitFor(dd, 'behavior'), 900);
+assert.equal(limitFor(null, 'behavior'), 900);
+await assert.rejects(fromDriveData({ ...file, kind: 'sgb-backup' }), /형식/);
+await assert.rejects(fromDriveData({ ...file, schemaVersion: 3 }), /더 새 버전/);
+
+// 입력 완료 반영: neis 만 { hash, doneAt }, 다른 필드와 updatedAt 은 그대로, 글이 바뀐 기록·이미 같은 표시는 건드리지 않음
+const before = JSON.parse(JSON.stringify(file));
+const at = '2026-11-07T10:00:00.000Z';
+const n = await applyNeisDone(file, [
+  { id: '30503|autonomy', hash: await webHash('글 A\r\n둘째 줄 '), doneAt: at },
+  { id: '30506|club', hash: await webHash('옛 글'), doneAt: at },
+  { id: '30507|behavior', hash: await webHash('글 D'), doneAt: at },
+]);
 assert.equal(n, 1);
-assert.deepEqual(drive.records[0].neis, { done: true, doneAt: 1, hash: await textHash('글 A') });
-assert.equal(drive.records[2].neis, undefined);
+assert.deepEqual(file.records[0].neis, { hash: await webHash('글 A\r\n둘째 줄 '), doneAt: at });
+before.records[0].neis = file.records[0].neis;
+assert.deepEqual(file, before); // 그 밖에는 아무것도 바뀌지 않음 (secrets, updatedAt 포함)
+await assert.rejects(applyNeisDone({ ...file, schemaVersion: 3 }, []), /더 새 버전/);
 
 console.log('model tests ok');

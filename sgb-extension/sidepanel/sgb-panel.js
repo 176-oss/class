@@ -1,7 +1,7 @@
 // 생기부 탭: 데이터 받기 -> 나이스 화면 감지 -> 입력 -> 선생님 확인 -> 저장
 // 나중에 출결 확장에 합칠 때는 mount(root) 를 출결 사이드 패널의 '생기부' 탭에서 부른다.
-import { AREAS, BYTE_LIMITS, parseBatch, fromDriveData, applyNeisDone, itemsFor, condLabel, groupSummary } from '../shared/sgb-model.js';
-import { hasClientId, redirectUrl, getToken, forgetToken, download, upload } from './sgb-drive.js';
+import { parseBatch, fromDriveData, applyNeisDone, itemsFor, limitFor, condLabel, groupSummary } from '../shared/sgb-model.js';
+import { hasClientId, redirectUrl, getToken, forgetToken, download, upload, getMeta, metaStamp } from './sgb-drive.js';
 
 // shortcut: localhost 주소는 가상 나이스 시험용. 학교 배포 전 manifest 와 여기서 뺀다.
 const NEIS_URLS = ['https://*.neis.go.kr/*', 'http://localhost/*', 'http://127.0.0.1/*'];
@@ -9,7 +9,7 @@ const K = { data: 'sgb.data', done: 'sgb.done', drive: 'sgb.drive' };
 
 const S = {
   data: null,        // { schoolYear, semester, source, receivedAt, items }
-  done: {},          // { [id]: { hash, at } } 나이스 저장 완료 (이 PC)
+  done: {},          // { [id]: { hash, doneAt } } 나이스 저장 완료 (이 PC). 드라이브에 연결되면 records[].neis 로 올린다
   drive: { connected: false },
   tabId: null,
   det: null,         // page detect 결과
@@ -97,9 +97,10 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
 // ---------- 학생별 상태 ----------
 function itemState(it) {
   const d = S.done[it.id];
-  if (d && d.hash === it.hash) return { key: 'saved', label: '저장됨', cls: 'badge-neis-done' };
+  if ((d && d.hash === it.hash) || it.neisHash === it.hash) return { key: 'saved', label: '저장됨', cls: 'badge-neis-done' };
   if (it.dup) return { key: 'manual', label: '직접 확인', why: '같은 학생 글이 2개 이상입니다.', cls: 'badge-missing' };
-  if (it.bytes > BYTE_LIMITS[it.area]) return { key: 'manual', label: '직접 확인', why: `한도(${BYTE_LIMITS[it.area]}바이트)를 넘습니다.`, cls: 'badge-missing' };
+  const limit = limitFor(S.data, it.area);
+  if (it.bytes > limit) return { key: 'manual', label: '직접 확인', why: `한도(${limit}바이트)를 넘습니다.`, cls: 'badge-missing' };
   const r = S.results[it.id];
   if (!r) return { key: 'wait', label: '대기', cls: '' };
   const why = {
@@ -131,9 +132,26 @@ function blockReason(list) {
 
 // ---------- 동작 ----------
 async function startFill() {
-  const list = itemsFor(S.data.items, S.det.cond);
+  let list = itemsFor(S.data.items, S.det.cond);
   const reason = blockReason(list);
   if (reason) { toast(reason); return; }
+  // 드라이브 글이면 입력 직전에 다시 받는다. 그 사이 웹앱에서 바뀐 글은 입력하지 않고 새 글을 보여 준 뒤 멈춘다 (계약 19절)
+  if (S.data.source === 'drive') {
+    let fresh;
+    try { fresh = await fromDriveData((await download(await getToken(false))).data); } catch (e) {
+      S.notice = { kind: 'block', title: '시작하지 않았습니다', body: `드라이브에서 최신 글을 받지 못했습니다. [드라이브에서 다시 받기]를 누르세요.\n${e.message}` };
+      render();
+      return;
+    }
+    const sig = (items) => itemsFor(items, S.det.cond).map((it) => `${it.id}:${it.hash}`).join(',');
+    if (sig(fresh.items) !== sig(S.data.items)) {
+      await setData(fresh);
+      S.notice = { kind: 'info', title: '웹앱에서 바뀐 글을 새로 받았습니다', body: '학생 목록을 확인한 뒤 [입력 시작]을 다시 누르세요.' };
+      render();
+      return;
+    }
+    list = itemsFor(S.data.items, S.det.cond);
+  }
   const targets = list.filter((it) => itemState(it).key === 'wait');
   S.run = { cond: S.det.cond, targets };
   S.results = {};
@@ -173,17 +191,17 @@ async function saveNow() {
   S.notice = null;
   render();
   try {
-    await cmd('save', { cond: S.run.cond, expect: list.map((it) => ({ no: it.no, hash: it.hash })) });
-    const at = Date.now();
-    const saved = [...list, ...alreadyItems()].map((it) => ({ id: it.id, hash: it.hash, at }));
-    for (const s of saved) S.done[s.id] = { hash: s.hash, at: s.at };
+    await cmd('save', { cond: S.run.cond, expect: list.map((it) => ({ no: it.no, text: it.text })) });
+    const doneAt = new Date().toISOString();
+    const saved = [...list, ...alreadyItems()].map((it) => ({ id: it.id, hash: it.hash, doneAt }));
+    for (const s of saved) S.done[s.id] = { hash: s.hash, doneAt };
     await saveKey(K.done, S.done);
     addLog(`저장 완료 ${list.length}명`);
     S.notice = { kind: 'info', title: `${list.length}명 저장했습니다`, body: '다른 영역이나 반은 나이스에서 조회 조건을 바꾸면 다시 감지합니다.' };
     S.phase = 'idle';
     S.run = null;
     for (const s of saved) delete S.results[s.id]; // '직접 확인' 표시는 남긴다 (다시 받거나 패널을 열면 초기화)
-    await pushDoneToDrive(saved);
+    await pushDoneToDrive();
   } catch (e) {
     const after = e.data && e.data.afterConfirm;
     S.phase = 'review';
@@ -206,7 +224,11 @@ async function setData(d) {
   render();
 }
 async function importFile(file) {
-  try { await setData(await parseBatch(await file.text())); } catch (e) { toast(e.message); }
+  try {
+    const d = await parseBatch(await file.text());
+    await setData(d);
+    if (d.skipped) toast(`글 ${d.items.length}개를 불러왔습니다. 학생 이름이 없는 ${d.skipped}개는 뺐습니다.`);
+  } catch (e) { toast(e.message); }
 }
 async function pullDrive(interactive) {
   try {
@@ -215,22 +237,32 @@ async function pullDrive(interactive) {
     if (!fileId) { toast('드라이브에 생기부 데이터(sgb-data.json)가 없습니다. 웹앱에서 드라이브 연결을 먼저 하세요.'); return; }
     S.drive = { connected: true, lastSyncAt: Date.now() };
     await saveKey(K.drive, S.drive);
-    await setData(await fromDriveData(data));
+    const d = await fromDriveData(data);
+    await setData(d);
+    if (d.skipped) toast(`글 ${d.items.length}개를 불러왔습니다. 학생 이름이나 번호가 없는 ${d.skipped}개는 뺐습니다.`);
+    await pushDoneToDrive(); // 전에 못 올린 입력 완료가 있으면 이때 올린다
   } catch (e) { toast(e.message); }
 }
-// 저장 결과를 드라이브에 반영: 받기 -> 해당 기록 neis 필드만 고치기 -> 올리기
-async function pushDoneToDrive(saved) {
+// 이 PC의 입력 완료를 드라이브에 반영 (계약 19절): 받기 -> 해당 기록 neis 만 고치기 -> 올리기 직전 version 확인 -> 바뀌었으면 처음부터 (최대 3번)
+async function pushDoneToDrive() {
+  const saved = Object.entries(S.done).map(([id, d]) => ({ id, hash: d.hash, doneAt: d.doneAt || new Date(d.at || Date.now()).toISOString() }));
   if (!S.drive.connected || !saved.length) return;
   try {
     const token = await getToken(false);
-    const { fileId, data } = await download(token);
-    if (!fileId) return;
-    const n = await applyNeisDone(data, saved);
-    if (n) await upload(token, fileId, data);
-    addLog(`드라이브에 입력 완료 ${n}건 반영`);
+    for (let i = 0; i < 3; i++) {
+      const { fileId, data, stamp } = await download(token);
+      if (!fileId) return;
+      const n = await applyNeisDone(data, saved);
+      if (!n) return;
+      if (metaStamp(await getMeta(token, fileId)) !== stamp) continue; // 받은 뒤 다른 기기가 올림
+      await upload(token, fileId, data);
+      addLog(`드라이브에 입력 완료 ${n}건 반영`);
+      return;
+    }
+    throw new Error('다른 기기에서 동시에 고치고 있습니다.');
   } catch (e) {
     addLog(`드라이브 반영 실패: ${e.message}`, 'warn');
-    toast('나이스 저장은 끝났지만 드라이브에 입력 완료 표시를 못 했습니다. 나중에 다시 받으면 됩니다.');
+    toast('나이스 저장은 끝났지만 드라이브에 입력 완료 표시를 못 했습니다. 다음에 드라이브에서 받을 때 다시 올립니다.');
   }
 }
 async function clearAll() {

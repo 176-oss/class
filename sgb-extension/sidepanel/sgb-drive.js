@@ -14,17 +14,17 @@ export const hasClientId = () => !!(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_ID.trim())
 export const redirectUrl = () => chrome.identity.getRedirectURL();
 
 async function cachedToken() {
-  const area = chrome.storage.local;
+  const area = chrome.storage.session || chrome.storage.local;
   const o = await area.get(TOKEN_KEY);
   const t = o[TOKEN_KEY];
   return t && t.expiresAt > Date.now() + 60000 ? t.token : null;
 }
 async function storeToken(token, expiresIn) {
-  const area = chrome.storage.local;
+  const area = chrome.storage.session || chrome.storage.local;
   await area.set({ [TOKEN_KEY]: { token, expiresAt: Date.now() + (Number(expiresIn) || 3600) * 1000 } });
 }
 export async function forgetToken() {
-  const area = chrome.storage.local;
+  const area = chrome.storage.session || chrome.storage.local;
   await area.remove(TOKEN_KEY);
 }
 

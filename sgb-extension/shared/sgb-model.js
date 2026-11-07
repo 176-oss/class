@@ -1,6 +1,9 @@
 // 생기부 데이터 모델: 사이드 패널과 tests/ 가 함께 쓴다 (화면과 무관한 순수 함수만).
+// 웹앱 v2 계약(textgenerator-v2/docs/contract.md 7절, 12절, 19절)에 맞춘다.
 export const DATA_FILE_NAME = 'sgb-data.json';
 export const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
+export const DATA_KIND = 'sgb-v2-data';
+export const KNOWN_SCHEMA = 2; // 이보다 새 드라이브 파일은 읽지도 쓰지도 않는다
 
 export const AREAS = {
   autonomy: '자율·자치',
@@ -9,49 +12,56 @@ export const AREAS = {
   behavior: '행동특성 및 종합의견',
   subject: '교과세특',
 };
-// shortcut: 나이스 바이트 한도는 가정값(한글 500자 = 1500바이트, 진로 700자), 화면 분석 뒤 실제 값으로 고친다.
-export const BYTE_LIMITS = { autonomy: 1500, club: 1500, career: 2100, behavior: 1500, subject: 1500 };
+// 웹앱 기본 한도 (settings.limits 가 있으면 그것을 쓴다). 실제 나이스 한도는 화면 분석 때 확인.
+export const DEFAULT_LIMITS = { autonomy: 1500, club: 1500, career: 1500, behavior: 900, subject: 1500 };
 
-// 비교·해시 전에 항상 같은 규칙으로 정리: 유니코드 NFC, 줄바꿈 \n, 줄 끝 공백과 앞뒤 공백 제거
+// 나이스 값과 비교할 때만 쓰는 정리 규칙: 유니코드 NFC, 줄바꿈 \n, 줄 끝 공백과 앞뒤 공백 제거 (해시에는 쓰지 않음)
 export const normText = (s) => String(s ?? '').normalize('NFC').replace(/\r\n?/g, '\n').replace(/[ \t]+$/gm, '').trim();
 export const normName = (s) => String(s ?? '').replace(/\s+/g, '');
 export const normSubject = (s) => String(s ?? '').replace(/\s+/g, '');
 
-// shortcut: 나이스 바이트 계산 가정 (UTF-8 기준, 한글 3바이트, 줄바꿈 2바이트). 나이스 화면의 바이트 표시와 다르면 고친다.
+// 웹앱 bytes.js 와 같은 규칙: 한글(가-힣, 호환 자모) 3, 그 밖 문자 1 (줄바꿈 포함).
+// shortcut: 나이스 실제 계산과 같은지는 화면 분석 때 확인한다. 다르면 웹앱과 함께 고친다.
 export function neisBytes(s) {
   let n = 0;
-  for (const ch of normText(s)) {
-    if (ch === '\n') { n += 2; continue; }
-    const cp = ch.codePointAt(0);
-    n += cp < 0x80 ? 1 : cp < 0x800 ? 2 : cp < 0x10000 ? 3 : 4;
+  for (const ch of String(s ?? '')) {
+    const c = ch.codePointAt(0);
+    n += (c >= 0xac00 && c <= 0xd7a3) || (c >= 0x3131 && c <= 0x3163) ? 3 : 1;
   }
   return n;
 }
 
-// sha256(정리한 글) 앞 16자리
+// 웹앱 neis-export.js 와 같다: 원문 그대로 SHA-256 hex 앞 16자리
 export async function textHash(s) {
-  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(normText(s)));
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(s ?? '')));
   return Array.from(new Uint8Array(buf).slice(0, 8), (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-const posInt = (v) => Number.isInteger(Number(v)) && Number(v) > 0;
+// '30503' -> {3, 5, 3} (웹앱 splitStudentId)
+export function splitStudentId(id) {
+  const s = String(id ?? '').trim();
+  return { grade: Number(s.slice(0, 1)), classNo: Number(s.slice(1, 3)), no: Number(s.slice(3, 5)) };
+}
 
-// 기록 하나 검사 + 바이트·해시는 직접 다시 계산 (받은 값은 믿지 않음)
-async function toItem(r, i) {
-  const where = `${i + 1}번째 글`;
+const posInt = (v) => Number.isInteger(Number(v)) && Number(v) > 0;
+const hasText = (s) => typeof s === 'string' && s.trim() !== '';
+
+// 기록 하나 검사 + 바이트·해시는 직접 다시 계산 (받은 값은 믿지 않음). 본문은 원문 그대로 둔다.
+async function toItem(r, where) {
   if (!r || typeof r !== 'object') throw new Error(`${where}: 형식이 올바르지 않습니다.`);
   if (!AREAS[r.area]) throw new Error(`${where}: 영역(area) '${r.area}'를 알 수 없습니다.`);
   if (!posInt(r.grade) || !posInt(r.classNo) || !posInt(r.no)) throw new Error(`${where}: 학년·반·번호가 올바르지 않습니다.`);
-  if (typeof r.name !== 'string' || !r.name.trim()) throw new Error(`${where}: 이름이 없습니다.`);
-  if (r.area === 'subject' && !String(r.subject || '').trim()) throw new Error(`${where}: 교과세특인데 과목명이 없습니다.`);
-  const text = normText(r.text);
-  if (!text) throw new Error(`${where}: 본문이 비어 있습니다.`);
+  if (!hasText(r.name)) throw new Error(`${where}: 이름이 없습니다.`);
+  if (r.area === 'subject' && !hasText(r.subject)) throw new Error(`${where}: 교과세특인데 과목명이 없습니다.`);
+  if (!hasText(r.text)) throw new Error(`${where}: 본문이 비어 있습니다.`);
   const grade = Number(r.grade), classNo = Number(r.classNo), no = Number(r.no);
   const subject = r.area === 'subject' ? String(r.subject).trim() : null;
+  const studentId = `${grade}${String(classNo).padStart(2, '0')}${String(no).padStart(2, '0')}`;
   return {
-    id: String(r.id || `${grade}${String(classNo).padStart(2, '0')}${String(no).padStart(2, '0')}|${r.area}${subject ? `|${subject}` : ''}`),
-    grade, classNo, no, name: r.name.trim(), area: r.area, subject, text,
-    bytes: neisBytes(text), hash: await textHash(text),
+    id: String(r.id || `${studentId}|${r.area}${subject ? `|${subject}` : ''}`),
+    grade, classNo, no, name: r.name.trim(), area: r.area, subject, text: r.text,
+    bytes: neisBytes(r.text), hash: await textHash(r.text),
+    neisHash: r.neisHash || null, // 드라이브에 이미 남은 입력 완료 표시의 hash
   };
 }
 
@@ -63,28 +73,50 @@ export async function parseBatch(raw) {
   if (obj.version !== 1) throw new Error(`지원하지 않는 파일 버전입니다 (version ${obj.version}).`);
   if (!Array.isArray(obj.items)) throw new Error('items 항목이 없습니다.');
   const items = [];
-  for (let i = 0; i < obj.items.length; i++) items.push(await toItem(obj.items[i], i));
-  return { schoolYear: Number(obj.schoolYear) || null, semester: Number(obj.semester) || null, source: 'file', receivedAt: Date.now(), items };
+  let skipped = 0;
+  for (let i = 0; i < obj.items.length; i++) {
+    const it = obj.items[i];
+    if (it && typeof it === 'object' && !hasText(it.name)) { skipped++; continue; } // 웹앱 명단에 없는 학생: 번호·이름 대조가 안 되므로 뺀다
+    items.push(await toItem(it, `${i + 1}번째 글`));
+  }
+  return { schoolYear: Number(obj.schoolYear) || null, semester: Number(obj.semester) || null, limits: null, source: 'file', receivedAt: Date.now(), skipped, items };
 }
 
-// 드라이브의 sgb-data.json -> 입력 대상 (상태가 '완료'인 기록만)
-// shortcut: sgb-data.json 형식은 웹앱 v2가 아직 없어 가정({records:[{...item, status, schoolYear, semester}]}). 웹앱이 정해지면 이 함수만 고친다.
+// 드라이브 파일 확인: 다른 종류이거나 더 새 버전이면 거부
+export function checkDriveFile(obj) {
+  if (!obj || obj.kind !== DATA_KIND) throw new Error('드라이브의 생기부 데이터 파일 형식이 아닙니다.');
+  if (Number(obj.schemaVersion) > KNOWN_SCHEMA) throw new Error('더 새 버전의 웹앱이 드라이브에 저장했습니다. 확장프로그램을 업데이트하세요.');
+}
+
+// 드라이브의 sgb-data.json -> 입력 대상 (status 'done' 이고 final 이 있는 기록만). 이름이 없는 학생 등은 건너뛰고 개수만 센다.
 export async function fromDriveData(obj) {
-  if (!obj || !Array.isArray(obj.records)) throw new Error('드라이브 파일에 records 항목이 없습니다.');
-  const done = obj.records.filter((r) => r && (r.status === 'done' || r.status === '완료'));
+  checkDriveFile(obj);
+  const names = new Map((obj.students || []).filter((s) => s && s.studentId).map((s) => [String(s.studentId), s.name]));
   const items = [];
-  for (let i = 0; i < done.length; i++) items.push(await toItem(done[i], i));
-  return { schoolYear: Number(obj.schoolYear) || null, semester: Number(obj.semester) || null, source: 'drive', receivedAt: Date.now(), items };
+  let skipped = 0;
+  for (const r of obj.records || []) {
+    if (!r || r.status !== 'done' || !hasText(r.final)) continue;
+    const { grade, classNo, no } = splitStudentId(r.studentId);
+    try {
+      items.push(await toItem({ id: r.id, grade, classNo, no, name: names.get(String(r.studentId)), area: r.area, subject: r.subject, text: r.final,
+        neisHash: r.neis && r.neis.hash }, '기록'));
+    } catch (e) { skipped++; }
+  }
+  const s = obj.settings || {};
+  return { schoolYear: Number(s.schoolYear) || null, semester: Number(s.semester) || null, limits: s.limits || null, source: 'drive', receivedAt: Date.now(), skipped, items };
 }
 
-// 저장 결과를 드라이브 데이터에 반영: 해당 기록의 neis 필드만 고친다. 그 사이 웹앱에서 글이 바뀐 기록(해시 다름)은 건드리지 않는다.
+// 저장 결과를 드라이브 파일에 반영: 해당 기록의 neis 만 { hash, doneAt } 로 바꾼다 (updatedAt 등 다른 필드는 그대로).
+// 그 사이 웹앱에서 최종본이 바뀐 기록(해시 다름)은 건드리지 않는다. saved: [{ id, hash, doneAt(ISO) }]
 export async function applyNeisDone(obj, saved) {
+  checkDriveFile(obj);
   const byId = new Map(saved.map((s) => [s.id, s]));
   let changed = 0;
   for (const r of obj.records || []) {
     const s = r && byId.get(String(r.id));
-    if (!s || (await textHash(r.text)) !== s.hash) continue;
-    r.neis = { done: true, doneAt: s.at, hash: s.hash };
+    if (!s || !hasText(r.final) || (await textHash(r.final)) !== s.hash) continue;
+    if (r.neis && r.neis.hash === s.hash) continue; // 이미 표시됨 (doneAt 도 그대로 둔다)
+    r.neis = { hash: s.hash, doneAt: s.doneAt };
     changed++;
   }
   return changed;
@@ -99,6 +131,8 @@ export function itemsFor(items, cond) {
   for (const it of list) count.set(it.no, (count.get(it.no) || 0) + 1);
   return list.map((it) => ({ ...it, dup: count.get(it.no) > 1 })).sort((a, b) => a.no - b.no);
 }
+
+export const limitFor = (data, area) => Number((data && data.limits && data.limits[area]) || DEFAULT_LIMITS[area]);
 
 export const condLabel = (c) => (c ? `${c.grade}학년 ${c.classNo}반 ${AREAS[c.area] || c.area}${c.area === 'subject' && c.subject ? ` (${c.subject})` : ''}` : '');
 

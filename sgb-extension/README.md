@@ -1,7 +1,8 @@
-# 생기부 도우미 - 나이스 연동 (크롬 확장, v0.1.0)
+# 생기부 도우미 - 나이스 연동 (크롬 확장, v0.2.0)
 
 생기부 작성 도우미에서 '완료'로 표시한 글을 나이스 생기부 입력 화면에 반자동으로 입력합니다.
-기획: 「생기부 NEIS 자동 입력 확장프로그램 기획 초안 v0.1」. 출결 확장(`attendance/attendance-extension.zip`)과 따로 만들고 나중에 합칩니다.
+기획: `docs/textgenerator-v2/생기부-NEIS-확장프로그램-기획초안.md`. 데이터 규칙: 웹앱 계약 `textgenerator-v2/docs/contract.md` 7절·12절·19절.
+출결 확장(`attendance/attendance-extension.zip`, 0.4.3 기준)과 따로 만들고 나중에 합칩니다.
 
 ## 지금 상태 (중요)
 - **실제 나이스 생기부 화면 구조를 아직 확인하지 않았습니다.** 화면 id·컬럼 이름·버튼 id는 모두 가정이며 [content/sgb-config.js](content/sgb-config.js) 한 파일에 모여 있습니다.
@@ -14,7 +15,9 @@
 3. [입력 시작] → 학생 순서대로 본문 넣기 → 나이스 값을 다시 읽어 보낸 글과 같은지 비교
    - 자동으로 넣지 않고 '직접 확인'으로: 나이스에 다른 글이 있음, 이름 불일치, 표에 없는 번호, 바이트 초과, 같은 학생 글 2개 이상
 4. 선생님 확인 → [확인 완료 · 저장] → 저장 목록 → [이대로 저장] → 나이스 [저장], 확인창("저장하시겠습니까?")·알림("저장했습니다.") → 저장 결과 검증
-5. 저장된 글은 '저장됨' (이 PC). 드라이브에 연결되어 있으면 `sgb-data.json`의 해당 기록 `neis` 필드만 고칩니다
+   - 드라이브 글이면 [입력 시작] 직전에 드라이브를 다시 받습니다. 그 사이 웹앱에서 글이 바뀌었으면 입력하지 않고 새 글을 보여 준 뒤 멈춥니다
+5. 저장된 글은 '저장됨'. 드라이브에 연결되어 있으면 `sgb-data.json`의 해당 기록 `neis = { hash, doneAt }`만 고칩니다 (올리기 직전 파일 version 확인, 바뀌었으면 다시 받아 최대 3번). 못 올린 것은 다음에 드라이브에서 받을 때 다시 올립니다
+   - 다른 PC에서 이미 입력해 드라이브에 `neis`가 있고 hash가 지금 글과 같으면 '저장됨'으로 보입니다
 
 ## 안전 규칙 (코드에서 지키는 것)
 - 누를 수 있는 버튼은 허용 목록(`clickableIds`: 저장, 확인)뿐입니다. 금지 목록(마감, 확정, 일괄 삭제, 가져오기, 반영, 출력)은 이중 차단입니다
@@ -25,10 +28,12 @@
 - 작업 기록에는 번호만 남기고, 나이스 콘솔에는 아무것도 출력하지 않습니다
 - 학생 이름과 글은 이 PC의 `chrome.storage.local`(`sgb.data`, `sgb.done`)에만. [이 PC의 생기부 데이터 모두 지우기]
 
-## 같은 규칙 (웹앱과 맞춰야 함)
-- 비교·해시 전 정리: 유니코드 NFC, 줄바꿈 `\n`, 줄 끝 공백과 앞뒤 공백 제거 (`shared/sgb-model.js`의 `normText`, `sgb-page.js`에 같은 줄)
-- 해시: 정리한 글의 sha256 앞 16자리
-- 바이트(가정): 한글 3, 영문·숫자 1, 줄바꿈 2. 한도(가정): 자율·동아리·행특·세특 1500, 진로 2100 (`BYTE_LIMITS`)
+## 같은 규칙 (웹앱과 같아야 함, `tests/model.test.mjs`가 웹앱 코드와 직접 비교)
+- 해시: 원문 그대로 SHA-256 hex 앞 16자리 (웹앱 `neis-export.js` `textHash`)
+- 바이트: 한글(가-힣, 호환 자모) 3, 그 밖 문자 1, 줄바꿈 1 (웹앱 `bytes.js`). 실제 나이스 기준과 같은지는 화면 분석 때 확인
+- 한도: 드라이브 `settings.limits`, 없으면 웹앱 기본값 (자율·동아리·진로·세특 1500, 행특 900)
+- 나이스에는 원문 그대로 넣고, 나이스 값과 비교할 때만 정리(NFC, 줄바꿈 `
+`, 줄 끝·앞뒤 공백 제거)해서 비교합니다
 
 ## 설치 (집에서 시험)
 1. `chrome://extensions` → 개발자 모드 → **압축해제된 확장 프로그램을 로드합니다** → 이 `sgb-extension` 폴더
@@ -38,9 +43,10 @@
 4. 확장 아이콘 → 사이드 패널
 
 ## 구글 드라이브
-- `config.js`는 출결 확장과 같은 Client ID입니다. 구글 클라우드 콘솔의 그 클라이언트에 **리디렉션 URI `https://fjgpgoehdihombkkjepcpppnokoiklkl.chromiumapp.org/`를 추가**해야 합니다 (출결 확장과 ID가 달라서)
-- `sgb-data.json` 형식은 웹앱 v2가 아직 없어 가정입니다 (`{records:[{id, status, grade, classNo, no, name, area, subject, text, neis}]}`). 정해지면 `fromDriveData`만 고칩니다
-- 확장은 `sgb-data.json`을 새로 만들지 않습니다 (없으면 안내만)
+- `config.js`는 출결 확장·웹앱과 같은 Client ID입니다. 구글 클라우드 콘솔의 그 클라이언트에 **리디렉션 URI `https://fjgpgoehdihombkkjepcpppnokoiklkl.chromiumapp.org/`를 추가**해야 합니다 (출결 확장과 ID가 달라서)
+- 읽기: `kind: 'sgb-v2-data'`, `schemaVersion` 2 이하만. `status: 'done'`이고 `final`이 있는 기록, 학년·반·번호는 `studentId`에서, 이름은 `students`에서 (이름 없는 학생은 빼고 개수만 알림)
+- 쓰기: 기록의 `neis`만. `updatedAt`, `secrets` 등 다른 필드는 받은 그대로 다시 올립니다. 파일을 새로 만들지 않습니다
+- 로그인 토큰은 `chrome.storage.session`(브라우저를 닫으면 지워짐, 출결 0.4.3과 같음)
 
 ## 실제 화면 분석 뒤 할 일
 1. 나이스 생기부 화면에서 사이드 패널 [도구와 작업 기록] → **[화면 구조 기록 (읽기 전용)]** → 나온 내용을 분석 문서에 붙이기 (앱 id, 컨트롤 id·종류, 버튼 글자, 데이터 컬럼 이름. 학생 정보 값은 읽지 않음)
@@ -51,7 +57,7 @@
 
 ## 출결 확장과 합칠 때
 - 이름이 겹치지 않게 해 두었습니다: 파일 `sgb-*`, 저장소 키 `sgb.*`, 메시지 꼬리표 `sgb`, 페이지 채널 `sgb-neis-bridge-v1`
-- `content/sgb-bridge.js`는 출결 `bridge.js` 복사본(채널 이름만 다름), `sidepanel/sgb-drive.js`는 출결 `drive.js` 복사본(파일 이름·토큰 키만 다름), CSS 3개는 그대로 복사
+- `content/sgb-bridge.js`는 출결 `bridge.js` 복사본(채널 이름만 다름), `sidepanel/sgb-drive.js`는 출결 0.4.3 `drive.js` 복사본(파일 이름·토큰 키만 다름), CSS 3개는 0.4.3 그대로 복사
 - 사이드 패널은 `sgb-panel.js`의 `mount(root)` 하나로 그려지므로 출결 패널의 '생기부' 탭에서 부르면 됩니다
 - 합칠 때 manifest는 출결 확장의 `key`를 씁니다 (설치된 출결 확장 ID 유지). 이 확장의 `chrome.storage` 데이터는 옮겨지지 않으니 글은 다시 불러옵니다
 
@@ -59,5 +65,6 @@
 `http://localhost/*`, `http://127.0.0.1/*`를 manifest(`host_permissions`, `content_scripts.matches` 두 곳)와 `sidepanel/sgb-panel.js`의 `NEIS_URLS`에서 지우고 `mock-neis/`, `tests/`를 뺍니다.
 
 ## 테스트
-- `node tests/model.test.mjs`: 정리 규칙, 바이트, 해시, 파일 검사, 조건 맞추기, 드라이브 반영
+- `node tests/model.test.mjs`: 웹앱과 해시·바이트 일치, 웹앱이 만든 입력 파일 읽기, 드라이브 파일 읽기·반영, 조건 맞추기
+- `python tests/e2e_drive.py`: 가짜 구글 드라이브로 받기, 입력 직전 다시 받기(바뀐 글은 입력 안 함), version 확인 뒤 다시 받아 올리기, `neis` 말고는 그대로인지, 더 새 버전 파일 거부
 - `python tests/e2e_mock.py`: 크로미움에 확장을 로드해 가상 화면에서 입력 → 확인 → 저장, 직접 확인 5가지, 덮어쓰기 안 함, 금지 버튼 차단, 다른 행이 바뀌면 저장 거부, 멈추기, 조건 불일치 안내, 화면 구조 기록에 이름 없음, 교과세특 화면 감지

@@ -66,7 +66,7 @@ def main():
         expect(panel.get_by_role('button', name='확인 완료 · 저장 (2명)')).to_be_visible(timeout=10000)
         rows = neis.evaluate("""() => { const ds = cpr.core.Platform.INSTANCE.getAllRunningAppInstances()[0].lookup('grdMain').dataSet;
             return [3,5,7,9,11].map(n => [n, ds.getValue(n-1,'spcfCn'), ds.getRowState(n-1)]); }""")
-        assert rows[0][1] == '학급 회의를 세 차례 진행함.\n토론을 이끎.' and rows[0][2] != 1, rows
+        assert rows[0][1] == '학급 회의를 세 차례 진행함.\r\n토론을 이끎.' and rows[0][2] != 1, rows  # 원문 그대로 넣음
         assert rows[1][1] == '환경 캠페인을 기획함.' and rows[1][2] != 1, rows
         assert rows[2][1] == '이미 저장된 다른 글입니다 (7번).' and rows[2][2] == 1, rows  # 덮어쓰지 않음
         assert rows[3][1] == '' and rows[4][1] == '', rows

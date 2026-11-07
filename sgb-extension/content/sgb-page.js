@@ -43,13 +43,9 @@
     }
   }
 
-  // shared/sgb-model.js 의 normText·textHash 와 같은 규칙이어야 한다
+  // shared/sgb-model.js 의 normText·normName 과 같은 규칙이어야 한다 (나이스 값 비교용)
   const normText = (s) => String(s ?? '').normalize('NFC').replace(/\r\n?/g, '\n').replace(/[ \t]+$/gm, '').trim();
   const normName = (s) => String(s ?? '').replace(/\s+/g, '');
-  async function textHash(s) {
-    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(normText(s)));
-    return Array.from(new Uint8Array(buf).slice(0, 8), (b) => b.toString(16).padStart(2, '0')).join('');
-  }
 
   // ---------- cpr 접근 ----------
   function instances() {
@@ -225,7 +221,7 @@
       return { results };
     },
 
-    // 저장: 바뀐 행이 모두 이번에 확장이 넣은 행이고 값이 그대로일 때만 [저장]
+    // 저장: 바뀐 행이 모두 이번에 확장이 넣은 행이고 값이 확인한 글 그대로일 때만 [저장]. expect: [{ no, text }]
     async save(args, seq) {
       assertWrite();
       const f = screen();
@@ -240,7 +236,7 @@
       if (stray.length) throw new NeisError('stray_change', `확장프로그램이 입력하지 않은 행이 바뀌어 있습니다 (${stray.join(', ')}번). 나이스에서 되돌리거나 [조회]로 처음부터 다시 하세요.`, { stray });
       for (const e of expect) {
         const r = findRow(ds, e.no);
-        if (r < 0 || (await textHash(val(ds, r, COL.text))) !== e.hash) throw new NeisError('value_changed', `${e.no}번 본문이 확인한 글과 달라 저장하지 않았습니다.`);
+        if (r < 0 || normText(val(ds, r, COL.text)) !== normText(e.text)) throw new NeisError('value_changed', `${e.no}번 본문이 확인한 글과 달라 저장하지 않았습니다.`);
       }
       checkAbort(seq);
       const before = new Set(cmnDialogs());
@@ -270,7 +266,7 @@
         const d = dataSet(screen().inst);
         for (const e of expect) {
           const r = findRow(d, e.no);
-          if (r < 0 || (await textHash(val(d, r, COL.text))) !== e.hash) throw new NeisError('save_verify', `저장 뒤 ${e.no}번 본문이 확인한 글과 다릅니다. 나이스 표를 직접 확인하세요.`);
+          if (r < 0 || normText(val(d, r, COL.text)) !== normText(e.text)) throw new NeisError('save_verify', `저장 뒤 ${e.no}번 본문이 확인한 글과 다릅니다. 나이스 표를 직접 확인하세요.`);
         }
       } catch (e) {
         if (e instanceof NeisError) e.data = Object.assign({}, e.data, { afterConfirm: true });
