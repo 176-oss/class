@@ -160,3 +160,20 @@ export function parsePastedRoster(text) {
   });
   return parseRosterRows(rows);
 }
+
+/** 교과반 일괄 만들기의 반 번호: '1-5, 7' / '1~5' / '1 2 3' -> 정렬된 번호 목록 (1~99, 최대 30개) */
+export function parseClassNumbers(text) {
+  const parts = String(text ?? '').split(/[,\s]+/).filter(Boolean);
+  if (!parts.length) return { ok: false, numbers: [], error: '반 번호를 적어 주세요 (예: 1-5, 7).' };
+  const set = new Set();
+  for (const p of parts) {
+    const m = p.match(/^(\d{1,2})(?:[-~](\d{1,2}))?$/);
+    if (!m) return { ok: false, numbers: [], error: `'${p}'을(를) 반 번호로 읽을 수 없습니다. 숫자와 -만 써 주세요 (예: 1-5, 7).` };
+    const a = Number(m[1]);
+    const b = m[2] ? Number(m[2]) : a;
+    if (a < 1 || b < 1 || b < a) return { ok: false, numbers: [], error: `'${p}': 반 번호는 1 이상이고, 범위는 작은 수부터 적어 주세요.` };
+    for (let n = a; n <= b; n += 1) set.add(n);
+  }
+  if (set.size > 30) return { ok: false, numbers: [], error: `한 번에 30개 반까지 만들 수 있습니다 (지금 ${set.size}개).` };
+  return { ok: true, numbers: [...set].sort((x, y) => x - y), error: null };
+}

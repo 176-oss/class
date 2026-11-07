@@ -116,3 +116,15 @@ test('parsePastedRoster: 학년 반 번호 이름 머리글', () => {
   const r = parsePastedRoster('학년\t반\t번호\t이름\n1\t2\t3\t김가온\n1\t12\t15\t이도윤');
   assert.deepEqual(r.students.map((s) => s.studentId), ['10203', '11215']);
 });
+
+test('parseClassNumbers: 범위, 쉼표, 공백, 중복', async () => {
+  const { parseClassNumbers } = await import('../js/core/roster-parse.js');
+  assert.deepEqual(parseClassNumbers('1-5, 7').numbers, [1, 2, 3, 4, 5, 7]);
+  assert.deepEqual(parseClassNumbers('3~4 2 3').numbers, [2, 3, 4]);
+  assert.deepEqual(parseClassNumbers(' 10 ').numbers, [10]);
+  assert.equal(parseClassNumbers('').ok, false);
+  assert.equal(parseClassNumbers('1-a').ok, false);
+  assert.equal(parseClassNumbers('5-2').ok, false);
+  assert.equal(parseClassNumbers('0').ok, false);
+  assert.match(parseClassNumbers('1-40').error, /30개/);
+});

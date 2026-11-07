@@ -270,6 +270,7 @@ export function parseRosterRows(rows: string[][]): { students: [{studentId, name
 //  같은 학번이 다른 이름으로 두 번 나오면 오류
 export function parsePastedRoster(text): 같은 결과   // 줄마다 탭/쉼표/공백 구분
 export const TEMPLATE_ROWS = [['학번', '이름'], ['30101', '(예시) 김가온']]
+export function parseClassNumbers(text): { ok, numbers, error }   // 교과반 일괄 만들기: '1-5, 7' -> [1,2,3,4,5,7]. 1~99, 최대 30개
 ```
 
 ## 7. NEIS 옮기기와 확장 연결 (`neis-export.js`, `ext-bridge.js`)
