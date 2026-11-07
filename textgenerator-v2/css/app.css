@@ -169,3 +169,15 @@ a.sync-status-text { text-decoration: underline; }
   .sync-save-text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   .appbar .sync-save { padding: 0; justify-content: center; }
 }
+
+/* 내 스타일, 후보 */
+.text-warn { color: var(--color-warn-text); }
+.style-example-list, .style-preview-list { margin: 0; padding-left: var(--sp-6); }
+.style-example { padding: var(--sp-2) 0; border-bottom: var(--bw) solid var(--color-border); }
+.style-example-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.style-rule-list { margin: 0; padding-left: var(--sp-6); }
+.style-apply { gap: var(--sp-2); }
+.style-apply .check-row { display: inline-flex; align-items: center; gap: var(--sp-2); }
+.candidate .textarea.is-over { border-color: var(--color-danger); }
+.candidate-refine { border-top: var(--bw) solid var(--color-border); padding-top: var(--sp-2); }
+.candidate-refine .input { flex: 1 1 14rem; min-height: var(--touch-min); }

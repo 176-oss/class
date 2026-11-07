@@ -9,6 +9,7 @@ import { startBridge, requestDone, onDoneList } from './ext-bridge.js';
 import { applyNeisDone } from './core/neis-export.js';
 import { rosterView } from './views/roster.js';
 import { writeView } from './views/write.js';
+import { styleView } from './views/style.js';
 import { statusView } from './views/status.js';
 import { neisView } from './views/neis.js';
 import { backupView } from './views/backup.js';
@@ -17,6 +18,7 @@ import { settingsView } from './views/settings.js';
 const ROUTES = [
   { name: 'roster', label: '명단', icon: 'users', view: rosterView },
   { name: 'write', label: '작성', icon: 'pen', view: writeView },
+  { name: 'style', label: '내 스타일', icon: 'brush', view: styleView },
   { name: 'status', label: '현황', icon: 'grid', view: statusView },
   { name: 'neis', label: 'NEIS 옮기기', icon: 'send', view: neisView },
   { name: 'backup', label: '백업', icon: 'archive', view: backupView },
