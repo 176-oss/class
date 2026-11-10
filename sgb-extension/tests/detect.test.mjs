@@ -71,6 +71,13 @@ const autonomy = (over = {}) => Object.assign({
 const COND = { screen: 'autonomy', schoolYear: 2026, semester: 2, grade: 3, classNo: 10, area: 'autonomy', subject: null };
 const it = (id, no, name, text, grade = 3, classNo = 10) => ({ id, grade, classNo, no, name, text });
 
+// ---------- 0. 설정 버전은 manifest 버전과 같아야 한다 (패널이 옛 페이지 코드를 알아보는 기준) ----------
+{
+  const man = JSON.parse(read('manifest.json'));
+  const env = makeEnv({ verified: false, screens: [autonomy()] });
+  assert.equal((await env.cmd('detect')).result.ver, man.version, 'sgb-config.js 의 version 을 manifest.json 과 맞추세요');
+}
+
 // ---------- 1. 보일 때만 활성 ----------
 {
   const sc = autonomy({ shown: false });

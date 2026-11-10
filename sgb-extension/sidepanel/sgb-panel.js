@@ -4,6 +4,7 @@ import { neisBytes, parseBatch, fromDriveData, applyNeisDone, itemsFor, limitFor
 import { hasClientId, redirectUrl, getToken, forgetToken, download, upload, getMeta, metaStamp } from './sgb-drive.js';
 
 // shortcut: localhost 주소는 가상 나이스 시험용. 학교 배포 전 manifest 와 여기서 뺀다.
+const EXT_VER = (() => { try { return chrome.runtime.getManifest().version; } catch (e) { return ''; } })();
 const NEIS_URLS = ['https://*.neis.go.kr/*', 'http://localhost/*', 'http://127.0.0.1/*'];
 const K = { data: 'sgb.data', done: 'sgb.done', drive: 'sgb.drive' };
 
@@ -121,6 +122,7 @@ function itemState(it) {
 // 지금 화면에서 입력을 시작할 수 있는지. 안 되면 이유 문장
 function blockReason(list) {
   const det = S.det;
+  if (det && det.ver !== EXT_VER) return '나이스 페이지에 옛 버전 확장 코드가 남아 있습니다. 나이스 탭을 새로고침(F5)하세요.';
   if (!det || det.state === 'none') return '나이스 생기부 입력 화면이 열려 있지 않습니다.';
   if (det.state === 'hidden') return `'${det.hiddenLabel}' 화면이 열려 있지만 지금 보이지 않습니다. 입력하려는 탭(학생부 자료 기록)을 화면에 띄우세요.`;
   if (!det.cond) return '나이스 조회 조건을 읽지 못했습니다. 나이스에서 [조회]를 눌러 학생 표가 나온 뒤 다시 확인하세요.';
@@ -326,6 +328,7 @@ function screenCard() {
   let body;
   if (S.tabId == null) body = '<div class="muted">나이스 탭이 없습니다. 나이스에 로그인한 뒤 생기부 입력 화면을 여세요.</div>';
   else if (!det) body = '<div class="muted">나이스 페이지와 연결하지 못했습니다. 나이스 페이지를 새로고침(F5)하세요.</div>';
+  else if (det.ver !== EXT_VER) body = `<div class="strong">나이스 페이지를 새로고침(F5)하세요.</div><div class="small muted">확장프로그램이 v${esc(EXT_VER)}로 바뀌었지만 이 나이스 탭에는 옛 버전 코드(${esc(det.ver || '0.2 이하')})가 남아 있습니다. 크롬은 확장을 새로고침해도 이미 열린 페이지의 코드를 바꾸지 않습니다.</div>`;
   else if (det.state === 'hidden') body = `<div class="strong">'${esc(det.hiddenLabel)}' 화면이 열려 있지만 지금 보이지 않습니다.</div><div class="small muted">입력하려는 탭(학생부 자료 기록)을 화면에 띄우면 활성화됩니다.</div>`;
   else if (det.state !== 'active') body = '<div class="muted">나이스 생기부 입력 화면을 찾지 못했습니다. 입력하려는 화면을 열어 주세요.</div>';
   else if (!det.cond) body = '<div class="muted">나이스 생기부 화면이 보이지만 조회 조건을 읽지 못했습니다. 나이스에서 [조회]를 눌러 주세요.</div>';
@@ -336,7 +339,7 @@ function screenCard() {
   }
   const verifyNote = det && !det.verified
     ? `<div class="hint">${det.mock ? '가상 나이스 화면입니다 (시험용).' : '실제 입력 방식 시험 전이라 읽기만 합니다.'}</div>` : '';
-  return `<section class="card"><div class="section-title">나이스 화면</div>${body}${verifyNote}</section>`;
+  return `<section class="card"><div class="section-title">나이스 화면 <span class="small muted">확장 v${esc(EXT_VER)}</span></div>${body}${verifyNote}</section>`;
 }
 function dataCard() {
   const d = S.data;

@@ -226,7 +226,7 @@
   const commands = {
     async detect() {
       const list = instances();
-      const out = { cpr: !!list, mock: MOCK, writeAllowed: WRITE_ALLOWED, verified: CFG.verified === true, state: 'none', hiddenLabel: null, cond: null, rowCount: 0, dirtyRows: 0, dialog: null, closed: null };
+      const out = { ver: CFG.version || null, cpr: !!list, mock: MOCK, writeAllowed: WRITE_ALLOWED, verified: CFG.verified === true, state: 'none', hiddenLabel: null, cond: null, rowCount: 0, dirtyRows: 0, dialog: null, closed: null };
       const f = findScreen();
       if (!f) {
         const h = hiddenScreen();
