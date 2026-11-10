@@ -91,3 +91,43 @@ export function downloadSheet(rows, filename, sheetName = 'Sheet1', { widths } =
   XLSX.utils.book_append_sheet(wb, ws, sheetName.slice(0, 31));
   XLSX.writeFile(wb, filename);
 }
+
+/**
+ * 나이스에서 내려받은 엑셀 파일의 칸을 채워 새 파일로 내려받는다. 파일의 다른 칸·병합·열 너비는 그대로 둔다
+ * (SheetJS 무료판은 글꼴·색 같은 꾸밈은 저장하지 못한다).
+ * planSheet({ name, rows, rowOffset }) -> { found, edits:[{row,col,value}], ... } (rows[r] 이 엑셀 r+1 행)
+ * 반환: { outName, perSheet:[{ name, plan }] }. 고칠 칸이 하나도 없으면 파일을 내려받지 않는다.
+ */
+export async function fillWorkbookFile(file, planSheet) {
+  if (!hasXlsx()) throw new XlsxMissingError();
+  const XLSX = window.XLSX;
+  const wb = XLSX.read(new Uint8Array(await readArrayBuffer(file)), { type: 'array' });
+  const perSheet = [];
+  let total = 0;
+  for (const name of wb.SheetNames) {
+    const ws = wb.Sheets[name];
+    if (!ws || !ws['!ref']) { perSheet.push({ name, plan: null }); continue; }
+    const range = XLSX.utils.decode_range(ws['!ref']);
+    const rows = [];
+    for (let r = 0; r <= range.e.r; r += 1) {
+      const row = [];
+      for (let c = 0; c <= range.e.c; c += 1) {
+        const cell = ws[XLSX.utils.encode_cell({ r, c })];
+        row.push(cell ? String(cell.w ?? cell.v ?? '') : '');
+      }
+      rows.push(row);
+    }
+    const plan = planSheet({ name, rows, rowOffset: 0 });
+    perSheet.push({ name, plan });
+    if (!plan || !plan.found) continue;
+    for (const e of plan.edits) {
+      ws[XLSX.utils.encode_cell({ r: e.row, c: e.col })] = { t: 's', v: e.value };
+      total += 1;
+    }
+  }
+  if (!total) return { outName: null, perSheet, total };
+  const base = file.name.replace(/\.[^.]+$/, '');
+  const outName = `${base}_작성기채움.xlsx`;
+  XLSX.writeFile(wb, outName);
+  return { outName, perSheet, total };
+}

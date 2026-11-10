@@ -1,5 +1,6 @@
 // 생기부 탭: 데이터 받기 -> 나이스 화면 감지 -> 입력 -> 선생님 확인 -> 저장
 // 나중에 출결 확장에 합칠 때는 mount(root) 를 출결 사이드 패널의 '생기부' 탭에서 부른다.
+import { parseExcelSheets, MAX_ROWS } from '../shared/sgb-excel.js';
 import { neisBytes, parseBatch, fromDriveData, applyNeisDone, itemsFor, limitFor, condLabel, groupSummary } from '../shared/sgb-model.js';
 import { hasClientId, redirectUrl, getToken, forgetToken, download, upload, getMeta, metaStamp } from './sgb-drive.js';
 
@@ -259,8 +260,41 @@ async function setData(d) {
   addLog(`데이터 불러옴 (${d.source}, ${d.items.length}개)`);
   render();
 }
+// 엑셀(.xlsx, .xls) 읽기: 크기·시트·행 수를 제한하고 수식·서식은 읽지 않는다
+const MAX_XLSX_BYTES = 5 * 1024 * 1024;
+async function readExcel(file) {
+  if (typeof XLSX === 'undefined') throw new Error('엑셀 읽기 도구를 불러오지 못했습니다. 확장프로그램을 새로고침하세요.');
+  if (file.size > MAX_XLSX_BYTES) throw new Error('엑셀 파일이 5MB를 넘습니다. 필요한 시트만 따로 저장해 올려 주세요.');
+  let wb;
+  try { wb = XLSX.read(await file.arrayBuffer(), { type: 'array', cellFormula: false, cellHTML: false, cellStyles: false, sheetRows: MAX_ROWS + 60 }); }
+  catch (e) { throw new Error('엑셀 파일을 읽지 못했습니다. 암호가 걸려 있거나 손상된 파일일 수 있습니다.'); }
+  if (wb.SheetNames.length > 30) throw new Error('시트가 30개를 넘습니다.');
+  const sheets = wb.SheetNames.map((name) => {
+    const ws = wb.Sheets[name];
+    const off = ws && ws['!ref'] ? XLSX.utils.decode_range(ws['!ref']).s.r : 0;
+    return { name, rowOffset: off, rows: ws ? XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: '', blankrows: true }) : [] };
+  });
+  return parseExcelSheets(sheets);
+}
+function excelNotice(d) {
+  const n = d.notes || {};
+  const lines = [`시트 ${n.sheetsRead}개에서 글 ${d.items.length}개를 읽었습니다.`];
+  if (n.notDone) lines.push(`상태가 '완료'가 아니라서 뺀 행: ${n.notDone}개 (웹앱에서 '완료로 표시'하거나 엑셀의 상태 열을 '완료'로 고치세요)`);
+  if (n.noText) lines.push(`글이 비어 있는 행: ${n.noText}개 (건너뜀)`);
+  if (n.sheetsIgnored && n.sheetsIgnored.length) lines.push(`표를 찾지 못한 시트: ${n.sheetsIgnored.join(', ')}`);
+  for (const e of (d.errors || []).slice(0, 10)) lines.push(`${e.sheet} ${e.row}행: ${e.message}`);
+  if ((d.errors || []).length > 10) lines.push(`그 밖에 ${d.errors.length - 10}개 행에 문제가 있습니다.`);
+  return { kind: (d.errors && d.errors.length) || n.notDone ? 'block' : 'info', title: '엑셀 불러오기 결과', body: lines.join('\n') };
+}
 async function importFile(file) {
   try {
+    if (/\.xlsx?$/i.test(file.name)) {
+      const d = await readExcel(file);
+      await setData(d);
+      S.notice = excelNotice(d);
+      render();
+      return;
+    }
     const d = await parseBatch(await file.text());
     await setData(d);
     if (d.skipped) toast(`글 ${d.items.length}개를 불러왔습니다. 학생 이름이 없는 ${d.skipped}개는 뺐습니다.`);
@@ -346,7 +380,7 @@ function dataCard() {
   const summary = d
     ? `<div class="small">${esc([d.schoolYear && `${d.schoolYear}학년도`, d.semester && `${d.semester}학기`].filter(Boolean).join(' '))} · ${d.source === 'drive' ? '드라이브' : '파일'}에서 ${esc(timeStr(d.receivedAt))} 받음</div>
        <ul class="warn-list small">${groupSummary(d.items).map((g) => `<li>${esc(g)}</li>`).join('')}</ul>`
-    : '<div class="muted small">불러온 글이 없습니다. 웹앱에서 상태가 \'완료\'인 글만 가져옵니다.</div>';
+    : '<div class="muted small">불러온 글이 없습니다. 웹앱에서 상태가 \'완료\'인 글만 가져옵니다. [파일 불러오기]는 웹앱의 NEIS 입력 파일(JSON)과 엑셀(.xlsx)을 읽습니다.</div>';
   const drive = hasClientId()
     ? `<button class="btn btn-secondary btn-sm" data-act="drive">${S.drive.connected ? '드라이브에서 다시 받기' : '구글 드라이브에서 받기'}</button>` : '';
   return `<section class="card stack-sm"><div class="section-title">생기부 글</div>${summary}

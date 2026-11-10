@@ -733,3 +733,10 @@ export async function refineDraft({ record, text, request, studentName, roster, 
 - `connect()`가 비어 있던 사본을 드라이브에서 채웠으면 Result에 `restored: { students, records, updatedAt }`. 화면은 이때 '연결했습니다' 대신 '드라이브에서 학생 N명, 기록 N건을 불러왔습니다'를 띄운다.
 - meta.sync에 `driveMode: 'real'|'fake'`를 함께 쓴다 (app.js의 LocalPort 감싸기). 지금 모드와 다르면 시작할 때 '연결 안 됨'으로 다뤄, 가짜 드라이브로 연결한 상태가 `?dev=1` 없이 진짜 구글을 부르지 않게 한다. driveMode가 없는 예전 상태는 fileId가 'f숫자'면 가짜로 본다.
 - 시작할 때 연결 상태면 토큰이 없을 때 `prompt: 'none'`으로 조용히 다시 요청한다 (출결 앱과 같은 방식). 브라우저가 막거나 8초 안에 답이 없으면 status 'auth'와 '구글 연결 확인' 배너가 뜨고, 사용자가 [다시 연결]을 눌러 대화형으로 받는다. 이때 GSI가 콘솔에 팝업 경고를 남길 수 있다.
+
+## 25. 나이스 엑셀 양식 채우기 (`js/core/neis-excel.js`, `xlsx-io.js fillWorkbookFile`, views/backup.js)
+- 2026-11-10 나이스 다운로드 엑셀 기준. 머리글: 영역 구분·학년도·학년·반·번호·성명·학생개인번호·특기사항(행동특성은 "행동특성 및 종합의견", 진로는 희망분야 추가), 동아리는 부서명 열 추가(학년·반이 섞임), 교과세특은 학년도·학기·학년·`반/번호`·학생개인번호·성명·과목명·세부능력 및 특기사항.
+- `planNeisFill`은 시트를 고치지 않고 `edits[{row,col,value}]`와 `issues`·`summary`만 돌려준다 (순수). 학번은 학년+반 2자리+번호 2자리로 만들고 이름이 명단과 다르면 건너뛴다. 영역은 영역 열 > 시트 이름 > 본문 머리글 > 과목명 열 순.
+- 채우는 곳은 본문 칸만. 모드 `empty`(기본, 이미 글이 있으면 그대로) / `append`(공백 하나로 이어씀, 이미 포함되면 건드리지 않음) / `overwrite`. 완료가 아닌 글은 `includeNotDone`일 때만. 영역 바이트 한도(settings.limits)를 넘으면 채우지 않는다.
+- `fillWorkbookFile`이 원본을 읽어 칸만 글자(`t:s`)로 바꿔 `<원본이름>_작성기채움.xlsx`로 저장한다. 채울 칸이 없으면 파일을 만들지 않는다. SheetJS 무료판은 칸 꾸밈을 저장하지 못한다.
+- 명단 등록(`roster-parse.js`)은 `반/번호` 한 칸(8/1)도 읽는다.

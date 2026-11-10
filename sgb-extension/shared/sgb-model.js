@@ -47,7 +47,7 @@ const posInt = (v) => Number.isInteger(Number(v)) && Number(v) > 0;
 const hasText = (s) => typeof s === 'string' && s.trim() !== '';
 
 // 기록 하나 검사 + 바이트·해시는 직접 다시 계산 (받은 값은 믿지 않음). 본문은 원문 그대로 둔다.
-async function toItem(r, where) {
+export async function toItem(r, where) {
   if (!r || typeof r !== 'object') throw new Error(`${where}: 형식이 올바르지 않습니다.`);
   if (!AREAS[r.area]) throw new Error(`${where}: 영역(area) '${r.area}'를 알 수 없습니다.`);
   if (!posInt(r.grade) || !posInt(r.classNo) || !posInt(r.no)) throw new Error(`${where}: 학년·반·번호가 올바르지 않습니다.`);

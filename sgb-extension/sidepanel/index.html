@@ -17,8 +17,9 @@
   <!-- 나중에 출결 확장에 합칠 때 이 영역이 '생기부' 탭이 된다 (sgb-panel.js 의 mount) -->
   <main class="panel-body" id="sgb-root"></main>
 </div>
-<input type="file" id="sgbFile" accept=".json,application/json" hidden>
+<input type="file" id="sgbFile" accept=".json,application/json,.xlsx,.xls" hidden>
 <div class="toast" id="toast" role="status" hidden></div>
+<script src="../lib/xlsx.full.min.js"></script>
 <script type="module" src="sgb-panel.js"></script>
 </body>
 </html>
