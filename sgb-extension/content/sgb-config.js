@@ -19,7 +19,7 @@
   });
 
   window.__sgbNeisConfig = {
-    version: '0.4.3',          // manifest.json 의 version 과 같아야 한다 (tests/detect.test.mjs 가 확인). 사이드 패널이 옛 페이지 코드를 알아보는 데 쓴다
+    version: '0.4.4',          // manifest.json 의 version 과 같아야 한다 (tests/detect.test.mjs 가 확인). 사이드 패널이 옛 페이지 코드를 알아보는 데 쓴다
     verified: true,
 
     screens: [
@@ -86,6 +86,6 @@
     ],
 
     // 공통 확인창·알림창 (출결 확장이 실제 나이스에서 확인한 것과 같은 공통 부품)
-    dialogs: { appIdPart: 'app/cmn/', confirmAppId: 'app/cmn/confirm', msgControl: 'optMsg', saveConfirm: '저장하시겠습니까?', saveDone: '저장했습니다.' },
+    dialogs: { appIdPart: 'app/cmn/', confirmAppId: 'app/cmn/confirm', msgControl: 'optMsg', saveConfirm: '저장하시겠습니까?', saveDone: ['자료의 저장이 완료되었습니다.', '저장했습니다.'] },
   };
 })();
