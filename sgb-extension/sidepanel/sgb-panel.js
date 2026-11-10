@@ -109,6 +109,8 @@ function itemState(it) {
     name_mismatch: '나이스 이름과 다릅니다.',
     not_found: '나이스 표에 없는 번호입니다.',
     mismatch: '넣은 뒤 나이스 값이 보낸 글과 다릅니다.',
+    locked: '나이스에서 입력할 수 없는 행입니다 (학생부 반영 또는 마감).',
+    too_long: `나이스 입력 가능 바이트(${r.capacity})를 넘습니다. 다른 학기 입력분 때문에 한도가 줄었을 수 있습니다.`,
   }[r.status];
   if (why) return { key: 'manual', label: '직접 확인', why, cls: 'badge-missing' };
   if (r.status === 'already') return { key: 'already', label: '나이스에 같은 글', cls: 'badge-info' };
@@ -118,8 +120,11 @@ function itemState(it) {
 // 지금 화면에서 입력을 시작할 수 있는지. 안 되면 이유 문장
 function blockReason(list) {
   const det = S.det;
-  if (!det || !det.cond) return '나이스 생기부 입력 화면이 열려 있지 않습니다.';
-  if (!det.writeAllowed) return '실제 나이스 생기부 화면 구조를 아직 확인하지 않아 입력할 수 없습니다. 아래 [화면 구조 기록]으로 구조를 남겨 주세요.';
+  if (!det || det.state === 'none') return '나이스 생기부 입력 화면이 열려 있지 않습니다.';
+  if (det.state === 'hidden') return `'${det.hiddenLabel}' 화면이 열려 있지만 지금 보이지 않습니다. 입력하려는 탭(학생부 자료 기록)을 화면에 띄우세요.`;
+  if (!det.cond) return '나이스 조회 조건을 읽지 못했습니다. 나이스에서 [조회]를 눌러 학생 표가 나온 뒤 다시 확인하세요.';
+  if (!det.writeAllowed) return '실제 나이스 생기부 입력 방식을 아직 시험하지 않아 입력할 수 없습니다. 지금은 화면 감지와 값 읽기만 합니다.';
+  if (det.closed) return det.closed;
   if (!S.data) return '먼저 생기부 글을 불러오세요.';
   const c = det.cond;
   if (S.data.schoolYear && c.schoolYear && S.data.schoolYear !== c.schoolYear) return `나이스 화면은 ${c.schoolYear}학년도, 불러온 글은 ${S.data.schoolYear}학년도입니다.`;
@@ -162,7 +167,7 @@ async function startFill() {
   addLog(`입력 시작: ${condLabel(S.run.cond)} ${targets.length}명`);
   render();
   try {
-    const res = await cmd('fill', { cond: S.run.cond, items: targets.map(({ id, no, name, text }) => ({ id, no, name, text })) });
+    const res = await cmd('fill', { cond: S.run.cond, items: targets.map(({ id, grade, classNo, no, name, text }) => ({ id, grade, classNo, no, name, text })) });
     for (const r of res.results) S.results[r.id] = r;
     S.phase = 'review';
   } catch (e) {
@@ -192,7 +197,7 @@ async function saveNow() {
   S.notice = null;
   render();
   try {
-    await cmd('save', { cond: S.run.cond, expect: list.map((it) => ({ no: it.no, text: it.text })) });
+    await cmd('save', { cond: S.run.cond, expect: list.map((it) => ({ grade: it.grade, classNo: it.classNo, no: it.no, text: it.text })) });
     const doneAt = new Date().toISOString();
     const saved = [...list, ...alreadyItems()].map((it) => ({ id: it.id, hash: it.hash, doneAt }));
     for (const s of saved) S.done[s.id] = { hash: s.hash, doneAt };
@@ -293,14 +298,16 @@ function screenCard() {
   let body;
   if (S.tabId == null) body = '<div class="muted">나이스 탭이 없습니다. 나이스에 로그인한 뒤 생기부 입력 화면을 여세요.</div>';
   else if (!det) body = '<div class="muted">나이스 페이지와 연결하지 못했습니다. 나이스 페이지를 새로고침(F5)하세요.</div>';
-  else if (!det.cond) body = '<div class="muted">나이스 생기부 입력 화면을 찾지 못했습니다.</div>';
+  else if (det.state === 'hidden') body = `<div class="strong">'${esc(det.hiddenLabel)}' 화면이 열려 있지만 지금 보이지 않습니다.</div><div class="small muted">입력하려는 탭(학생부 자료 기록)을 화면에 띄우면 활성화됩니다.</div>`;
+  else if (det.state !== 'active') body = '<div class="muted">나이스 생기부 입력 화면을 찾지 못했습니다. 입력하려는 화면을 열어 주세요.</div>';
+  else if (!det.cond) body = '<div class="muted">나이스 생기부 화면이 보이지만 조회 조건을 읽지 못했습니다. 나이스에서 [조회]를 눌러 주세요.</div>';
   else {
     const c = det.cond;
     body = `<div class="strong">나이스 생기부 화면 감지됨: ${esc(c.screenLabel)}</div>
-      <div class="small">${esc([c.schoolYear && `${c.schoolYear}학년도`, c.semester && `${c.semester}학기`, condLabel(c)].filter(Boolean).join(' '))} · 학생 ${det.rowCount}명</div>`;
+      <div class="small">${esc([c.schoolYear && `${c.schoolYear}학년도`, c.semester && `${c.semester}학기`, condLabel(c)].filter(Boolean).join(' '))} · 학생 ${det.rowCount}명</div>${det.closed ? `<div class="small danger-text">${esc(det.closed)}</div>` : ''}`;
   }
   const verifyNote = det && !det.verified
-    ? `<div class="hint">${det.mock ? '가상 나이스 화면입니다 (시험용).' : '실제 화면 구조 확인 전이라 읽기만 합니다.'}</div>` : '';
+    ? `<div class="hint">${det.mock ? '가상 나이스 화면입니다 (시험용).' : '실제 입력 방식 시험 전이라 읽기만 합니다.'}</div>` : '';
   return `<section class="card"><div class="section-title">나이스 화면</div>${body}${verifyNote}</section>`;
 }
 function dataCard() {

@@ -1,6 +1,6 @@
 // node tests/model.test.mjs
 import assert from 'node:assert/strict';
-import { normText, neisBytes, textHash, splitStudentId, parseBatch, fromDriveData, applyNeisDone, itemsFor, limitFor, groupSummary } from '../shared/sgb-model.js';
+import { condLabel, normText, neisBytes, textHash, splitStudentId, parseBatch, fromDriveData, applyNeisDone, itemsFor, limitFor, groupSummary } from '../shared/sgb-model.js';
 import { textHash as webHash, buildNeisBatch } from '../../textgenerator-v2/js/core/neis-export.js';
 import { byteLength as webBytes } from '../../textgenerator-v2/js/core/bytes.js';
 
@@ -44,6 +44,23 @@ const auto = itemsFor(d.items, { grade: 3, classNo: 5, area: 'autonomy' });
 assert.deepEqual(auto.map((x) => [x.id, x.dup]), [['30503|autonomy', false], ['b', true], ['c', true]]);
 assert.equal(itemsFor(d.items, { grade: 3, classNo: 5, area: 'subject', subject: '통합과학' }).length, 1);
 assert.equal(itemsFor(d.items, { grade: 3, classNo: 6, area: 'autonomy' }).length, 0);
+
+// 동아리·교과세특 화면은 학년·반이 섞여 있어 조건에 반이 없다 (null 이면 거르지 않음)
+const mixed = [
+  { id: 'm1', grade: 3, classNo: 1, no: 3, name: 'ㄱ', area: 'club', text: 'a' },
+  { id: 'm2', grade: 3, classNo: 5, no: 3, name: 'ㄴ', area: 'club', text: 'b' },   // 번호는 같지만 반이 다름: 중복이 아님
+  { id: 'm3', grade: 2, classNo: 5, no: 1, name: 'ㄷ', area: 'club', text: 'c' },
+  { id: 'm4', grade: 3, classNo: 8, no: 1, name: 'ㄹ', area: 'subject', subject: '과학', text: 'd' },
+];
+const club = itemsFor(mixed, { grade: null, classNo: null, area: 'club' });
+assert.equal(club.length, 3);
+assert.ok(club.every((it) => !it.dup), '반이 다르면 같은 번호여도 중복 아님');
+assert.deepEqual(club.map((it) => it.id), ['m3', 'm1', 'm2'], '학년, 반, 번호 순');
+assert.equal(itemsFor(mixed, { grade: 3, classNo: null, area: 'club' }).length, 2);
+assert.equal(itemsFor(mixed, { grade: 3, classNo: null, area: 'subject', subject: '과학' }).length, 1);
+assert.equal(condLabel({ grade: null, classNo: null, area: 'club' }), '동아리');
+assert.equal(condLabel({ grade: 3, classNo: null, area: 'subject', subject: '과학' }), '3학년 교과세특 (과학)');
+
 assert.deepEqual(groupSummary(d.items), ['3학년 5반 자율·자치 3명', '3학년 5반 교과세특 (통합 과학) 1명']);
 
 // 웹앱이 만든 batch 를 그대로 읽으면 hash 가 같다

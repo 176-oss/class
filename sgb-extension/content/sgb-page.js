@@ -53,48 +53,83 @@
     if (!P || typeof P.getAllRunningAppInstances !== 'function') return null;
     try { return P.getAllRunningAppInstances() || []; } catch (e) { return []; }
   }
-  function findScreen() {
-    for (const s of CFG.screens) {
-      const inst = (instances() || []).find((i) => i && i.app && String(i.app.id || '').includes(s.appId));
-      if (inst) return { s, inst };
-    }
-    return null;
-  }
-  function screen() {
-    const f = findScreen();
-    if (!f) throw new NeisError('no_screen', '나이스 생기부 입력 화면을 찾지 못했습니다. 생기부 입력 화면을 연 뒤 다시 시도하세요.');
-    return f;
-  }
+  const val = (ds, r, c) => { const v = ds.getValue(r, c); return v == null ? '' : String(v); };
+  const isClean = (st) => st === 1 || st === 0;
   function ctrl(inst, id) {
     const c = inst && typeof inst.lookup === 'function' ? inst.lookup(id) : null;
     if (!c) throw new NeisError('no_control', `나이스 화면에서 '${id}' 요소를 찾지 못했습니다. 화면 구조가 바뀌었을 수 있습니다.`);
     return c;
   }
-  function dataSet(inst) {
-    const g = ctrl(inst, CFG.grid.id);
-    const ds = g.dataSet || (typeof g.getDataSet === 'function' ? g.getDataSet() : null);
+  function dataSet(f) {
+    let ds = null;
+    try { ds = f.inst.lookup(f.s.ds); } catch (e) { ds = null; }
+    if (!ds || typeof ds.getRowCount !== 'function') {
+      const g = ctrl(f.inst, f.s.gridId);
+      ds = g.dataSet || (typeof g.getDataSet === 'function' ? g.getDataSet() : null);
+    }
     if (!ds || typeof ds.getRowCount !== 'function') throw new NeisError('no_dataset', '학생 표의 데이터를 읽지 못했습니다.');
     return ds;
   }
-  const val = (ds, r, c) => { const v = ds.getValue(r, c); return v == null ? '' : String(v); };
-  const isClean = (st) => st === 1 || st === 0;
-  const COL = CFG.grid.cols;
+
+  // ---------- 화면 감지: 표가 지금 눈에 보일 때만 활성 ----------
+  // 나이스 탭(MDI)을 다른 것으로 바꾸거나 같은 화면의 출결·누가기록 탭으로 옮기면 표의 getActualRect 가 0이 된다 (실측).
+  // 가상 화면은 항상 보이는 것으로 본다. 실제 나이스에서 이 값을 못 읽으면 '안 보임'으로 본다.
+  function isShown(inst, s) {
+    if (s.mock) return true;
+    try {
+      const g = inst.lookup(s.gridId);
+      if (!g || typeof g.getActualRect !== 'function') return false;
+      const r = g.getActualRect();
+      return !!r && r.width > 0 && r.height > 0;
+    } catch (e) { return false; }
+  }
+  function openedOf(s) { return (instances() || []).filter((i) => i && i.app && String(i.app.id || '').includes(s.appId)); }
+  // 보이는 화면 (같은 화면이 여럿이면 보이는 것 중 가장 나중 것)
+  function findScreen() {
+    for (const s of CFG.screens) {
+      const shown = openedOf(s).filter((i) => isShown(i, s));
+      if (shown.length) return { s, inst: shown[shown.length - 1] };
+    }
+    return null;
+  }
+  // 열려 있지만 지금 안 보이는 화면 (안내용)
+  function hiddenScreen() {
+    for (const s of CFG.screens) if (openedOf(s).length) return s;
+    return null;
+  }
+  function screen() {
+    const f = findScreen();
+    if (f) return f;
+    const h = hiddenScreen();
+    if (h) throw new NeisError('not_visible', `'${h.label}' 화면이 지금 보이지 않습니다. 입력하려는 탭(학생부 자료 기록)을 화면에 띄우세요.`);
+    throw new NeisError('no_screen', '나이스 생기부 입력 화면을 찾지 못했습니다. 생기부 입력 화면을 연 뒤 다시 시도하세요.');
+  }
+  function assertShown(f) {
+    if (!isShown(f.inst, f.s)) throw new NeisError('not_visible', `'${f.s.label}' 화면이 보이지 않게 되어 멈췄습니다. 입력하려는 탭을 다시 화면에 띄우세요.`);
+  }
+  const COLS = (f) => f.s.cols;
 
   // ---------- 조회 조건 ----------
   function readCond(f) {
-    const dm = f.inst.lookup(CFG.search.dm);
+    const S = f.s;
+    let dm = null;
+    try { dm = f.inst.lookup(S.search.dm); } catch (e) { dm = null; }
     if (!dm || typeof dm.getValue !== 'function') return null;
-    const get = (k) => { const c = CFG.search.cols[k]; const v = c ? dm.getValue(c) : null; return v == null ? '' : String(v); };
-    let area = f.s.area || null;
-    if (!area) {
-      const code = get('area');
-      area = Object.keys(CFG.search.areaCodes).find((k) => CFG.search.areaCodes[k] === code) || null;
+    const get = (c) => { if (!c) return ''; let v; try { v = dm.getValue(c); } catch (e) { v = null; } return v == null ? '' : String(v); };
+    let area = S.area || null;
+    if (!area && S.areaCodeCol) area = (S.areaCodes && S.areaCodes[get(S.areaCodeCol)]) || null;
+    // 화면이 영역 코드를 가지고 있으면 설정과 같아야 한다 (다른 영역 화면을 잘못 잡는 것을 막음)
+    if (S.areaCode) { const code = get('actScCd'); if (code && code !== S.areaCode) return null; }
+    let semester = Number(get(S.search.semester)) || null;
+    if (!semester && S.semesterFallback) {
+      try { const d = f.inst.lookup(S.semesterFallback.ds); if (d && d.getRowCount() > 0) semester = Number(d.getValue(0, S.semesterFallback.col)) || null; } catch (e) { /* 무시 */ }
     }
     return {
-      screen: f.s.key, screenLabel: f.s.label,
-      schoolYear: Number(get('schoolYear')) || null, semester: Number(get('semester')) || null,
-      grade: Number(get('grade')) || null, classNo: Number(get('classNo')) || null,
-      area, subject: area === 'subject' ? get('subject') : null,
+      screen: S.key, screenLabel: S.label,
+      schoolYear: Number(get(S.search.schoolYear)) || null, semester,
+      grade: S.search.grade ? (Number(get(S.search.grade)) || null) : null,
+      classNo: S.search.classNo ? (Number(get(S.search.classNo)) || null) : null,
+      area, subject: area === 'subject' ? get(S.search.subject) : null,
     };
   }
   // 입력·저장 직전마다: 화면 조건이 사이드 패널이 보고 시작한 조건과 같은지
@@ -108,8 +143,25 @@
     }
     return now;
   }
+  // 학생부가 마감·확정된 화면이면 입력하지 않는다
+  function closedReason(f) {
+    const cf = f.s.closedFlags;
+    if (!cf) return null;
+    let dm = null;
+    try { dm = f.inst.lookup(cf.dm); } catch (e) { dm = null; }
+    if (!dm || typeof dm.getValue !== 'function') return null;
+    for (const c of cf.cols) {
+      let v; try { v = dm.getValue(c); } catch (e) { v = null; }
+      if (String(v == null ? '' : v).toUpperCase() === 'Y') return '학생부가 마감(확정)된 상태라 입력할 수 없습니다.';
+    }
+    return null;
+  }
   function assertWrite() {
-    if (!WRITE_ALLOWED) throw new NeisError('not_verified', '실제 나이스 생기부 화면 구조를 아직 확인하지 않아 입력하지 않습니다. 지금은 화면 감지와 구조 기록만 할 수 있습니다.');
+    if (!WRITE_ALLOWED) throw new NeisError('not_verified', '실제 나이스 생기부 입력 방식을 아직 시험하지 않아 입력하지 않습니다. 지금은 화면 감지, 구조 기록, 값 읽기만 할 수 있습니다.');
+  }
+  function assertOpen(f) {
+    const why = closedReason(f);
+    if (why) throw new NeisError('closed', why);
   }
 
   // ---------- 버튼 ----------
@@ -137,30 +189,52 @@
   const normMsg = (m) => String(m || '').replace(/\s+/g, '');
 
   // ---------- 행 ----------
-  function findRow(ds, no) {
-    for (let r = 0; r < ds.getRowCount(); r++) if (Number(val(ds, r, COL.no)) === Number(no)) return r;
+  const countBytes = (t) => { let n = 0; for (const ch of String(t).replace(/\r\n?/g, '\n')) { const c = ch.codePointAt(0); n += (c >= 0xAC00 && c <= 0xD7A3) || (c >= 0x3131 && c <= 0x318E) ? 3 : 1; } return n; };
+  // 학생 식별: 학년|반|번호. 표에 학년·반 열이 있으면(동아리, 교과세특) 행에서, 없으면 조회 조건에서 가져온다
+  const idKey = (g, c, n) => `${Number(g) || 0}|${Number(c) || 0}|${Number(n) || 0}`;
+  function rowKey(f, ds, r, cond) {
+    const C = COLS(f);
+    const g = C.grade ? val(ds, r, C.grade) : cond.grade;
+    const c = C.classNo ? val(ds, r, C.classNo) : cond.classNo;
+    return idKey(g, c, val(ds, r, C.no));
+  }
+  const itemKey = (it) => idKey(it.grade, it.classNo, it.no);
+  function findRow(f, ds, cond, it) {
+    const want = itemKey(it);
+    for (let r = 0; r < ds.getRowCount(); r++) if (rowKey(f, ds, r, cond) === want) return r;
     return -1;
   }
+  function rowLocked(f, ds, r) {
+    const L = f.s.rowLock;
+    return !!L && String(val(ds, r, L.col)).toLowerCase() === String(L.value).toLowerCase();
+  }
   function setText(f, ds, r, text) {
-    if (CFG.input.mode === 'control') {
-      const g = ctrl(f.inst, CFG.grid.id);
+    const C = COLS(f);
+    if (f.s.input.mode === 'control') {
+      const g = ctrl(f.inst, f.s.gridId);
       if (typeof g.selectRows !== 'function') throw new NeisError('no_select', '표에서 학생 행을 고르지 못했습니다.');
       g.selectRows([r]);
-      ctrl(f.inst, CFG.input.textControl).value = text;
+      ctrl(f.inst, f.s.input.textControl).value = text;
     } else {
-      ds.setValue(r, COL.text, text);
+      ds.setValue(r, C.text, text);
     }
   }
 
   const commands = {
     async detect() {
       const list = instances();
+      const out = { cpr: !!list, mock: MOCK, writeAllowed: WRITE_ALLOWED, verified: CFG.verified === true, state: 'none', hiddenLabel: null, cond: null, rowCount: 0, dirtyRows: 0, dialog: null, closed: null };
       const f = findScreen();
-      const out = { cpr: !!list, mock: MOCK, writeAllowed: WRITE_ALLOWED, verified: CFG.verified === true, cond: null, rowCount: 0, dirtyRows: 0, dialog: null };
-      if (!f) return out;
+      if (!f) {
+        const h = hiddenScreen();
+        if (h) { out.state = 'hidden'; out.hiddenLabel = h.label; }
+        return out;
+      }
+      out.state = 'active';
       out.cond = readCond(f);
+      out.closed = closedReason(f);
       try {
-        const ds = dataSet(f.inst);
+        const ds = dataSet(f);
         out.rowCount = ds.getRowCount();
         for (let r = 0; r < out.rowCount; r++) if (!isClean(ds.getRowState(r))) out.dirtyRows++;
       } catch (e) { /* 표 없음 */ }
@@ -286,26 +360,34 @@
       return JSON.parse(json);
     },
 
-    // 조건에 맞는 학생들 본문 넣기. 이미 다른 글이 있는 학생, 이름 불일치, 표에 없는 학생은 넣지 않고 결과로 알린다.
+    // 조건에 맞는 학생들 본문 넣기. 이미 다른 글이 있는 학생, 이름 불일치, 표에 없는 학생, 입력할 수 없는 행, 나이스 입력 가능 바이트를 넘는 글은 넣지 않고 결과로 알린다.
     async fill(args, seq) {
       assertWrite();
       const f = screen();
       assertCond(f, args.cond);
-      const ds = dataSet(f.inst);
+      assertOpen(f);
+      const ds = dataSet(f);
+      const C = COLS(f);
       const results = [];
       for (const it of args.items || []) {
         checkAbort(seq);
+        assertShown(f);
         assertCond(f, args.cond);
-        const r = findRow(ds, it.no);
+        const r = findRow(f, ds, args.cond, it);
         if (r < 0) { results.push({ id: it.id, status: 'not_found' }); log(`${it.no}번: 나이스 표에 없음`, 'warn'); continue; }
-        if (normName(val(ds, r, COL.name)) !== normName(it.name)) { results.push({ id: it.id, status: 'name_mismatch' }); log(`${it.no}번: 이름이 다름`, 'warn'); continue; }
-        const cur = normText(val(ds, r, COL.text));
+        if (normName(val(ds, r, C.name)) !== normName(it.name)) { results.push({ id: it.id, status: 'name_mismatch' }); log(`${it.no}번: 이름이 다름`, 'warn'); continue; }
+        if (rowLocked(f, ds, r)) { results.push({ id: it.id, status: 'locked' }); log(`${it.no}번: 나이스에서 입력할 수 없는 행`, 'warn'); continue; }
+        const cur = normText(val(ds, r, C.text));
         const want = normText(it.text);
         if (cur === want) { results.push({ id: it.id, status: isClean(ds.getRowState(r)) ? 'already' : 'entered' }); log(`${it.no}번: 나이스에 같은 글이 이미 있음`); continue; }
         if (cur) { results.push({ id: it.id, status: 'existing', neisText: cur }); log(`${it.no}번: 나이스에 다른 글이 있어 건너뜀`, 'warn'); continue; }
+        if (f.s.capacityCol) {
+          const cap = Number(val(ds, r, f.s.capacityCol));
+          if (Number.isFinite(cap) && countBytes(it.text) > cap) { results.push({ id: it.id, status: 'too_long', capacity: cap }); log(`${it.no}번: 나이스 입력 가능 바이트(${cap})를 넘음`, 'warn'); continue; }
+        }
         setText(f, ds, r, it.text);
         await sleep(30);
-        const after = normText(val(ds, r, COL.text));
+        const after = normText(val(ds, r, C.text));
         if (after !== want) { results.push({ id: it.id, status: 'mismatch', neisText: after }); log(`${it.no}번: 넣은 뒤 값이 보낸 글과 다름`, 'error'); continue; }
         results.push({ id: it.id, status: 'entered' });
         log(`${it.no}번 입력`);
@@ -314,24 +396,27 @@
       return { results };
     },
 
-    // 저장: 바뀐 행이 모두 이번에 확장이 넣은 행이고 값이 확인한 글 그대로일 때만 [저장]. expect: [{ no, text }]
+    // 저장: 바뀐 행이 모두 이번에 확장이 넣은 행이고 값이 확인한 글 그대로일 때만 [저장]. expect: [{ grade, classNo, no, text }]
     async save(args, seq) {
       assertWrite();
       const f = screen();
       assertCond(f, args.cond);
-      const ds = dataSet(f.inst);
+      assertOpen(f);
+      const ds = dataSet(f);
+      const C = COLS(f);
       const expect = args.expect || [];
-      const allowed = new Set(expect.map((e) => Number(e.no)));
+      const allowed = new Set(expect.map((e) => itemKey(e)));
       const stray = [];
       for (let r = 0; r < ds.getRowCount(); r++) {
-        if (!isClean(ds.getRowState(r)) && !allowed.has(Number(val(ds, r, COL.no)))) stray.push(Number(val(ds, r, COL.no)));
+        if (!isClean(ds.getRowState(r)) && !allowed.has(rowKey(f, ds, r, args.cond))) stray.push(Number(val(ds, r, C.no)));
       }
       if (stray.length) throw new NeisError('stray_change', `확장프로그램이 입력하지 않은 행이 바뀌어 있습니다 (${stray.join(', ')}번). 나이스에서 되돌리거나 [조회]로 처음부터 다시 하세요.`, { stray });
       for (const e of expect) {
-        const r = findRow(ds, e.no);
-        if (r < 0 || normText(val(ds, r, COL.text)) !== normText(e.text)) throw new NeisError('value_changed', `${e.no}번 본문이 확인한 글과 달라 저장하지 않았습니다.`);
+        const r = findRow(f, ds, args.cond, e);
+        if (r < 0 || normText(val(ds, r, C.text)) !== normText(e.text)) throw new NeisError('value_changed', `${e.no}번 본문이 확인한 글과 달라 저장하지 않았습니다.`);
       }
       checkAbort(seq);
+      assertShown(f);
       const before = new Set(cmnDialogs());
       clickControl(f.inst, 'btnSave');
       const dlg = await waitFor(() => cmnDialogs().find((d) => !before.has(d)), { timeout: 8000, what: '[저장] 뒤 나이스 확인창을 기다렸습니다.', code: 'save_no_confirm' });
@@ -350,16 +435,17 @@
         // 저장 확인: 모든 행 상태 깨끗 + 넣은 글 유지 (저장 뒤 다시 조회되어도 같은 조건)
         let okCount = 0;
         await waitFor(() => {
-          const d = dataSet(screen().inst);
+          const d = dataSet(screen());
           if (!d.getRowCount()) { okCount = 0; return false; }
           for (let r = 0; r < d.getRowCount(); r++) if (!isClean(d.getRowState(r))) { okCount = 0; return false; }
           okCount++;
           return okCount >= 2;
         }, { timeout: 15000, interval: 300, what: '나이스가 저장했다고 알렸지만 저장 뒤 표 상태를 확인하지 못했습니다.', code: 'save_verify' });
-        const d = dataSet(screen().inst);
+        const nf = screen();
+        const d = dataSet(nf);
         for (const e of expect) {
-          const r = findRow(d, e.no);
-          if (r < 0 || normText(val(d, r, COL.text)) !== normText(e.text)) throw new NeisError('save_verify', `저장 뒤 ${e.no}번 본문이 확인한 글과 다릅니다. 나이스 표를 직접 확인하세요.`);
+          const r = findRow(nf, d, args.cond, e);
+          if (r < 0 || normText(val(d, r, C.text)) !== normText(e.text)) throw new NeisError('save_verify', `저장 뒤 ${e.no}번 본문이 확인한 글과 다릅니다. 나이스 표를 직접 확인하세요.`);
         }
       } catch (e) {
         if (e instanceof NeisError) e.data = Object.assign({}, e.data, { afterConfirm: true });

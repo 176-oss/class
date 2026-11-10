@@ -122,19 +122,23 @@ export async function applyNeisDone(obj, saved) {
   return changed;
 }
 
-// 나이스 화면 조건에 맞는 글 + 같은 학생 글이 2개 이상이면 dup 표시
+// 나이스 화면 조건에 맞는 글 + 같은 학생 글이 2개 이상이면 dup 표시.
+// 조건에 학년·반이 없으면(동아리, 교과세특은 반이 섞여 있음) 그 항목은 거르지 않는다.
+const idOf = (it) => `${it.grade}|${it.classNo}|${it.no}`;
 export function itemsFor(items, cond) {
   if (!cond) return [];
-  const list = items.filter((it) => it.grade === Number(cond.grade) && it.classNo === Number(cond.classNo) && it.area === cond.area &&
+  const list = items.filter((it) => it.area === cond.area &&
+    (cond.grade == null || it.grade === Number(cond.grade)) &&
+    (cond.classNo == null || it.classNo === Number(cond.classNo)) &&
     (it.area !== 'subject' || normSubject(it.subject) === normSubject(cond.subject)));
   const count = new Map();
-  for (const it of list) count.set(it.no, (count.get(it.no) || 0) + 1);
-  return list.map((it) => ({ ...it, dup: count.get(it.no) > 1 })).sort((a, b) => a.no - b.no);
+  for (const it of list) count.set(idOf(it), (count.get(idOf(it)) || 0) + 1);
+  return list.map((it) => ({ ...it, dup: count.get(idOf(it)) > 1 })).sort((a, b) => a.grade - b.grade || a.classNo - b.classNo || a.no - b.no);
 }
 
 export const limitFor = (data, area) => Number((data && data.limits && data.limits[area]) || DEFAULT_LIMITS[area]);
 
-export const condLabel = (c) => (c ? `${c.grade}학년 ${c.classNo}반 ${AREAS[c.area] || c.area}${c.area === 'subject' && c.subject ? ` (${c.subject})` : ''}` : '');
+export const condLabel = (c) => (c ? `${c.grade ? `${c.grade}학년 ` : ''}${c.classNo ? `${c.classNo}반 ` : ''}${AREAS[c.area] || c.area}${c.area === 'subject' && c.subject ? ` (${c.subject})` : ''}` : '');
 
 // 불러온 글을 조건별로 묶어 요약 ('3학년 5반 자율·자치 12명')
 export function groupSummary(items) {
