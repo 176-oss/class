@@ -217,6 +217,9 @@
       ctrl(f.inst, f.s.input.textControl).value = text;
     } else {
       ds.setValue(r, C.text, text);
+      // 실제 입력(타이핑)은 길이 열과 화면의 바이트 표시도 바꾼다. setValue 만으로는 안 바뀌므로 같이 맞춘다.
+      if (f.s.lengthCol) ds.setValue(r, f.s.lengthCol, String(countBytes(text)));
+      try { const g = f.inst.lookup(f.s.gridId); if (g && typeof g.redraw === 'function') g.redraw(); } catch (e) { /* 무시 */ }
     }
   }
 
@@ -377,20 +380,34 @@
         if (r < 0) { results.push({ id: it.id, status: 'not_found' }); log(`${it.no}번: 나이스 표에 없음`, 'warn'); continue; }
         if (normName(val(ds, r, C.name)) !== normName(it.name)) { results.push({ id: it.id, status: 'name_mismatch' }); log(`${it.no}번: 이름이 다름`, 'warn'); continue; }
         if (rowLocked(f, ds, r)) { results.push({ id: it.id, status: 'locked' }); log(`${it.no}번: 나이스에서 입력할 수 없는 행`, 'warn'); continue; }
-        const cur = normText(val(ds, r, C.text));
+        const curRaw = val(ds, r, C.text);
+        const cur = normText(curRaw);
         const want = normText(it.text);
         if (cur === want) { results.push({ id: it.id, status: isClean(ds.getRowState(r)) ? 'already' : 'entered' }); log(`${it.no}번: 나이스에 같은 글이 이미 있음`); continue; }
-        if (cur) { results.push({ id: it.id, status: 'existing', neisText: cur }); log(`${it.no}번: 나이스에 다른 글이 있어 건너뜀`, 'warn'); continue; }
-        if (f.s.capacityCol) {
-          const cap = Number(val(ds, r, f.s.capacityCol));
-          if (Number.isFinite(cap) && countBytes(it.text) > cap) { results.push({ id: it.id, status: 'too_long', capacity: cap }); log(`${it.no}번: 나이스 입력 가능 바이트(${cap})를 넘음`, 'warn'); continue; }
+        let finalText = it.text;
+        let mode = null;
+        if (cur) {
+          // 이미 글이 있으면 바로 덮어쓰지 않는다. 선생님이 mode(overwrite | append)를 고른 학생만 넣는다.
+          if (it.mode !== 'overwrite' && it.mode !== 'append') {
+            if (cur.includes(want)) { results.push({ id: it.id, status: 'contained' }); log(`${it.no}번: 나이스 글에 새 글이 이미 들어 있음`); continue; }
+            results.push({ id: it.id, status: 'existing', neisText: cur }); log(`${it.no}번: 나이스에 다른 글이 있어 선택을 기다림`, 'warn'); continue;
+          }
+          mode = it.mode;
+          if (mode === 'append') {
+            if (cur.includes(want)) { results.push({ id: it.id, status: 'contained' }); log(`${it.no}번: 나이스 글에 새 글이 이미 들어 있음`); continue; }
+            finalText = curRaw.replace(/\s+$/, '') + (CFG.appendSeparator == null ? ' ' : CFG.appendSeparator) + it.text;
+          }
         }
-        setText(f, ds, r, it.text);
+        // 바이트 한도: 웹앱 한도(it.limit)와 나이스 학생별 입력 가능 바이트 중 작은 값
+        let cap = Number.isFinite(Number(it.limit)) && it.limit != null ? Number(it.limit) : Infinity;
+        if (f.s.capacityCol) { const c2 = Number(val(ds, r, f.s.capacityCol)); if (Number.isFinite(c2) && val(ds, r, f.s.capacityCol) !== '') cap = Math.min(cap, c2); }
+        if (countBytes(finalText) > cap) { results.push({ id: it.id, status: 'too_long', capacity: cap, mode }); log(`${it.no}번: 바이트 한도(${cap})를 넘음`, 'warn'); continue; }
+        setText(f, ds, r, finalText);
         await sleep(30);
         const after = normText(val(ds, r, C.text));
-        if (after !== want) { results.push({ id: it.id, status: 'mismatch', neisText: after }); log(`${it.no}번: 넣은 뒤 값이 보낸 글과 다름`, 'error'); continue; }
-        results.push({ id: it.id, status: 'entered' });
-        log(`${it.no}번 입력`);
+        if (after !== normText(finalText)) { results.push({ id: it.id, status: 'mismatch', neisText: after }); log(`${it.no}번: 넣은 뒤 값이 보낸 글과 다름`, 'error'); continue; }
+        results.push({ id: it.id, status: 'entered', mode, entered: finalText, neisText: mode ? cur : undefined });
+        log(`${it.no}번 ${mode === 'append' ? '이어쓰기' : mode === 'overwrite' ? '덮어쓰기' : '입력'}`);
         emit({ type: 'progress', done: results.length, total: args.items.length });
       }
       return { results };

@@ -1,6 +1,6 @@
 // 생기부 탭: 데이터 받기 -> 나이스 화면 감지 -> 입력 -> 선생님 확인 -> 저장
 // 나중에 출결 확장에 합칠 때는 mount(root) 를 출결 사이드 패널의 '생기부' 탭에서 부른다.
-import { parseBatch, fromDriveData, applyNeisDone, itemsFor, limitFor, condLabel, groupSummary } from '../shared/sgb-model.js';
+import { neisBytes, parseBatch, fromDriveData, applyNeisDone, itemsFor, limitFor, condLabel, groupSummary } from '../shared/sgb-model.js';
 import { hasClientId, redirectUrl, getToken, forgetToken, download, upload, getMeta, metaStamp } from './sgb-drive.js';
 
 // shortcut: localhost 주소는 가상 나이스 시험용. 학교 배포 전 manifest 와 여기서 뺀다.
@@ -104,17 +104,18 @@ function itemState(it) {
   if (it.bytes > limit) return { key: 'manual', label: '직접 확인', why: `한도(${limit}바이트)를 넘습니다.`, cls: 'badge-missing' };
   const r = S.results[it.id];
   if (!r) return { key: 'wait', label: '대기', cls: '' };
+  if (r.status === 'existing') return { key: 'choose', label: '선택 필요', why: '나이스에 이미 글이 있어 넣지 않았습니다. 덮어쓸지 뒤에 이어쓸지 고르세요.', cls: 'badge-missing' };
+  if (r.status === 'contained') return { key: 'contained', label: '이미 포함됨', why: '나이스 글에 새 글이 이미 들어 있습니다.', cls: 'badge-info' };
   const why = {
-    existing: '나이스에 다른 글이 이미 있어 건너뛰었습니다.',
     name_mismatch: '나이스 이름과 다릅니다.',
     not_found: '나이스 표에 없는 번호입니다.',
     mismatch: '넣은 뒤 나이스 값이 보낸 글과 다릅니다.',
     locked: '나이스에서 입력할 수 없는 행입니다 (학생부 반영 또는 마감).',
-    too_long: `나이스 입력 가능 바이트(${r.capacity})를 넘습니다. 다른 학기 입력분 때문에 한도가 줄었을 수 있습니다.`,
+    too_long: `바이트 한도(${r.capacity})를 넘습니다. 교과세특은 다른 학기 입력분 때문에 한도가 줄었을 수 있습니다.`,
   }[r.status];
   if (why) return { key: 'manual', label: '직접 확인', why, cls: 'badge-missing' };
   if (r.status === 'already') return { key: 'already', label: '나이스에 같은 글', cls: 'badge-info' };
-  return { key: 'entered', label: '입력됨', cls: 'badge-neis-wait' };
+  return { key: 'entered', label: r.mode === 'append' ? '이어씀' : r.mode === 'overwrite' ? '덮어씀' : '입력됨', cls: 'badge-neis-wait' };
 }
 
 // 지금 화면에서 입력을 시작할 수 있는지. 안 되면 이유 문장
@@ -167,7 +168,7 @@ async function startFill() {
   addLog(`입력 시작: ${condLabel(S.run.cond)} ${targets.length}명`);
   render();
   try {
-    const res = await cmd('fill', { cond: S.run.cond, items: targets.map(({ id, grade, classNo, no, name, text }) => ({ id, grade, classNo, no, name, text })) });
+    const res = await cmd('fill', { cond: S.run.cond, items: targets.map((it) => fillItem(it)) });
     for (const r of res.results) S.results[r.id] = r;
     S.phase = 'review';
   } catch (e) {
@@ -188,7 +189,33 @@ async function stop() {
   detect();
 }
 
+// 나이스로 보내는 한 학생분 (mode: 이미 글이 있을 때 선생님이 고른 방식)
+const fillItem = (it, mode) => ({ id: it.id, grade: it.grade, classNo: it.classNo, no: it.no, name: it.name, text: it.text, limit: limitFor(S.data, it.area), mode });
+// 나이스에 이미 글이 있는 학생에게 선택한 방식으로 넣기 (ids 가 비면 선택 대기 중인 학생 모두)
+async function applyExisting(mode, ids) {
+  if (!S.run || S.phase !== 'review') return;
+  const pending = S.run.targets.filter((it) => S.results[it.id] && S.results[it.id].status === 'existing' && (!ids || ids.includes(it.id)));
+  if (!pending.length) return;
+  if (mode === 'overwrite' && !confirm(`나이스에 있는 글 ${pending.length}명분을 지우고 새 글로 바꿉니다.
+저장하기 전에는 나이스 [조회]로 원래대로 되돌릴 수 있습니다. 계속할까요?`)) return;
+  if (mode === 'append' && pending.length > 1 && !confirm(`나이스에 있는 글 ${pending.length}명분 뒤에 새 글을 이어 씁니다. 계속할까요?`)) return;
+  S.phase = 'filling';
+  S.progress = { done: 0, total: pending.length };
+  render();
+  try {
+    const res = await cmd('fill', { cond: S.run.cond, items: pending.map((it) => fillItem(it, mode)) });
+    for (const r of res.results) S.results[r.id] = r;
+    S.notice = null;
+  } catch (e) {
+    if (e.code !== 'aborted') S.notice = { kind: 'block', title: '입력을 멈췄습니다', body: `${e.message}
+저장하지 않았습니다. 나이스 [조회]를 누르면 입력 전으로 돌아갑니다.` };
+  }
+  S.phase = 'review';
+  render();
+}
+
 const enteredItems = () => (S.run ? S.run.targets.filter((it) => S.results[it.id] && S.results[it.id].status === 'entered') : []);
+const enteredText = (it) => { const r = S.results[it.id]; return r && r.entered != null ? r.entered : it.text; };
 const alreadyItems = () => (S.run ? S.run.targets.filter((it) => S.results[it.id] && S.results[it.id].status === 'already') : []);
 
 async function saveNow() {
@@ -197,9 +224,10 @@ async function saveNow() {
   S.notice = null;
   render();
   try {
-    await cmd('save', { cond: S.run.cond, expect: list.map((it) => ({ grade: it.grade, classNo: it.classNo, no: it.no, text: it.text })) });
+    await cmd('save', { cond: S.run.cond, expect: list.map((it) => ({ grade: it.grade, classNo: it.classNo, no: it.no, text: enteredText(it) })) });
     const doneAt = new Date().toISOString();
-    const saved = [...list, ...alreadyItems()].map((it) => ({ id: it.id, hash: it.hash, doneAt }));
+    // 이어쓴 학생은 나이스 글이 웹앱 최종본과 달라서 '입력 완료'로 표시하지 않는다
+    const saved = [...list.filter((it) => S.results[it.id].mode !== 'append'), ...alreadyItems()].map((it) => ({ id: it.id, hash: it.hash, doneAt }));
     for (const s of saved) S.done[s.id] = { hash: s.hash, doneAt };
     await saveKey(K.done, S.done);
     addLog(`저장 완료 ${list.length}명`);
@@ -328,11 +356,14 @@ function studentRow(it, showTexts) {
   const texts = showTexts && r && r.neisText != null
     ? `<details><summary class="small">두 글 비교</summary><div class="sgb-texts">
         <div><div class="sgb-text-label">보낸 글</div><div class="sgb-text">${esc(it.text)}</div></div>
-        <div><div class="sgb-text-label">나이스 현재 값</div><div class="sgb-text">${esc(r.neisText)}</div></div></div></details>` : '';
+        <div><div class="sgb-text-label">${r.status === 'entered' ? '나이스 원래 글 (바꾸기 전)' : '나이스 현재 값'}</div><div class="sgb-text">${esc(r.neisText)}</div></div></div></details>` : '';
+  const choose = showTexts && r && r.status === 'existing'
+    ? `<div class="btn-row"><button class="btn btn-secondary btn-sm" data-act="existing" data-id="${esc(it.id)}" data-mode="append">뒤에 이어쓰기</button>
+       <button class="btn btn-secondary btn-sm" data-act="existing" data-id="${esc(it.id)}" data-mode="overwrite">덮어쓰기</button></div>` : '';
   return `<li class="list-row plan-row"><span class="list-no">${it.no}</span>
     <div class="list-main"><div class="list-title">${esc(it.name)}</div>
       <div class="list-meta wrap">${it.bytes}바이트${st.why ? ` · ${esc(st.why)}` : ''}</div>${texts}</div>
-    <div class="list-side"><span class="badge ${st.cls}">${esc(st.label)}</span></div></li>`;
+    <div class="list-side"><span class="badge ${st.cls}">${esc(st.label)}</span>${choose}</div></li>`;
 }
 function studentsCard(list) {
   if (!list.length) return '';
@@ -347,13 +378,18 @@ function actions(list) {
   }
   if (S.phase === 'review') {
     const n = enteredItems().length;
-    return `<div class="callout"><div class="callout-who">선생님 확인</div>
-      <div class="callout-what">나이스 표에서 입력된 글을 확인하세요. '직접 확인' 학생은 자동으로 넣지 않았습니다.</div></div>
+    const waiting = S.run ? S.run.targets.filter((it) => S.results[it.id] && S.results[it.id].status === 'existing').length : 0;
+    const choose = waiting ? `<div class="callout"><div class="callout-who">나이스에 이미 글이 있는 학생 ${waiting}명</div>
+      <div class="callout-what">바로 덮어쓰지 않았습니다. 학생마다 고르거나 한꺼번에 고르세요. '두 글 비교'로 나이스 글과 보낸 글을 볼 수 있고, 저장하기 전에는 나이스 [조회]로 되돌릴 수 있습니다.</div>
+      <div class="btn-row"><button class="btn btn-secondary btn-sm" data-act="existing-all" data-mode="append">모두 뒤에 이어쓰기</button>
+      <button class="btn btn-secondary btn-sm" data-act="existing-all" data-mode="overwrite">모두 덮어쓰기</button></div></div>` : '';
+    return `${choose}<div class="callout"><div class="callout-who">선생님 확인</div>
+      <div class="callout-what">나이스 표에서 입력된 글을 확인하세요. '직접 확인'과 '선택 필요' 학생은 자동으로 넣지 않았습니다.</div></div>
       <button class="btn btn-primary btn-block" data-act="confirm" ${n ? '' : 'disabled'}>확인 완료 · 저장 (${n}명)</button>
       <button class="btn btn-danger-outline btn-block" data-act="stop">멈추기</button>`;
   }
   if (S.phase === 'confirm') {
-    const rows = enteredItems().map((it) => `<li>${it.no}번 ${esc(it.name)} (${it.bytes}바이트)</li>`).join('');
+    const rows = enteredItems().map((it) => { const m = S.results[it.id].mode; return `<li>${it.no}번 ${esc(it.name)} (${neisBytes(enteredText(it))}바이트${m === 'append' ? ', 이어씀' : m === 'overwrite' ? ', 덮어씀' : ''})</li>`; }).join('');
     return `<div class="callout"><div class="callout-who">저장 목록 ${enteredItems().length}명</div><ul class="warn-list small">${rows}</ul>
       <div class="callout-what">이 학생들의 글만 나이스에 저장합니다. 마감·확정은 누르지 않습니다.</div></div>
       <button class="btn btn-primary btn-block" data-act="save">이대로 저장</button>
@@ -399,6 +435,8 @@ async function onClick(ev) {
   else if (act === 'clear') clearAll();
   else if (act === 'survey') doSurvey();
   else if (act === 'values') doSurveyValues();
+  else if (act === 'existing') applyExisting(b.dataset.mode, [b.dataset.id]);
+  else if (act === 'existing-all') applyExisting(b.dataset.mode, null);
   else if (act === 'disconnect') { await forgetToken(); S.drive = { connected: false }; await saveKey(K.drive, S.drive); render(); }
 }
 

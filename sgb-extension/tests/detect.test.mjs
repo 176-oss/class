@@ -153,6 +153,49 @@ assert.equal((await makeEnv({ verified: false, screens: [] }).cmd('detect')).res
   assert.equal(sc.clicked, undefined);
 }
 
+// ---------- 5-2. 이미 글이 있을 때: 선택 전에는 넣지 않고, 덮어쓰기/이어쓰기는 선택한 학생만 ----------
+{
+  const sc = autonomy({ rows: [
+    { clsNo: '1', stuFlnm: '가나', speclActSpablMteCn: '원래 글입니다.  \n' },
+    { clsNo: '2', stuFlnm: '다라', speclActSpablMteCn: '다른 원래 글' },
+    { clsNo: '3', stuFlnm: '마바', speclActSpablMteCn: '새 글 포함된 원래 글 새 글' },
+    { clsNo: '4', stuFlnm: '사아', speclActSpablMteCn: '' },
+  ] });
+  const env = makeEnv({ verified: true, screens: [sc] });
+  const T = sc.table.rows;
+  const col = 'speclActSpablMteCn';
+  // (1) 선택 없이: 덮어쓰지 않음
+  let r = await env.cmd('fill', { cond: COND, items: [it('a', 1, '가나', '새 글'), it('b', 2, '다라', '새 글'), it('c', 3, '마바', '새 글')] });
+  assert.deepEqual(Array.from(r.result.results.map((x) => x.status)), ['existing', 'existing', 'contained']);
+  assert.equal(T[0].v[col], '원래 글입니다.  \n'); assert.equal(T[1].v[col], '다른 원래 글');
+  assert.equal(T[0].st, 1);
+  // (2) 이어쓰기: 기존 글 끝 공백 정리 + 구분 글자 + 새 글
+  r = await env.cmd('fill', { cond: COND, items: [{ ...it('a', 1, '가나', '새 글'), mode: 'append' }] });
+  assert.equal(r.result.results[0].status, 'entered'); assert.equal(r.result.results[0].mode, 'append');
+  assert.equal(T[0].v[col], '원래 글입니다. 새 글');
+  assert.equal(T[0].v.length, '28', '글과 함께 length 열도 맞춘다 (한글 8자 x 3 + 나머지 4)');
+  assert.equal(r.result.results[0].entered, '원래 글입니다. 새 글');
+  assert.equal(r.result.results[0].neisText, '원래 글입니다.');   // 바꾸기 전 글도 알려 줌
+  // 이미 들어 있는 글은 이어쓰기를 해도 또 붙이지 않음
+  r = await env.cmd('fill', { cond: COND, items: [{ ...it('c', 3, '마바', '새 글'), mode: 'append' }] });
+  assert.equal(r.result.results[0].status, 'contained'); assert.equal(T[2].v[col], '새 글 포함된 원래 글 새 글');
+  // (3) 덮어쓰기
+  r = await env.cmd('fill', { cond: COND, items: [{ ...it('b', 2, '다라', '새 글'), mode: 'overwrite' }] });
+  assert.equal(r.result.results[0].mode, 'overwrite'); assert.equal(T[1].v[col], '새 글'); assert.equal(T[1].st, 4);
+  assert.equal(r.result.results[0].neisText, '다른 원래 글');
+  // (4) 글이 없는 학생은 mode 와 상관없이 그냥 입력
+  r = await env.cmd('fill', { cond: COND, items: [{ ...it('d', 4, '사아', '처음 글'), mode: 'append' }] });
+  assert.equal(r.result.results[0].mode, null); assert.equal(T[3].v[col], '처음 글');
+  // (5) 이어쓴 결과가 바이트 한도를 넘으면 넣지 않음 (한도는 웹앱 한도 limit 로 전달)
+  T[1].v[col] = '가'.repeat(5); T[1].st = 1;                                   // 15바이트
+  r = await env.cmd('fill', { cond: COND, items: [{ ...it('e', 2, '다라', '나'.repeat(4)), mode: 'append', limit: 20 }] });   // 15 + 1 + 12 = 28 > 20
+  assert.equal(r.result.results[0].status, 'too_long'); assert.equal(r.result.results[0].capacity, 20);
+  assert.equal(T[1].v[col], '가'.repeat(5));
+  // 저장 직전 검사는 확장이 넣은 행(이어쓴 최종 글 포함)만 허용
+  const sv = await env.cmd('save', { cond: COND, expect: [{ grade: 3, classNo: 10, no: 1, text: '원래 글입니다. 새 글' }] });
+  assert.equal(sv.error.code, 'stray_change');   // 2번·4번 행도 바뀌어 있는데 expect 에 없음
+}
+
 // ---------- 6. 동아리: 학년·반은 표의 열에서 (번호만 같은 다른 반 학생을 구분) ----------
 {
   const sc = {

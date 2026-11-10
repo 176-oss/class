@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "생기부 도우미 - 나이스 연동",
   "short_name": "생기부 도우미",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAw2JJ9jxXS7sP54nJsrWaLom2UdOcLfQO5qGbz7NpUXQuVjya5PQdb8oQdVRiq7ot7TKGisPGFrWOyCk5gPrTgpLnGOIBuOPfzOlB4x2fMhM0m2bmPS3vq9Ul5ZW/kbGcEYd+DOFDK8S2wdcIkMhORh1Do/t9OO5MnuKm5ONRIQnaScip+zqjr+xAoLd9Igw6AR/qVD06v637vPR/Wb0QVxxFCE4oACyjgLMr8byyokKrfoWNO9q9VMxop1h/qws5f6S3PRGagAKFmAv8e0J60R8EWjTVUDQ+X7ZuYc31hPFrtipJ36m7xqFEoyhgL/gAkFi8RPlMQ57eGPNWEM6//wIDAQAB",
   "description": "생기부 작성 도우미에서 완료한 글을 나이스 생기부 입력 화면에 반자동으로 입력합니다. 선생님이 확인한 뒤에만 저장하며 마감·확정은 누르지 않습니다.",
   "icons": { "16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png" },

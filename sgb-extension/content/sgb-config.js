@@ -15,6 +15,7 @@
     semesterFallback: { ds: 'dsSwcSem', col: 'cd' },     // 자율·진로·행특은 dmSearch.sem 이 비어 있음
     closedFlags: { dm: 'dmScrgDdln', cols: ['scrgClsDdlnYn', 'scrgDdlnCfmtnYn', 'ddlnYn'] },
     input: { mode: 'dataset' },
+    lengthCol: 'length',      // 실제 입력은 이 열과 화면의 'N / 한도 Byte' 표시도 갱신한다 (행동특성에서 확인). 데이터셋 setValue 만으로는 갱신되지 않음
   });
 
   window.__sgbNeisConfig = {
@@ -31,6 +32,7 @@
         cols: { no: 'clsNo', name: 'stuFlnm', text: 'speclActSpablMteCn', grade: 'grd', classNo: 'clsCd' },
         search: { dm: 'dmSearch', schoolYear: 'ayr', semester: 'sem', grade: null, classNo: null, subject: null },
         rowLock: { col: 'scrgRfltYn', value: 'Y' },       // 이미 학생부에 반영된 학생은 건드리지 않음
+        lengthCol: 'length',
         closedFlags: { dm: 'dmScrgDdln', cols: ['scrgClsDdlnYn', 'scrgDdlnCfmtnYn', 'ddlnYn'] },
         input: { mode: 'dataset' },
       },
@@ -67,6 +69,9 @@
       { key: 'mock', label: '가상 화면', appId: 'MOCK_SGB_', ds: 'dsList', name: 'stuFlnm', text: 'spcfCn', len: 'length', textareas: ['txaSpcfCn'],
         searchKeys: ['schYr', 'shtm', 'grd', 'clsCd', 'actvAreaCd', 'sbjtNm'] },
     ],
+
+    // 나이스에 이미 글이 있을 때 [뒤에 이어쓰기]를 고르면 기존 글 끝(공백 정리 뒤)과 새 글 사이에 넣는 글자
+    appendSeparator: ' ',
 
     // 확장이 누를 수 있는 버튼 (이 목록 밖은 모두 거부). 조회는 선생님이 누른다.
     clickableIds: ['btnSave', 'btnConfirm'],
