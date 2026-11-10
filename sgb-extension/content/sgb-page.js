@@ -446,9 +446,9 @@
         const next = await waitFor(() => cmnDialogs().find((d) => d !== dlg && !before.has(d)), { timeout: 20000, what: '저장 결과 알림을 기다렸습니다.', code: 'save_no_alert' });
         const msg = cmnMessage(next);
         if (isConfirm(next)) throw new NeisError('neis_confirm', `저장 중 예상하지 못한 확인창이 떠서 멈췄습니다: ${msg}`, { message: msg });
-        if (normMsg(msg).replace(/\.$/, '') !== normMsg(D.saveDone).replace(/\.$/, '')) throw new NeisError('neis_alert', msg, { message: msg });
+        if (![].concat(D.saveDone).some((t) => normMsg(msg).replace(/\.$/, '') === normMsg(t).replace(/\.$/, ''))) throw new NeisError('neis_alert', msg, { message: msg });
         clickControl(next, 'btnConfirm');
-        log('나이스가 "저장했습니다."를 알렸습니다.');
+        log('나이스가 저장 완료를 알렸습니다.');
         // 저장 확인: 모든 행 상태 깨끗 + 넣은 글 유지 (저장 뒤 다시 조회되어도 같은 조건)
         let okCount = 0;
         await waitFor(() => {
