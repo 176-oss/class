@@ -20,6 +20,7 @@ const S = {
   notice: null,      // { kind: 'info'|'block', title, body }
   logs: [],
   survey: '',
+  values: '',
 };
 
 let root;
@@ -276,6 +277,10 @@ async function doSurvey() {
   try { S.survey = JSON.stringify(await cmd('survey'), null, 2); } catch (e) { toast(e.message); }
   render();
 }
+async function doSurveyValues() {
+  try { S.values = JSON.stringify(await cmd('surveyValues'), null, 2); } catch (e) { toast(e.message); }
+  render();
+}
 
 // ---------- 화면 ----------
 function noticeHtml(n) {
@@ -358,7 +363,9 @@ function toolsCard() {
        ${S.drive.connected ? '<button class="btn btn-ghost btn-sm" data-act="disconnect">구글 연결 끊기</button>' : ''}` : '';
   const survey = S.det && S.det.cpr
     ? `<button class="btn btn-secondary btn-sm" data-act="survey">화면 구조 기록 (읽기 전용)</button>
-       ${S.survey ? `<div class="small">아래 내용을 복사해 분석 문서에 붙이세요. 학생 정보 값은 들어 있지 않습니다.</div><textarea class="textarea sgb-survey" readonly>${esc(S.survey)}</textarea>` : ''}` : '';
+       ${S.survey ? `<div class="small">아래 내용을 복사해 분석 문서에 붙이세요. 학생 정보 값은 들어 있지 않습니다.</div><textarea class="textarea sgb-survey" readonly>${esc(S.survey)}</textarea>` : ''}
+       <button class="btn btn-secondary btn-sm" data-act="values">값 읽기 (읽기 전용)</button>
+       ${S.values ? `<div class="small">조회 조건 값, 마감 표시, 나이스 안내 메시지, 본문 길이 비교가 들어 있습니다. 학생 이름·번호·본문 글자는 들어 있지 않습니다. 나이스에서 조회를 마친 화면에서 누르세요.</div><textarea class="textarea sgb-values" readonly>${esc(S.values)}</textarea>` : ''}` : '';
   const logs = S.logs.slice(-80).map((l) => `<li class="is-${l.level}">${esc(timeStr(l.at))} ${esc(l.msg)}</li>`).join('');
   return `<details class="log"><summary>도구와 작업 기록</summary><div class="stack-sm">${survey}${drive}
     <ul class="log-lines">${logs || '<li>기록 없음</li>'}</ul></div></details>`;
@@ -384,6 +391,7 @@ async function onClick(ev) {
   else if (act === 'drive') pullDrive(true);
   else if (act === 'clear') clearAll();
   else if (act === 'survey') doSurvey();
+  else if (act === 'values') doSurveyValues();
   else if (act === 'disconnect') { await forgetToken(); S.drive = { connected: false }; await saveKey(K.drive, S.drive); render(); }
 }
 

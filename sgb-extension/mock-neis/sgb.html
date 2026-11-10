@@ -61,11 +61,13 @@
   const ds = {
     id: 'dsList', type: 'dataset',
     getRowCount: () => rows.length,
-    getColumnNames: () => ['clsNo', 'stuFlnm', 'spcfCn'],
-    getValue: (r, c) => (rows[r] ? rows[r].v[c] : undefined),
+    getColumnNames: () => ['clsNo', 'stuFlnm', 'spcfCn', 'length'],
+    getValue: (r, c) => (rows[r] ? (c === 'length' ? bytes(rows[r].v.spcfCn) : rows[r].v[c]) : undefined),
     setValue(r, c, x) { const row = rows[r]; row.v[c] = String(x); if (c === 'spcfCn') row.st = row.v.spcfCn === row.orig ? 1 : 4; render(); },
     getRowState: (r) => rows[r].st,
   };
+  const MSGS = [['MSG_SAVE', '저장하시겠습니까?'], ['MSG_DONE', '저장했습니다.']];
+  const msgDs = { id: 'dsExMessage', type: 'dataset', getRowCount: () => MSGS.length, getColumnNames: () => ['messageId', 'messageDiv'], getValue: (r, c) => MSGS[r][c === 'messageId' ? 0 : 1] };
   function btn(id, label, fn) { return { id, type: 'button', value: label, enabled: true, click: fn }; }
   const forbidden = (id) => () => { window.__mockViolations.push(id); };
   const controls = {
@@ -81,7 +83,7 @@
   };
   const main = {
     app: { id: SCREENS[screen] },
-    lookup: (id) => (id === 'dmSearch' ? dm : controls[id] || null),
+    lookup: (id) => (id === 'dmSearch' ? dm : id === 'dsExMessage' ? msgDs : controls[id] || null),
     getContainer: () => ({ getAllRecursiveChildren: () => Object.values(controls) }),
     getAllDataControls: () => [ds, dm],
   };

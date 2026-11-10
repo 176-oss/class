@@ -193,6 +193,99 @@
       return out;
     },
 
+    // 값 읽기 (읽기 전용): 조회 조건 값, 마감 표시, 입력칸 상태, 표 행 상태 개수, 본문 길이 비교(글자는 읽어 내보내지 않음),
+    // 나이스 안내 메시지(dsExMessage), 화면 제목, 콤보 선택 항목. 학생 이름·번호·생년월일·본문은 결과에 넣지 않고,
+    // 결과 어디에든 표의 학생 이름이 섞이면 '[이름]'으로 지운다.
+    async surveyValues() {
+      const SEARCH_KEYS = ['ayr', 'sem', 'dghtCrseScCd', 'ordScCd', 'grd', 'dddepCd', 'clsCd', 'actScCd', 'sbjtCd', 'sbjtNm', 'etbSbjtCd', 'etbClrmCd', 'osuCd', 'orgaCd',
+        'clubActDptScCd', 'clubActDptCd', 'clubActDptClsCd', 'dgr', 'enrScCd', 'classFinYn'];
+      const DDLN_KEYS = ['scrgClsDdlnYn', 'scrgDdlnCfmtnYn', 'coaDdlnYn', 'ddlnYn', 'ddlnInfoCn'];
+      const short = (v, n) => { const s = v == null ? '' : String(v); const m = n || 80; return s.length > m ? s.slice(0, m) + '...' : s; };
+      const count = (t, nl) => { let n = 0; for (const ch of String(t).replace(/\r\n?/g, '\n')) { const c = ch.codePointAt(0); if (ch === '\n') n += nl; else if ((c >= 0xAC00 && c <= 0xD7A3) || (c >= 0x3131 && c <= 0x318E)) n += 3; else n += 1; } return n; };
+      // 메서드 이름만 모은다 (값은 읽지 않음)
+      const fnNames = (o, re) => {
+        const set = new Set();
+        try {
+          let cur = o;
+          for (let i = 0; cur && i < 5; i++, cur = Object.getPrototypeOf(cur)) {
+            for (const k of Object.getOwnPropertyNames(cur)) {
+              const d = Object.getOwnPropertyDescriptor(cur, k);
+              if (d && typeof d.value === 'function' && re.test(k)) set.add(k);
+            }
+          }
+        } catch (e) { /* 무시 */ }
+        return [...set].sort().slice(0, 60);
+      };
+      const names = new Set();
+      const out = { at: new Date().toISOString(), url: location.origin + location.pathname, screens: [], headers: [], combos: [], messages: [] };
+      const all = instances() || [];
+
+      for (const p of CFG.probes || []) {
+        all.filter((i) => i && i.app && String(i.app.id || '').includes(p.appId)).forEach((inst, idx) => {
+          const sc = { key: p.key, label: p.label, appId: String(inst.app.id), instance: idx };
+          try { const dm = inst.lookup('dmSearch'); sc.search = {}; for (const k of (p.searchKeys || SEARCH_KEYS)) { let v; try { v = dm.getValue(k); } catch (e) { v = undefined; } if (v !== undefined) sc.search[k] = short(v, 40); } } catch (e) { sc.searchError = true; }
+          try { const dm = inst.lookup('dmScrgDdln'); if (dm) { sc.ddln = {}; for (const k of DDLN_KEYS) { let v; try { v = dm.getValue(k); } catch (e) { v = undefined; } if (v !== undefined) sc.ddln[k] = short(v, 120); } } } catch (e) { sc.ddlnError = true; }
+          sc.outputs = {};
+          for (const id of ['optDdln', 'optMagam']) { try { const c = inst.lookup(id); if (c) sc.outputs[id] = short(c.value != null && c.value !== '' ? c.value : c.text, 120); } catch (e) { /* 무시 */ } }
+          try {
+            let ds = null;
+            try { ds = inst.lookup(p.ds); } catch (e) { ds = null; }
+            const g = (() => { try { return inst.lookup('grdMain'); } catch (e) { return null; } })();
+            if (!ds || typeof ds.getRowCount !== 'function') ds = g && (g.dataSet || (typeof g.getDataSet === 'function' ? g.getDataSet() : null));
+            if (ds && typeof ds.getRowCount === 'function') {
+              const rc = ds.getRowCount();
+              const states = {}; const samples = []; let withText = 0, lenMin = null, lenMax = null;
+              for (let r = 0; r < rc; r++) {
+                const nm = ds.getValue(r, p.name); if (nm && String(nm).length >= 2) names.add(String(nm));
+                const st = ds.getRowState(r); states[st] = (states[st] || 0) + 1;
+                const raw = ds.getValue(r, p.text); const s = raw == null ? '' : String(raw);
+                const lv = p.len ? Number(ds.getValue(r, p.len)) : NaN;
+                if (Number.isFinite(lv)) { lenMin = lenMin === null ? lv : Math.min(lenMin, lv); lenMax = lenMax === null ? lv : Math.max(lenMax, lv); }
+                if (s) {
+                  withText++;
+                  if (samples.length < 6) {
+                    const smp = { neisLength: Number.isFinite(lv) ? lv : null, chars: [...s].length, hangul3_other1_nl1: count(s, 1), hangul3_other1_nl2: count(s, 2), utf8: new TextEncoder().encode(s).length, hasCR: s.includes('\r'), hasLF: s.includes('\n') };
+                    if (p.extra) { smp.extra = {}; for (const k of p.extra) { const n = Number(ds.getValue(r, k)); smp.extra[k] = Number.isFinite(n) ? n : null; } }
+                    samples.push(smp);
+                  }
+                }
+              }
+              sc.grid = { rowCount: rc, rowStates: states, rowsWithText: withText, lengthColumnMin: lenMin, lengthColumnMax: lenMax, samples };
+              sc.api = { dataset: fnNames(ds, /(value|rowstate|commit|reset|update|revert|dirty|modif|clone|insert|delete)/i), grid: g ? fnNames(g, /(edit|readonly|column|select|getrow|dataset|bind|focus|cell)/i) : [] };
+            } else { sc.gridError = '표 데이터를 찾지 못했습니다'; }
+          } catch (e) { sc.gridError = short(e && e.message, 80); }
+          sc.textareas = (p.textareas || []).map((id) => {
+            let c = null; try { c = inst.lookup(id); } catch (e) { c = null; }
+            if (!c) return { id, found: false };
+            return { id, found: true, type: c.type || '', enabled: c.enabled, readOnly: c.readOnly, maxLength: c.maxLength, bindApi: fnNames(c, /bind/i) };
+          });
+          out.screens.push(sc);
+        });
+      }
+
+      // 화면 제목, 콤보 선택 항목, 나이스 안내 메시지
+      const msgs = new Map();
+      for (const inst of all) {
+        const id = String(inst && inst.app && inst.app.id || '');
+        try {
+          if (id === 'udc/com/appHeader') { const t = inst.lookup('optTit'); out.headers.push(short(t && (t.value != null ? t.value : t.text), 60)); }
+          if (id === 'udc/sw/swc/udcSwcAuth') {
+            const d = inst.lookup('dsAuth'); const cols = typeof d.getColumnNames === 'function' ? d.getColumnNames() : [];
+            const rows = []; for (let r = 0; r < Math.min(d.getRowCount(), 10); r++) { const row = {}; for (const c of cols) row[c] = short(d.getValue(r, c), 40); rows.push(row); }
+            out.combos.push(rows);
+          }
+          const em = inst.lookup && inst.lookup('dsExMessage');
+          if (em && typeof em.getRowCount === 'function') for (let r = 0; r < Math.min(em.getRowCount(), 200); r++) { const a = short(em.getValue(r, 'messageId'), 40), b = short(em.getValue(r, 'messageDiv'), 160); msgs.set(`${a}|${b}`, [a, b]); }
+        } catch (e) { /* 무시 */ }
+      }
+      out.messages = [...msgs.values()];
+
+      // 마지막 안전망: 표의 학생 이름이 어디에든 섞였으면 지운다
+      let json = JSON.stringify(out);
+      for (const n of [...names].sort((a, b) => b.length - a.length)) json = json.split(n).join('[이름]');
+      return JSON.parse(json);
+    },
+
     // 조건에 맞는 학생들 본문 넣기. 이미 다른 글이 있는 학생, 이름 불일치, 표에 없는 학생은 넣지 않고 결과로 알린다.
     async fill(args, seq) {
       assertWrite();
@@ -301,7 +394,7 @@
     const { reqId, cmd, args } = d;
     const fn = Object.prototype.hasOwnProperty.call(commands, cmd) ? commands[cmd] : null;
     if (!fn) { post({ type: 'response', reqId, ok: false, error: { code: 'unknown', message: `알 수 없는 명령: ${cmd}` } }); return; }
-    const exclusive = !['detect', 'abort', 'survey', 'guardCheck'].includes(cmd);
+    const exclusive = !['detect', 'abort', 'survey', 'surveyValues', 'guardCheck'].includes(cmd);
     if (exclusive && busy) for (let i = 0; i < 40 && busy; i++) await sleep(50);
     if (exclusive && busy) { post({ type: 'response', reqId, ok: false, error: { code: 'busy', message: '이전 작업이 아직 끝나지 않았습니다.' } }); return; }
     if (exclusive) busy = true;

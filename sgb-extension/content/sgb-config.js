@@ -25,6 +25,20 @@ window.__sgbNeisConfig = {
   // 본문 넣는 방법: 'dataset' = 데이터셋 setValue, 'control' = 행 선택 뒤 입력칸 컨트롤 value 대입
   input: { mode: 'dataset', textControl: 'txaSpcfCn' },
 
+  // [값 읽기] 전용 (읽기만 함). 실제 화면 분석(docs/textgenerator-v2/나이스-생기부화면-구조-분석.md)에서 확인한 화면별 이름.
+  // 학생 이름·번호·본문은 읽어 내보내지 않고, 본문은 길이만 잰다. name 컬럼은 결과에 이름이 섞였을 때 지우는 용도로만 읽는다.
+  probes: [
+    { key: 'autonomy', label: '자율활동', appId: 'mis_sdlce00_m00', ds: 'dsScrgRec', name: 'stuFlnm', text: 'speclActSpablMteCn', len: 'length', textareas: ['txaSpeclActSpablMteCn'] },
+    { key: 'career', label: '진로활동', appId: 'mis_sdlce04_m00', ds: 'dsScrgRec', name: 'stuFlnm', text: 'speclActSpablMteCn', len: 'length', textareas: ['txaSpeclActSpablMteCn', 'txaHopRealm'] },
+    { key: 'club', label: '동아리활동', appId: 'mis_sdlce01_m06', ds: 'dsScrgRec', name: 'stuFlnm', text: 'speclActSpablMteCn', len: 'length', extra: ['sportsLength'], textareas: ['txaSpeclActSpablMteCn'] },
+    { key: 'behavior', label: '행동특성 및 종합의견', appId: 'mis_sdlbg00_m00', ds: 'dsScrgRec', name: 'stuFlnm', text: 'gnrlzOpiCn', len: 'length', textareas: ['txaGnrlz'] },
+    { key: 'subject', label: '교과 세부능력 및 특기사항', appId: 'mis_scrmc50_m00', ds: 'dsGridMain', name: 'stuFlnm', text: 'genDetaAbtSpablMteCn', len: 'genDetaAbtSpablMteCnLength',
+      extra: ['inputCanLeng', 'inputLen', 'totalLength', 'othSemInputLen', 'genGfcrRecMteCnLength'], textareas: ['txa1', 'txa2'] },
+    // 가상 나이스 화면(시험용). 실제 나이스에는 이 id가 없어 아무 일도 하지 않는다.
+    { key: 'mock', label: '가상 화면', appId: 'MOCK_SGB_', ds: 'dsList', name: 'stuFlnm', text: 'spcfCn', len: 'length', textareas: ['txaSpcfCn'],
+      searchKeys: ['schYr', 'shtm', 'grd', 'clsCd', 'actvAreaCd', 'sbjtNm'] },
+  ],
+
   // 확장이 누를 수 있는 버튼 (이 목록 밖은 모두 거부)
   clickableIds: ['btnSave', 'btnConfirm'],
   // 혹시 위 목록에 잘못 들어가도 절대 누르지 않을 버튼 (마감, 확정, 일괄 삭제, 가져오기, 반영, 출력)
