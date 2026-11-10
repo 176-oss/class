@@ -41,7 +41,7 @@ function makeEnv({ verified, screens }) {
   win.window = win;
   win.cpr = { core: { Platform: { INSTANCE: { getAllRunningAppInstances: () => insts } } } };
   const ctx = vm.createContext({ window: win, location: { hostname: 'goe.neis.go.kr', origin: 'https://goe.neis.go.kr', pathname: '/jsp/main.jsp' }, TextEncoder, setTimeout, JSON, Set, Map, Promise, Number, Math, String, Date, Object, Array, Error, RegExp });
-  const cfg = verified ? read('content/sgb-config.js').replace('verified: false', 'verified: true') : read('content/sgb-config.js');
+  const cfg = read('content/sgb-config.js').replace(/verified: (true|false)/, `verified: ${!!verified}`);
   vm.runInContext(cfg, ctx);
   vm.runInContext(read('content/sgb-page.js'), ctx);
   const nonce = 'n'.repeat(20);

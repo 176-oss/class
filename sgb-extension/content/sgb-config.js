@@ -19,8 +19,8 @@
   });
 
   window.__sgbNeisConfig = {
-    version: '0.4.1',          // manifest.json 의 version 과 같아야 한다 (tests/detect.test.mjs 가 확인). 사이드 패널이 옛 페이지 코드를 알아보는 데 쓴다
-    verified: false,
+    version: '0.4.2',          // manifest.json 의 version 과 같아야 한다 (tests/detect.test.mjs 가 확인). 사이드 패널이 옛 페이지 코드를 알아보는 데 쓴다
+    verified: true,
 
     screens: [
       classScreen('autonomy', 'autonomy', '자율·자치활동(자율활동)관리', 'edu/sw/mis/sdl/ce/mis_sdlce00_m00', '11', 'speclActSpablMteCn'),
