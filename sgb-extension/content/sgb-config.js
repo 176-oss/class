@@ -19,7 +19,7 @@
   });
 
   window.__sgbNeisConfig = {
-    version: '0.4.2',          // manifest.json 의 version 과 같아야 한다 (tests/detect.test.mjs 가 확인). 사이드 패널이 옛 페이지 코드를 알아보는 데 쓴다
+    version: '0.4.3',          // manifest.json 의 version 과 같아야 한다 (tests/detect.test.mjs 가 확인). 사이드 패널이 옛 페이지 코드를 알아보는 데 쓴다
     verified: true,
 
     screens: [

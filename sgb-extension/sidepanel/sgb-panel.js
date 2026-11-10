@@ -225,6 +225,14 @@ const alreadyItems = () => (S.run ? S.run.targets.filter((it) => S.results[it.id
 
 async function saveNow() {
   const list = enteredItems();
+  // 저장 직전 마지막 확인 팝업: 선생님이 직접 [확인]을 눌러야만 저장한다 (자동화로 대신 누르지 않는다)
+  const lines = list.slice(0, 15).map((it) => `${it.grade}학년 ${it.classNo}반 ${it.no}번 ${it.name} (${neisBytes(enteredText(it))}바이트)`).join(String.fromCharCode(10));
+  if (!confirm(`나이스에 ${list.length}명을 저장합니다.
+
+${lines}${list.length > 15 ? `
+... 외 ${list.length - 15}명` : ''}
+
+저장하면 나이스 [조회]로 되돌릴 수 없습니다. 저장할까요?`)) { toast('저장하지 않았습니다.'); return; }
   S.phase = 'saving';
   S.notice = null;
   render();
