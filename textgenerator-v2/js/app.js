@@ -9,6 +9,7 @@ import { startBridge, requestDone, onDoneList } from './ext-bridge.js';
 import { applyNeisDone } from './core/neis-export.js';
 import { rosterView } from './views/roster.js';
 import { writeView } from './views/write.js';
+import { gridView } from './views/grid.js';
 import { styleView } from './views/style.js';
 import { statusView } from './views/status.js';
 import { neisView } from './views/neis.js';
@@ -17,7 +18,8 @@ import { settingsView } from './views/settings.js';
 
 const ROUTES = [
   { name: 'roster', label: '명단', icon: 'users', view: rosterView },
-  { name: 'write', label: '작성', icon: 'pen', view: writeView },
+  { name: 'write', label: '작성', icon: 'pen', view: gridView },
+  { name: 'write-detail', label: '작성(자세히)', icon: 'pen', view: writeView, hidden: true },
   { name: 'style', label: '내 스타일', icon: 'brush', view: styleView },
   { name: 'status', label: '현황', icon: 'grid', view: statusView },
   { name: 'neis', label: 'NEIS 옮기기', icon: 'send', view: neisView },
@@ -86,8 +88,8 @@ const ctx = {
 };
 
 function renderNav(active) {
-  clear(navEl, ROUTES.map((r) => h('a', {
-    class: 'navtab', href: `#${r.name}`, 'aria-current': r.name === active ? 'page' : null,
+  clear(navEl, ROUTES.filter((r) => !r.hidden).map((r) => h('a', {
+    class: 'navtab', href: `#${r.name}`, 'aria-current': (r.name === active || (active === 'write-detail' && r.name === 'write')) ? 'page' : null,
   }, icon(r.icon), r.label)));
 }
 

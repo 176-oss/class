@@ -740,3 +740,10 @@ export async function refineDraft({ record, text, request, studentName, roster, 
 - 채우는 곳은 본문 칸만. 모드 `empty`(기본, 이미 글이 있으면 그대로) / `append`(공백 하나로 이어씀, 이미 포함되면 건드리지 않음) / `overwrite`. 완료가 아닌 글은 `includeNotDone`일 때만. 영역 바이트 한도(settings.limits)를 넘으면 채우지 않는다.
 - `fillWorkbookFile`이 원본을 읽어 칸만 글자(`t:s`)로 바꿔 `<원본이름>_작성기채움.xlsx`로 저장한다. 채울 칸이 없으면 파일을 만들지 않는다. SheetJS 무료판은 칸 꾸밈을 저장하지 못한다.
 - 명단 등록(`roster-parse.js`)은 `반/번호` 한 칸(8/1)도 읽는다.
+
+## 26. 작성 표 화면 (`js/views/grid.js`, `js/core/grid.js`)
+- 라우트 `#write`는 표 화면, `#write-detail`은 이전 학생별 패널 화면(메뉴에는 없고 [자세히]·현황에서 연결). 주소 파라미터 `class`·`area`·`student` 모양은 같다.
+- 표 행은 (학생, 반) 단위다. 교과세특은 반의 과목으로 기록을 찾는다 (`store.getRecord(studentId, 'subject', cls.subject)`). 표 안의 `rec`는 저장소가 바뀌면 낡으므로 언제나 `store.state.records.get(id)` + 저장 전 입력(`edits`)을 합친 `liveRec`로 읽는다.
+- 칸 입력은 기록별로 모아 0.6초 뒤 저장한다. 완료(done) 기록은 칸이 읽기 전용이고, 완료로 표시하려면 최종본이 있어야 한다.
+- `core/grid.js`: `checkCell`(= checkRecord + 맞춤법 `SPELLING_RULES` + 입력 오류 `findInputErrors`; 비슷한 글은 한 줄로 묶음), `tidyText`(NEIS 문자·연속 공백 정리 + 맞춤법), `composeMemo`(공통 특징 + 학생 메모), `planPaste`(skip/append/overwrite, 완료 건너뜀), `memoTargets`.
+- 초안은 학생마다 count 1로 차례로 만든다 (`createBatch`, 설정의 간격). 공통 특징·드러낼 모습·분량은 학생 메모와 합쳐 보낸다. 이름·학번은 지금처럼 AI로 보내지 않는다.
