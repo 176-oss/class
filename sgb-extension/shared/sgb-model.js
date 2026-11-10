@@ -149,3 +149,41 @@ export function groupSummary(items) {
   }
   return Array.from(m, ([label, n]) => `${label} ${n}명`);
 }
+
+// ---------- 불러온 파일(출처) 여러 개 ----------
+// data.sources: [{ id, kind: 'drive'|'excel'|'json'|'legacy', name, detail, receivedAt, count, on }]. 각 글의 it.src 가 출처 id.
+// 선생님이 일부 파일만 적용할 수 있도록 on 이 꺼진 출처의 글은 activeItems 에서 빠진다.
+export function ensureSources(data) {
+  if (!data || Array.isArray(data.sources)) return data;
+  const kind = data.source === 'drive' ? 'drive' : 'legacy';
+  const src = { id: kind === 'drive' ? 'drive' : 'legacy', kind, name: kind === 'drive' ? DATA_FILE_NAME : '이전에 불러온 파일', detail: kind === 'drive' ? '구글 드라이브' : '', receivedAt: data.receivedAt || null, count: (data.items || []).length, on: true };
+  return { ...data, sources: [src], items: (data.items || []).map((it) => ({ ...it, src: src.id })) };
+}
+export const activeItems = (data) => {
+  const d = ensureSources(data);
+  if (!d) return [];
+  const on = new Set(d.sources.filter((s) => s.on).map((s) => s.id));
+  return d.items.filter((it) => on.has(it.src));
+};
+// 새로 읽은 파일을 목록에 넣는다. 같은 출처 id 면 바꿔 넣는다. 학년도·학기가 이미 불러온 것과 다르면 이전 파일은 모두 뺀다 (replacedOthers).
+export function addSource(data, incoming, src) {
+  let base = ensureSources(data);
+  let replacedOthers = false;
+  const differs = (a, b) => a != null && b != null && Number(a) !== Number(b);
+  if (base && base.sources.some((s) => s.id !== src.id) && (differs(base.schoolYear, incoming.schoolYear) || differs(base.semester, incoming.semester))) {
+    base = { ...base, sources: base.sources.filter((s) => s.id === src.id), items: base.items.filter((it) => it.src === src.id) };
+    replacedOthers = true;
+  }
+  const sources = (base ? base.sources.filter((s) => s.id !== src.id) : []).concat([{ ...src, receivedAt: incoming.receivedAt || Date.now(), count: incoming.items.length, on: true }]);
+  const items = (base ? base.items.filter((it) => it.src !== src.id) : []).concat(incoming.items.map((it) => ({ ...it, src: src.id })));
+  const out = {
+    schoolYear: incoming.schoolYear ?? (base && base.schoolYear) ?? null,
+    semester: incoming.semester ?? (base && base.semester) ?? null,
+    limits: incoming.limits || (base && base.limits) || null,
+    receivedAt: incoming.receivedAt || Date.now(), skipped: incoming.skipped || 0, sources, items,
+  };
+  // 켜고 끈 상태는 같은 출처를 다시 받아도 유지한다
+  const prev = base && base.sources.find((s) => s.id === src.id);
+  if (prev) out.sources.find((s) => s.id === src.id).on = prev.on;
+  return { data: out, replacedOthers };
+}

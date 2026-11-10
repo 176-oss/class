@@ -1,6 +1,6 @@
 // node tests/model.test.mjs
 import assert from 'node:assert/strict';
-import { condLabel, normText, neisBytes, textHash, splitStudentId, parseBatch, fromDriveData, applyNeisDone, itemsFor, limitFor, groupSummary } from '../shared/sgb-model.js';
+import { addSource, activeItems, ensureSources, condLabel, normText, neisBytes, textHash, splitStudentId, parseBatch, fromDriveData, applyNeisDone, itemsFor, limitFor, groupSummary } from '../shared/sgb-model.js';
 import { textHash as webHash, buildNeisBatch } from '../../textgenerator-v2/js/core/neis-export.js';
 import { byteLength as webBytes } from '../../textgenerator-v2/js/core/bytes.js';
 
@@ -104,5 +104,31 @@ assert.deepEqual(file.records[0].neis, { hash: await webHash('글 A\r\n둘째 �
 before.records[0].neis = file.records[0].neis;
 assert.deepEqual(file, before); // 그 밖에는 아무것도 바뀌지 않음 (secrets, updatedAt 포함)
 await assert.rejects(applyNeisDone({ ...file, schemaVersion: 3 }, []), /더 새 버전/);
+
+// ---------- 불러온 파일 여러 개: 출처 표시, 일부만 적용 ----------
+{
+  const it = (no, text) => ({ id: 'x' + no, grade: 3, classNo: 5, no, name: '이' + no, area: 'autonomy', subject: null, text, bytes: 3, hash: 'h' + no });
+  const drv = { schoolYear: 2026, semester: 2, limits: { autonomy: 1500 }, receivedAt: 1, items: [it(1, '가'), it(2, '나')] };
+  const xl = { schoolYear: 2026, semester: 2, limits: null, receivedAt: 2, items: [it(3, '다')] };
+  let r = addSource(null, drv, { id: 'drive', kind: 'drive', name: 'sgb-data.json', detail: '' });
+  r = addSource(r.data, xl, { id: 'file:a.xlsx', kind: 'excel', name: 'a.xlsx', detail: '' });
+  assert.equal(r.replacedOthers, false);
+  assert.deepEqual(r.data.sources.map((x) => x.name + ':' + x.count), ['sgb-data.json:2', 'a.xlsx:1']);
+  assert.equal(activeItems(r.data).length, 3);
+  assert.deepEqual(r.data.limits, { autonomy: 1500 });
+  r.data.sources[0].on = false;
+  assert.deepEqual(activeItems(r.data).map((x) => x.src), ['file:a.xlsx']);
+  // 같은 파일을 다시 읽으면 바꿔 넣고, 켜고 끈 상태는 유지
+  const r2 = addSource(r.data, { ...drv, items: [it(1, '가')] }, { id: 'drive', kind: 'drive', name: 'sgb-data.json', detail: '' });
+  assert.equal(r2.data.sources.find((x) => x.id === 'drive').count, 1);
+  assert.equal(r2.data.sources.find((x) => x.id === 'drive').on, false);
+  // 학기가 다르면 이전 파일은 뺀다
+  const r3 = addSource(r.data, { ...xl, semester: 1 }, { id: 'file:b.xlsx', kind: 'excel', name: 'b.xlsx', detail: '' });
+  assert.equal(r3.replacedOthers, true);
+  assert.deepEqual(r3.data.sources.map((x) => x.id), ['file:b.xlsx']);
+  // 예전에 저장된 데이터(sources 없음)도 읽는다
+  const old = ensureSources({ source: 'drive', schoolYear: 2026, semester: 2, items: [it(1, '가')] });
+  assert.equal(old.sources[0].name, 'sgb-data.json'); assert.equal(old.items[0].src, 'drive');
+}
 
 console.log('model tests ok');

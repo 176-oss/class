@@ -1,7 +1,7 @@
 // 생기부 탭: 데이터 받기 -> 나이스 화면 감지 -> 입력 -> 선생님 확인 -> 저장
 // 나중에 출결 확장에 합칠 때는 mount(root) 를 출결 사이드 패널의 '생기부' 탭에서 부른다.
 import { parseExcelSheets, MAX_ROWS } from '../shared/sgb-excel.js';
-import { neisBytes, parseBatch, fromDriveData, applyNeisDone, itemsFor, limitFor, condLabel, groupSummary } from '../shared/sgb-model.js';
+import { neisBytes, parseBatch, fromDriveData, applyNeisDone, itemsFor, ensureSources, activeItems, addSource, limitFor, condLabel, groupSummary } from '../shared/sgb-model.js';
 import { hasClientId, redirectUrl, getToken, forgetToken, download, upload, getMeta, metaStamp } from './sgb-drive.js';
 
 // shortcut: localhost 주소는 가상 나이스 시험용. 학교 배포 전 manifest 와 여기서 뺀다.
@@ -45,7 +45,7 @@ function addLog(msg, level) {
 // ---------- 저장소 ----------
 async function loadState() {
   const o = await chrome.storage.local.get([K.data, K.done, K.drive]);
-  S.data = o[K.data] || null;
+  S.data = o[K.data] ? ensureSources(o[K.data]) : null;
   S.done = o[K.done] || {};
   S.drive = o[K.drive] || { connected: false };
 }
@@ -130,6 +130,7 @@ function blockReason(list) {
   if (!det.writeAllowed) return '실제 나이스 생기부 입력 방식을 아직 시험하지 않아 입력할 수 없습니다. 지금은 화면 감지와 값 읽기만 합니다.';
   if (det.closed) return det.closed;
   if (!S.data) return '먼저 생기부 글을 불러오세요.';
+  if (!activeItems(S.data).length) return '적용할 파일이 하나도 선택되어 있지 않습니다. "생기부 글"에서 적용할 파일을 체크하세요.';
   const c = det.cond;
   if (S.data.schoolYear && c.schoolYear && S.data.schoolYear !== c.schoolYear) return `나이스 화면은 ${c.schoolYear}학년도, 불러온 글은 ${S.data.schoolYear}학년도입니다.`;
   if (S.data.semester && c.semester && S.data.semester !== c.semester) return `나이스 화면은 ${c.semester}학기, 불러온 글은 ${S.data.semester}학기입니다.`;
@@ -142,11 +143,12 @@ function blockReason(list) {
 
 // ---------- 동작 ----------
 async function startFill() {
-  let list = itemsFor(S.data.items, S.det.cond);
+  let list = itemsFor(activeItems(S.data), S.det.cond);
   const reason = blockReason(list);
   if (reason) { toast(reason); return; }
   // 드라이브 글이면 입력 직전에 다시 받는다. 그 사이 웹앱에서 바뀐 글은 입력하지 않고 새 글을 보여 준 뒤 멈춘다 (계약 19절)
-  if (S.data.source === 'drive') {
+  const driveSrc = S.data.sources.find((x) => x.kind === 'drive' && x.on);
+  if (driveSrc) {
     let fresh;
     try { fresh = await fromDriveData((await download(await getToken(false))).data); } catch (e) {
       S.notice = { kind: 'block', title: '시작하지 않았습니다', body: `드라이브에서 최신 글을 받지 못했습니다. [드라이브에서 다시 받기]를 누르세요.\n${e.message}` };
@@ -154,13 +156,13 @@ async function startFill() {
       return;
     }
     const sig = (items) => itemsFor(items, S.det.cond).map((it) => `${it.id}:${it.hash}`).join(',');
-    if (sig(fresh.items) !== sig(S.data.items)) {
-      await setData(fresh);
+    if (sig(fresh.items) !== sig(S.data.items.filter((it) => it.src === 'drive'))) {
+      await setData(fresh, DRIVE_SRC());
       S.notice = { kind: 'info', title: '웹앱에서 바뀐 글을 새로 받았습니다', body: '학생 목록을 확인한 뒤 [입력 시작]을 다시 누르세요.' };
       render();
       return;
     }
-    list = itemsFor(S.data.items, S.det.cond);
+    list = itemsFor(activeItems(S.data), S.det.cond);
   }
   const targets = list.filter((it) => itemState(it).key === 'wait');
   S.run = { cond: S.det.cond, targets };
@@ -252,12 +254,14 @@ async function saveNow() {
 }
 
 // ---------- 데이터 ----------
-async function setData(d) {
-  S.data = d;
-  await saveKey(K.data, d);
+const DRIVE_SRC = (mod) => ({ id: 'drive', kind: 'drive', name: 'sgb-data.json', detail: `구글 드라이브 (웹앱이 저장한 전체 데이터)${mod ? ` · 드라이브 수정 ${timeStr(Date.parse(mod))}` : ''}` });
+async function setData(d, src) {
+  const r = addSource(S.data, d, src);
+  S.data = r.data;
+  await saveKey(K.data, S.data);
   S.results = {};
-  toast(`글 ${d.items.length}개를 불러왔습니다.`);
-  addLog(`데이터 불러옴 (${d.source}, ${d.items.length}개)`);
+  toast(`${src.name}: 글 ${d.items.length}개를 불러왔습니다.${r.replacedOthers ? ' 학년도·학기가 달라 이전에 불러온 파일은 뺐습니다.' : ''}`);
+  addLog(`불러옴: ${src.name} (${src.kind}, ${d.items.length}개)`);
   render();
 }
 // 엑셀(.xlsx, .xls) 읽기: 크기·시트·행 수를 제한하고 수식·서식은 읽지 않는다
@@ -288,28 +292,28 @@ function excelNotice(d) {
 }
 async function importFile(file) {
   try {
-    if (/\.xlsx?$/i.test(file.name)) {
+    if (/.xlsx?$/i.test(file.name)) {
       const d = await readExcel(file);
-      await setData(d);
+      await setData(d, { id: 'file:' + file.name, kind: 'excel', name: file.name, detail: '엑셀 파일 (' + (d.notes.sheetsRead) + '개 시트)' });
       S.notice = excelNotice(d);
       render();
       return;
     }
     const d = await parseBatch(await file.text());
-    await setData(d);
-    if (d.skipped) toast(`글 ${d.items.length}개를 불러왔습니다. 학생 이름이 없는 ${d.skipped}개는 뺐습니다.`);
-  } catch (e) { toast(e.message); }
+    await setData(d, { id: 'file:' + file.name, kind: 'json', name: file.name, detail: '작성기 NEIS 입력 파일' });
+    if (d.skipped) toast(`학생 이름이 없는 ${d.skipped}개는 뺐습니다.`);
+  } catch (e) { toast(file.name + ': ' + e.message); }
 }
 async function pullDrive(interactive) {
   try {
     const token = await getToken(interactive);
-    const { fileId, data } = await download(token);
+    const { fileId, data, modifiedTime } = await download(token);
     if (!fileId) { toast('드라이브에 생기부 데이터(sgb-data.json)가 없습니다. 웹앱에서 드라이브 연결을 먼저 하세요.'); return; }
     S.drive = { connected: true, lastSyncAt: Date.now() };
     await saveKey(K.drive, S.drive);
     const d = await fromDriveData(data);
-    await setData(d);
-    if (d.skipped) toast(`글 ${d.items.length}개를 불러왔습니다. 학생 이름이나 번호가 없는 ${d.skipped}개는 뺐습니다.`);
+    await setData(d, DRIVE_SRC(modifiedTime));
+    if (d.skipped) toast(`학생 이름이나 번호가 없는 ${d.skipped}개는 뺐습니다.`);
     await pushDoneToDrive(); // 전에 못 올린 입력 완료가 있으면 이때 올린다
   } catch (e) { toast(e.message); }
 }
@@ -340,6 +344,21 @@ async function clearAll() {
   await chrome.storage.local.remove([K.data, K.done]);
   S.data = null; S.done = {}; S.results = {};
   toast('이 PC의 생기부 데이터를 지웠습니다.');
+  render();
+}
+async function toggleSource(id, on) {
+  const x = S.data && S.data.sources.find((y) => y.id === id);
+  if (!x || S.phase !== 'idle') { render(); return; }
+  x.on = !!on;
+  S.results = {};
+  await saveKey(K.data, S.data);
+  render();
+}
+async function removeSource(id) {
+  if (!S.data || S.phase !== 'idle') return;
+  S.data = { ...S.data, sources: S.data.sources.filter((x) => x.id !== id), items: S.data.items.filter((it) => it.src !== id) };
+  if (!S.data.sources.length) { await chrome.storage.local.remove([K.data]); S.data = null; } else await saveKey(K.data, S.data);
+  S.results = {};
   render();
 }
 async function doSurvey() {
@@ -375,12 +394,22 @@ function screenCard() {
     ? `<div class="hint">${det.mock ? '가상 나이스 화면입니다 (시험용).' : '실제 입력 방식 시험 전이라 읽기만 합니다.'}</div>` : '';
   return `<section class="card"><div class="section-title">나이스 화면 <span class="small muted">확장 v${esc(EXT_VER)}</span></div>${body}${verifyNote}</section>`;
 }
+function sourceRow(x) {
+  const kind = { drive: '드라이브', excel: '엑셀', json: '입력 파일', legacy: '파일' }[x.kind] || '파일';
+  return `<li class="list-row"><label class="list-main"><input type="checkbox" data-act="toggle" data-id="${esc(x.id)}" ${x.on ? 'checked' : ''} ${S.phase === 'idle' ? '' : 'disabled'}>
+    <span class="strong">${esc(x.name)}</span>
+    <div class="list-meta wrap">${esc(kind)}${x.detail ? ` · ${esc(x.detail)}` : ''} · 글 ${x.count}개 · ${esc(timeStr(x.receivedAt))} 받음</div></label>
+    <div class="list-side"><button class="btn btn-ghost btn-sm" data-act="remove" data-id="${esc(x.id)}" ${S.phase === 'idle' ? '' : 'disabled'}>빼기</button></div></li>`;
+}
 function dataCard() {
   const d = S.data;
+  const act = d ? activeItems(d) : [];
   const summary = d
-    ? `<div class="small">${esc([d.schoolYear && `${d.schoolYear}학년도`, d.semester && `${d.semester}학기`].filter(Boolean).join(' '))} · ${d.source === 'drive' ? '드라이브' : '파일'}에서 ${esc(timeStr(d.receivedAt))} 받음</div>
-       <ul class="warn-list small">${groupSummary(d.items).map((g) => `<li>${esc(g)}</li>`).join('')}</ul>`
-    : '<div class="muted small">불러온 글이 없습니다. 웹앱에서 상태가 \'완료\'인 글만 가져옵니다. [파일 불러오기]는 웹앱의 NEIS 입력 파일(JSON)과 엑셀(.xlsx)을 읽습니다.</div>';
+    ? `<div class="small">${esc([d.schoolYear && `${d.schoolYear}학년도`, d.semester && `${d.semester}학기`].filter(Boolean).join(' '))} · 불러온 파일 ${d.sources.length}개 중 ${d.sources.filter((x) => x.on).length}개 적용</div>
+       <ul class="list">${d.sources.map(sourceRow).join('')}</ul>
+       <div class="small muted">체크한 파일의 글만 나이스에 입력합니다. 같은 학생이 두 파일에 있으면 '직접 확인'으로 나오니 한쪽만 체크하세요.</div>
+       <ul class="warn-list small">${groupSummary(act).map((g) => `<li>${esc(g)}</li>`).join('')}</ul>`
+    : '<div class="muted small">불러온 글이 없습니다. 웹앱에서 상태가 &quot;완료&quot;인 글만 가져옵니다. [파일 불러오기]는 웹앱의 NEIS 입력 파일(JSON)과 엑셀(.xlsx)을 읽으며, 여러 파일을 한꺼번에 고를 수 있습니다.</div>';
   const drive = hasClientId()
     ? `<button class="btn btn-secondary btn-sm" data-act="drive">${S.drive.connected ? '드라이브에서 다시 받기' : '구글 드라이브에서 받기'}</button>` : '';
   return `<section class="card stack-sm"><div class="section-title">생기부 글</div>${summary}
@@ -452,7 +481,7 @@ function toolsCard() {
 }
 function render() {
   if (!root) return;
-  const list = S.data && S.det && S.det.cond ? itemsFor(S.data.items, (S.run && S.run.cond) || S.det.cond) : [];
+  const list = S.data && S.det && S.det.cond ? itemsFor(activeItems(S.data), (S.run && S.run.cond) || S.det.cond) : [];
   const open = root.querySelector('details.log') && root.querySelector('details.log').open;
   root.innerHTML = `${noticeHtml(S.notice)}${screenCard()}${dataCard()}${studentsCard(list)}<section class="stack-sm">${actions(list)}</section>${toolsCard()}`;
   if (open) root.querySelector('details.log').open = true;
@@ -470,6 +499,8 @@ async function onClick(ev) {
   else if (act === 'file') document.getElementById('sgbFile').click();
   else if (act === 'drive') pullDrive(true);
   else if (act === 'clear') clearAll();
+  else if (act === 'toggle') toggleSource(b.dataset.id, b.checked);
+  else if (act === 'remove') removeSource(b.dataset.id);
   else if (act === 'survey') doSurvey();
   else if (act === 'values') doSurveyValues();
   else if (act === 'existing') applyExisting(b.dataset.mode, [b.dataset.id]);
@@ -480,7 +511,7 @@ async function onClick(ev) {
 export async function mount(el) {
   root = el;
   root.addEventListener('click', onClick);
-  document.getElementById('sgbFile').addEventListener('change', (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) importFile(f); });
+  document.getElementById('sgbFile').addEventListener('change', (e) => { const fs = Array.from(e.target.files || []); e.target.value = ''; (async () => { for (const f of fs) await importFile(f); })(); });
   await loadState();
   render();
   await detect();
