@@ -42,12 +42,10 @@ function notice() {
 
 // ---------- 시작 ----------
 function startView() {
-  const schoolOpts = [['mid', '중학교'], ['high', '고등학교']];
   const areaSelect = h('select', { id: 'pick-area' },
     h('option', { value: '' }, '자동 (시트 이름으로)'),
     areasFor(S.school).map((a) => h('option', { value: a.id }, a.label)));
   if (pasteMeta?.area && areaById(pasteMeta.area)) areaSelect.value = pasteMeta.area;
-  const subjectInput = h('input', { type: 'text', id: 'pick-subject', maxlength: 40, value: pasteMeta?.subject || '', placeholder: '세특일 때 과목 이름 (예: 공통국어1)' });
   const paste = h('textarea', { id: 'paste', 'aria-describedby': 'paste-help', value: pasteText, oninput: (e) => { pasteText = e.target.value; } });
   const file = h('input', { type: 'file', id: 'file', accept: '.xlsx,.xls,.csv', onchange: (e) => onFile(e.target.files?.[0], e.target) });
   const fileField = h('div', { class: 'field' }, h('label', { for: 'file' }, '엑셀 올리기 (끌어다 놓기 가능, 5MB까지)'), file);
@@ -57,24 +55,16 @@ function startView() {
     h('h2', '생기부 점검'),
     h('p', { class: 'muted' }, '올린 엑셀과 글은 이 페이지 안에서만 다루고 저장하지 않습니다. 페이지를 닫으면 사라집니다.'),
     notice(),
-    h('section', { class: 'card stack', 'aria-labelledby': 's1' },
-      h('h3', { id: 's1' }, '1. 학교급과 학년'),
-      h('fieldset', null, h('legend', '학교급'),
-        h('div', { class: 'row' }, schoolOpts.map(([v, l]) => h('label', { class: 'check' },
-          h('input', { type: 'radio', name: 'school', value: v, checked: S.school === v, onchange: () => { S.school = v; if (S.items.length) recheck(); render(); } }), l)))),
-      h('div', { class: 'field' }, h('label', { for: 'grade' }, '학년'),
-        h('select', { id: 'grade', value: String(S.grade), onchange: (e) => { S.grade = Number(e.target.value); if (S.items.length) recheck(); } },
-          [1, 2, 3].map((g) => h('option', { value: String(g) }, `${g}학년`))))),
     h('section', { class: 'card stack', 'aria-labelledby': 's2' },
-      h('h3', { id: 's2' }, '2. 항목'),
+      h('h3', { id: 's2' }, '1. 항목'),
+      h('p', { class: 'muted' }, `${S.school === 'high' ? '고등학교' : '중학교'} 기준으로 점검합니다. `, h('button', { type: 'button', class: 'btn', onclick: () => go('settings') }, '설정에서 학교급 바꾸기')),
       h('div', { class: 'field' }, h('label', { for: 'pick-area' }, '점검할 항목'), areaSelect,
-        h('span', { class: 'muted' }, '엑셀 시트 이름이 자율, 동아리, 진로, 행특, 세특_국어처럼 되어 있으면 저절로 고릅니다.')),
-      h('div', { class: 'field' }, h('label', { for: 'pick-subject' }, '과목 (세특)'), subjectInput)),
+        h('span', { class: 'muted' }, '엑셀 시트 이름이 자율, 동아리, 진로, 행특, 세특_국어처럼 되어 있으면 저절로 고릅니다.'))),
     h('section', { class: 'card stack', 'aria-labelledby': 's3' },
-      h('h3', { id: 's3' }, '3. 글 넣기'),
+      h('h3', { id: 's3' }, '2. 글 넣기'),
       h('div', { class: 'row' },
         h('button', { type: 'button', class: 'btn', onclick: downloadTemplate }, '양식 내려받기'),
-        h('span', { class: 'muted' }, '학번 | 이름 | 과목 | 내용. 과목은 세특에서만 씁니다.')),
+        h('span', { class: 'muted' }, '학번 | 이름 | 과목 | 내용. 세특은 과목 칸을 채우면 같은 과목끼리 비교하고, 공통과목 1·2 합산을 봅니다.')),
       fileField,
       pending ? pendingView() : null,
       h('div', { class: 'field' }, h('label', { for: 'paste' }, '또는 붙여넣기'),
@@ -126,7 +116,7 @@ function onPaste() {
   const text = pasteText.replace(/\r\n?/g, '\n');
   if (!text.trim()) { S.notice = { kind: 'error', text: '붙여넣은 글이 없습니다.' }; render(); return; }
   const area = document.getElementById('pick-area').value;
-  const subject = document.getElementById('pick-subject').value.trim();
+  const subject = pasteMeta?.subject || '';
   let groups;
   if (text.includes('\t')) {
     const r = parseSheets([{ name: '붙여넣기', rows: parseTsv(text) }]);
@@ -277,8 +267,6 @@ function receiveBatch() {
   try { got = takeBatch(window.localStorage, 'textgenerator-v2'); } catch { return false; }
   if (!got) return false;
   if (got.school) S.school = got.school;
-  const g = Number(String(got.groups[0]?.items[0]?.studentId || '')[0]);
-  if (g >= 1 && g <= 3) S.grade = g;
   const groups = got.groups.map((x) => ({
     sheetName: '작성 도우미', area: x.area, subject: x.subject,
     rows: x.items.map((i) => ({ studentId: i.studentId, name: i.name, subject: x.subject, text: i.text.slice(0, 5000), tooLong: i.text.length > 5000 })),
@@ -286,7 +274,7 @@ function receiveBatch() {
   startCheck(groups);
   if (!S.items.length) return true;
   const n = groups.reduce((a, x) => a + x.rows.length, 0);
-  S.notice = { kind: 'info', text: `작성 도우미에서 ${n}명의 글을 받아 점검했습니다 (${S.school === 'high' ? '고등학교' : '중학교'} ${S.grade}학년 기준). 학교급이나 학년이 다르면 시작 화면에서 바꾸세요.` };
+  S.notice = { kind: 'info', text: `작성 도우미에서 ${n}명의 글을 받아 점검했습니다 (${S.school === 'high' ? '고등학교' : '중학교'} 기준). 학교급이 다르면 설정에서 바꾸세요.` };
   render();
   return true;
 }

@@ -38,7 +38,6 @@ export function saveSettings() {
 export const S = {
   view: 'start',
   school: settings.school,
-  grade: 1,
   items: [], // { key, studentId, name, area, subject, original, current, history, excepted: Map(key->reason), dismissed: Set, ai: [], aiNote, tooLong }
   classIssues: new Map(),
   results: new Map(), // key -> { issues, bytes, limit }
@@ -57,7 +56,7 @@ export const allNames = () => [...new Set(S.items.map((i) => i.name).filter(Bool
 
 export function itemCtx(it) {
   return {
-    school: S.school, grade: S.grade, area: it.area, subject: it.subject,
+    school: S.school, area: it.area, subject: it.subject,
     limitBytes: byteLimit(it.area, S.school, settings.limits),
     names: allNames(), schoolWords: settings.schoolWords, schoolYear: schoolYear(), events: settings.events,
   };
@@ -67,7 +66,7 @@ export function itemCtx(it) {
 export function recheck(it) {
   const list = it ? [it] : S.items;
   for (const x of list) S.results.set(x.key, x.current.trim() ? checkText(x.current, itemCtx(x)) : { issues: [], bytes: 0, limit: itemCtx(x).limitBytes });
-  S.classIssues = checkClass(S.items.map((x) => ({ key: x.key, studentId: x.studentId, name: x.name, area: x.area, subject: x.subject, text: x.current })), { school: S.school, grade: S.grade });
+  S.classIssues = checkClass(S.items.map((x) => ({ key: x.key, studentId: x.studentId, name: x.name, area: x.area, subject: x.subject, text: x.current })), { school: S.school });
 }
 
 /** 지적 전부 (규칙 + 반 전체 + AI). off: 예외 처리·그대로 둠 */

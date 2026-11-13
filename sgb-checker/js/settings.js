@@ -23,7 +23,7 @@ export function renderSettings({ render }) {
     h('section', { class: 'card stack', 'aria-labelledby': 'st-school' },
       h('h3', { id: 'st-school' }, '학교급 기본값'),
       h('div', { class: 'row' }, [['mid', '중학교'], ['high', '고등학교']].map(([v, l]) => h('label', { class: 'check' },
-        h('input', { type: 'radio', name: 'def-school', value: v, checked: settings.school === v, onchange: () => { settings.school = v; if (!S.items.length) S.school = v; save('학교급 기본값을 바꿨습니다.'); } }), l)))),
+        h('input', { type: 'radio', name: 'def-school', value: v, checked: settings.school === v, onchange: () => { settings.school = v; S.school = v; save('학교급을 바꿨습니다.'); } }), l)))),
 
     h('section', { class: 'card stack', 'aria-labelledby': 'st-limit' },
       h('h3', { id: 'st-limit' }, `영역별 한도 (${school === 'high' ? '고등학교' : '중학교'}, 글자 수)`),

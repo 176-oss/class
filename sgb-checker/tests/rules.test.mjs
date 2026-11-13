@@ -6,7 +6,7 @@ import { toNounEnding } from '../rules/text.js';
 import { applyFix, tidy, diff } from '../rules/fix.js';
 import { byteLimit, commonSubjectBase, areaFromSheetName } from '../rules/areas.js';
 
-const ctx = (o = {}) => ({ school: 'mid', grade: 1, area: 'autonomy', subject: '', limitBytes: 1500, names: [], schoolWords: [], schoolYear: 2026, ...o });
+const ctx = (o = {}) => ({ school: 'mid', area: 'autonomy', subject: '', limitBytes: 1500, names: [], schoolWords: [], schoolYear: 2026, ...o });
 const ids = (text, o) => checkText(text, ctx(o)).issues.map((i) => i.ruleId);
 const find = (text, rule, o) => checkText(text, ctx(o)).issues.filter((i) => i.ruleId === rule);
 
@@ -195,9 +195,8 @@ test('소논문: 고등학교 탐구 과목은 확인, 그 밖 과목은 오류'
   assert.equal(find('소논문을 작성함.', 'forbidden-thesis-subject', { school: 'mid', area: 'subject', subject: '수학과제탐구' })[0].level, 'error');
 });
 
-test('항목별: 3학년 자율·자치, 동아리명 반복, 자율동아리 소개, 행특 성장 관점', () => {
-  assert.ok(ids('자율·자치활동 시간에 참여함.', { grade: 3 }).includes('grade3-autonomy'));
-  assert.ok(!ids('자율·자치활동 시간에 참여함.', { grade: 2 }).includes('grade3-autonomy'));
+test('항목별: 동아리명 반복, 자율동아리 소개, 행특 성장 관점 (영역 이름 규칙은 없음)', () => {
+  assert.ok(!ids('자율·자치활동 시간에 참여함.').some((x) => x.startsWith('grade')));
   assert.ok(ids('(로봇반) 로봇반에서 코딩을 익힘.', { area: 'club' }).includes('club-name-repeat'));
   assert.ok(ids('(위드유: 자율동아리) 소외 계층을 위한 봉사를 꾸준히 실천하는 학생들이 모인 동아리', { area: 'club', school: 'high' }).includes('club-intro-length'));
   assert.ok(!ids('(위드유: 자율동아리) 소외 계층을 위한 봉사동아리', { area: 'club', school: 'high' }).includes('club-intro-length'));
@@ -246,12 +245,11 @@ test('고등학교 공통과목 1·2 합산 500자', () => {
     { key: 'b', studentId: '10101', area: 'subject', subject: '공통국어2', text: t },
     { key: 'c', studentId: '10102', area: 'subject', subject: '공통국어1', text: t },
   ];
-  const m = checkClass(rows, { school: 'high', grade: 1 });
+  const m = checkClass(rows, { school: 'high' });
   assert.ok(m.get('a').some((i) => i.ruleId === 'common-sum'));
   assert.ok(m.get('b').some((i) => i.ruleId === 'common-sum'));
   assert.ok(!m.get('c').some((i) => i.ruleId === 'common-sum'));
-  assert.ok(!checkClass(rows, { school: 'high', grade: 3 }).get('a').some((i) => i.ruleId === 'common-sum'));
-  assert.ok(!checkClass(rows, { school: 'mid', grade: 1 }).get('a').some((i) => i.ruleId === 'common-sum'));
+  assert.ok(!checkClass(rows, { school: 'mid' }).get('a').some((i) => i.ruleId === 'common-sum'));
 });
 
 test('시트 이름으로 항목 알아보기', () => {

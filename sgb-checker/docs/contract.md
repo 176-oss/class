@@ -69,12 +69,11 @@
 | `neis-char` | 확인 | NEIS 입력 |
 | `date-format` | 확인 | 중 77, 고 82 |
 | `exaggeration` | 확인 | 중 19, 고 19 |
-| `grade3-autonomy` | 확인 | 중 162, 고 208 |
 | `club-name-repeat` | 확인 | 중 79, 고 84 (동아리명은 NEIS가 자동 표기) |
 | `club-intro-length` | 확인 | 중 79, 고 84 |
 | `behavior-negative` | 확인 | 중 115, 고 158 |
 | `similar` (90% 이상), `repeat-sentence` (3명 이상) | 확인 | 중 77, 고 82 |
-| `common-sum` (고 1~2학년 공통과목 1·2 합산 1,500바이트) | 오류 | 고 208 |
+| `common-sum` (고 공통과목 1·2 합산 1,500바이트. 공통과목은 2022 개정 1·2학년에만 있어 학년은 보지 않음) | 오류 | 고 208 |
 | `forbidden-<id>` | `forbidden.json` 항목별 | 항목별 |
 | `forbidden-school-word` (설정의 학교 이름, 고등학교) | 오류 | 고 19 |
 | `too-long` (엑셀 셀 5,000자 넘음) | 오류 | - |
@@ -156,3 +155,8 @@ localStorage `sgb-handoff` =
 - `rules/events.js` (순수): `canonDate`(하루 `2026.03.04.`, 기간 `2026.03.04.-2026.03.06.`), `parseEventList`(붙여넣기 줄 또는 표 -> `{ events, errors }`, 최대 300개), `checkEvents(text, events, year)`.
 - 지적: `event-date`(이름 같고 날짜 다름, fix=목록 날짜), `event-name`(날짜는 목록에 있고 이름 다름), `event-unknown`(목록에 없는 괄호 속 날짜), `event-no-date`(목록 이름 뒤 날짜 없음, fix=`행사명(날짜)`). 모두 '확인'. 자율·진로(`EVENT_AREAS`)에서 목록이 있을 때만.
 - 목록은 설정 `settings.events` 로 localStorage 에만 둔다 (불러올 때 `canonDate` 로 다시 검사). `itemCtx.events` 로 넘긴다.
+
+## 12. 학교급·학년·과목 입력 빼기 (2026-11-13)
+- 시작 화면에서 학교급, 학년, 과목 칸을 뺐다. 학교급은 설정 값(`settings.school`)을 쓰고 설정에서 바꾸면 바로 다시 점검한다. 작성 도우미에서 받은 글은 보낸 학교급을 쓴다.
+- 학년 규칙 `grade3-autonomy`(3학년 '자율·자치' 표기)는 지웠다 (선생님: 글에 영역 이름을 쓰지 않음). `checkClass` 는 `grade` 를 받지 않는다.
+- 세특 과목은 엑셀의 과목 칸이나 `세특_과목` 시트 이름에서만 읽는다. 과목 없이 붙여넣은 세특은 한 과목으로 보고 비교한다.

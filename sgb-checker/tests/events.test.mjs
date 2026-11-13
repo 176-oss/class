@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { canonDate, parseEventList, checkEvents, eventLabel } from '../rules/events.js';
 import { checkText } from '../rules/check.js';
 
-const ctx = (o = {}) => ({ school: 'mid', grade: 1, area: 'autonomy', subject: '', limitBytes: 1500, names: [], schoolWords: [], schoolYear: 2026, ...o });
+const ctx = (o = {}) => ({ school: 'mid', area: 'autonomy', subject: '', limitBytes: 1500, names: [], schoolWords: [], schoolYear: 2026, ...o });
 
 test('canonDate: 하루·기간을 기재요령 꼴로', () => {
   assert.equal(canonDate('2026-3-4'), '2026.03.04.');
