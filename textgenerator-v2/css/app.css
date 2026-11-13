@@ -193,6 +193,7 @@ a.sync-status-text { text-decoration: underline; }
 .grid-group th { text-align: left; background: var(--color-surface-sunken); font-weight: var(--fw-semibold); }
 .grid-table tr.has-issue > td:nth-child(5) .grid-ta { border-color: var(--color-danger); }
 .grid-table tr.is-done > td { background: var(--color-bg); }
+.grid-table-actions { display: flex; justify-content: flex-end; }
 .grid-issue-cell { font-size: var(--fs-sm); }
 .grid-issue-cell .row { flex-wrap: wrap; }
 /* 점검 지적 줄: 학생 행 바로 아래, 메모부터 끝까지 넓게. 지적은 점 + 글로 가로로 이어 쓴다 */

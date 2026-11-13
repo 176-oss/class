@@ -302,11 +302,7 @@ function rowEl(row) {
     compact ? null : ref.status,
     ref.issues,
     showStd ? h('td', {}, stdBtn) : null,
-    compact ? null : h('td', { class: 'col-done' }, h('label', { class: 'check-hit' }, doneBox)),
-    compact ? null : h('td', {}, h('a', {
-      class: 'btn btn-ghost btn-sm', 'aria-label': `${student.name} 자세히 (후보 3개 비교, 검사, NEIS)`,
-      href: `#write-detail?class=${encodeURIComponent(cls.id)}&area=${G.area}&student=${student.studentId}`,
-    }, '자세히')));
+    compact ? null : h('td', { class: 'col-done' }, h('label', { class: 'check-hit' }, doneBox)));
   // 지적 줄: 체크·번호·이름 칸 아래는 비우고, 메모부터 끝까지 넓게 쓴다
   ref.detailCell = h('td', { class: 'grid-issue-detail', colspan: String(ref.tr.children.length - 3) });
   ref.detail = h('tr', { class: 'grid-issue-row', hidden: true }, h('td', { colspan: '3' }), ref.detailCell);
@@ -338,7 +334,7 @@ function renderTable() {
       });
       body.push(h('tr', { class: 'grid-group' },
         h('td', { class: 'col-check' }, h('label', { class: 'check-hit' }, gbox)),
-        h('th', { colspan: G.panel ? '6' : (G.area === 'subject' ? '10' : '9'), /* 체크 칸 뺀 열 수, 세특은 성취기준 열 하나 더 */ scope: 'colgroup' }, `${row.cls.name} (${KIND_LABELS[row.cls.kind]}${row.cls.subject ? ` · ${row.cls.subject}` : ''}) · ${mine.length}명`)));
+        h('th', { colspan: G.panel ? '6' : (G.area === 'subject' ? '9' : '8'), /* 체크 칸 뺀 열 수, 세특은 성취기준 열 하나 더 */ scope: 'colgroup' }, `${row.cls.name} (${KIND_LABELS[row.cls.kind]}${row.cls.subject ? ` · ${row.cls.subject}` : ''}) · ${mine.length}명`)));
     }
     body.push(...rowEl(row));
   }
@@ -347,13 +343,13 @@ function renderTable() {
   const subj = G.area === 'subject' && !G.panel;
   const table = h('table', { class: 'table grid-table' },
     h('caption', { class: 'sr-only' }, `${AREA_LABELS[G.area]} 작성 표 (명렬순)`),
-    h('colgroup', {}, ...(G.panel ? ['44px', noW, '76px', '14%', 'auto', '64px', '96px'] : ['44px', noW, '76px', '18%', 'auto', '64px', '72px', '104px', ...(subj ? ['104px'] : []), '52px', '76px']).map((w) => h('col', { style: { width: w } }))),
+    h('colgroup', {}, ...(G.panel ? ['44px', noW, '76px', '14%', 'auto', '64px', '96px'] : ['44px', noW, '76px', '18%', 'auto', '64px', '72px', '104px', ...(subj ? ['104px'] : []), '52px']).map((w) => h('col', { style: { width: w } }))),
     h('thead', {}, h('tr', {},
       h('th', { scope: 'col', class: 'col-check' }, h('label', { class: 'check-hit' }, selAll)),
       h('th', { scope: 'col', class: 'num' }, wide ? '반 번호' : '번호'), h('th', { scope: 'col' }, '이름'),
       h('th', { scope: 'col' }, '메모'), h('th', { scope: 'col' }, '최종본'),
       h('th', { scope: 'col', class: 'num' }, '바이트'), G.panel ? null : h('th', { scope: 'col' }, '상태'),
-      h('th', { scope: 'col' }, '점검'), subj ? h('th', { scope: 'col' }, '성취기준') : null, G.panel ? null : h('th', { scope: 'col' }, '완료'), G.panel ? null : h('th', { scope: 'col' }, ''))),
+      h('th', { scope: 'col' }, '점검'), subj ? h('th', { scope: 'col' }, '성취기준') : null, G.panel ? null : h('th', { scope: 'col' }, '완료'))),
     h('tbody', {}, body));
   els.table = table;
   clear(els.tableHost, h('div', { class: 'table-wrap grid-wrap' }, table));
@@ -1074,8 +1070,18 @@ function renderAll() {
       h('button', { type: 'button', class: 'btn btn-secondary', onclick: sendToChecker }, icon('send'), '점검기로 보내기'),
       h('div', { class: 'field' }, h('span', { class: 'label', id: 'grid-class-label' }, G.area === 'subject' ? '명단을 불러올 반 (체크)' : '보이는 반'),
         h('div', { class: 'row chips', role: 'group', 'aria-labelledby': 'grid-class-label' }, classChips, onlyChip))),
-    els.bar, els.job, els.board, els.layout);
+    els.bar, els.job, els.board,
+    h('div', { class: 'grid-table-actions' }, h('button', { type: 'button', class: 'btn btn-secondary', onclick: openOneByOne }, icon('pen'), '한 명씩 작성하기')),
+    els.layout);
   renderTable(); renderBoard(); renderBar(); renderJob(); renderPanel(); setSave();
+}
+
+// 한 명씩 작성하기: 고른 학생(없으면 표의 첫 학생)부터 학생별 화면(#write-detail)에서 쓴다
+function openOneByOne() {
+  flushEdits();
+  const r = selectedRows()[0] || rows[0];
+  if (!r) { toast('표에 학생이 없습니다. 위에서 반을 고르세요.'); return; }
+  location.hash = `#write-detail?class=${encodeURIComponent(r.cls.id)}&area=${G.area}&student=${r.student.studentId}`;
 }
 
 const typing = () => !!root && root.contains(document.activeElement) && document.activeElement.matches('textarea,input:not([type="checkbox"])');
