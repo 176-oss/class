@@ -9,11 +9,6 @@ export const AREAS = [
   { id: 'subject', label: '과목별 세부능력 및 특기사항', chars: { mid: 500, high: 500 }, hasSubject: true },
   { id: 'individual', label: '개인별 세부능력 및 특기사항', chars: { mid: 500, high: 500 } },
   { id: 'behavior', label: '행동특성 및 종합의견', chars: { mid: 300, high: 300 } },
-  { id: 'free-career', label: '자유학기 진로탐색활동', chars: { mid: 1000 } },
-  { id: 'free-topic', label: '자유학기 주제선택활동', chars: { mid: 1000 } },
-  { id: 'free-art', label: '자유학기 예술·체육활동', chars: { mid: 1000 } },
-  { id: 'free-club', label: '자유학기 동아리활동', chars: { mid: 1000 } },
-  { id: 'daily', label: '일상생활 활동상황', chars: { mid: 1000, high: 1000 } },
 ];
 
 export const LIMIT_BASIS = { mid: '중 162', high: '고 208' };
@@ -56,19 +51,12 @@ export function areaFromSheetName(name) {
   if (!s) return null;
   const sub = raw.match(/^(?:세특|과세특|과목별세특|교과세특)[\s_\-:]*(.+)$/);
   if (sub) return { area: 'subject', subject: sub[1].trim() };
-  if (/^자유학기/.test(s) || /^(진로탐색|주제선택|예술체육)/.test(s)) {
-    if (/진로/.test(s)) return { area: 'free-career' };
-    if (/주제/.test(s)) return { area: 'free-topic' };
-    if (/예술|체육/.test(s)) return { area: 'free-art' };
-    if (/동아리/.test(s)) return { area: 'free-club' };
-    return null;
-  }
+  if (/^자유학기/.test(s)) return null; // 자유학기는 점검하지 않음 ('자유학기 동아리'가 동아리로 잡히지 않게)
   if (/^(자율|자치|자율자치)(활동)?$/.test(s)) return { area: 'autonomy' };
   if (/^동아리(활동)?$/.test(s)) return { area: 'club' };
   if (/^진로(활동)?$/.test(s)) return { area: 'career' };
   if (/^(행특|행동특성|종합의견|행동특성및종합의견)$/.test(s)) return { area: 'behavior' };
   if (/^(개세특|개인별|개인별세특|개인별세부능력및특기사항)$/.test(s)) return { area: 'individual' };
   if (/^(세특|과세특|과목별세특)$/.test(s)) return { area: 'subject' };
-  if (/^일상생활/.test(s)) return { area: 'daily' };
   return null;
 }

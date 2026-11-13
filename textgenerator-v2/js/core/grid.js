@@ -100,12 +100,32 @@ export function tidyText(text) {
 }
 
 // ---------- 초안 재료: 공통 특징 + 학생 메모 ----------
-/** AI에 보낼 메모. 공통 특징은 모든 학생에게, 학생 메모는 그 학생에게만 */
-export function composeMemo(common, own) {
-  const a = String(common ?? '').trim();
-  const b = String(own ?? '').trim();
-  if (a && b) return `${a}\n${b}`;
-  return a || b;
+/** AI에 보낼 메모. 공통 특징 -> 모둠 메모 -> 학생 메모 순서로, 빈 것은 빼고 줄로 잇는다 */
+export function composeMemo(...parts) {
+  return parts.map((x) => String(x ?? '').trim()).filter(Boolean).join('\n');
+}
+
+// ---------- 모둠: 반 안에서 학생 몇 명을 묶어 공통 메모를 둔다. 반에 cls.groups 로 저장 ----------
+/** 학생이 든 모둠 (한 반에서 학생은 모둠 하나에만) */
+export function groupOfStudent(groups, studentId) {
+  return (Array.isArray(groups) ? groups : []).find((g) => g.studentIds?.includes(String(studentId))) || null;
+}
+
+/** 모둠 저장(새로 또는 고치기). 이 모둠 학생은 다른 모둠에서 빠지고, 빈 모둠은 지운다 */
+export function saveGroup(groups, group) {
+  const ids = [...new Set((group.studentIds || []).map(String))];
+  const next = { id: group.id, name: String(group.name ?? '').trim() || '모둠', memo: String(group.memo ?? ''), studentIds: ids };
+  const list = (Array.isArray(groups) ? groups : []).map((g) => (g.id === next.id ? next : { ...g, studentIds: (g.studentIds || []).filter((x) => !ids.includes(x)) }));
+  if (!list.some((g) => g.id === next.id)) list.push(next);
+  return list.filter((g) => g.studentIds.length);
+}
+
+/** 다음 모둠 기본 이름: 쓰지 않은 가장 작은 번호의 'n모둠' */
+export function nextGroupName(groups) {
+  const used = new Set((Array.isArray(groups) ? groups : []).map((g) => g.name));
+  let n = 1;
+  while (used.has(`${n}모둠`)) n += 1;
+  return `${n}모둠`;
 }
 
 // ---------- 표에 순서대로 붙여넣기 ----------
@@ -215,3 +235,53 @@ export function memoTargets(rows) {
 }
 
 export { byteLength };
+
+// ---------- 행사 (자율·진로): 반에 cls.events = { autonomy: [], career: [] } 로 저장 ----------
+export const EVENT_AREAS = ['autonomy', 'career'];
+
+/** 날짜 한 개를 'YYYY.MM.DD.' 로. '2026-5-14', '2026.05.14', '20260514', '5/14'(year 필요) 를 받는다. 못 읽으면 null */
+function oneDate(raw, year) {
+  const s = String(raw ?? '').trim().replace(/\s+/g, '');
+  let y; let m; let d;
+  let r = s.match(/^(\d{4})[.\-/년](\d{1,2})[.\-/월](\d{1,2})[.일]?$/);
+  if (r) [, y, m, d] = r;
+  else if ((r = s.match(/^(\d{4})(\d{2})(\d{2})$/))) [, y, m, d] = r;
+  else if ((r = s.match(/^(\d{1,2})[.\-/월](\d{1,2})[.일]?$/)) && year) { [, m, d] = r; y = String(year); } else return null;
+  const Y = Number(y); const M = Number(m); const D = Number(d);
+  const dt = new Date(Y, M - 1, D);
+  if (dt.getFullYear() !== Y || dt.getMonth() !== M - 1 || dt.getDate() !== D) return null;
+  return `${Y}.${String(M).padStart(2, '0')}.${String(D).padStart(2, '0')}.`;
+}
+
+/**
+ * 행사 날짜를 기재요령 형식으로 (중 77, 고 82): 하루 '2026.05.14.', 기간 '2026.05.14.-2026.05.16.' (~ 또는 - 로 나눈 것을 받음).
+ * year: 월·일만 적었을 때 쓸 학년도. 반환 { ok, value, error }
+ */
+export function formatEventDate(raw, year) {
+  const s = String(raw ?? '').trim();
+  if (!s) return { ok: false, value: '', error: '날짜를 적어 주세요 (예: 2026.05.14.).' };
+  const parts = s.split(/\s*~\s*|\s+-\s+|(?<=\.)\s*-\s*(?=\d)/);
+  if (parts.length > 2) return { ok: false, value: '', error: `'${s}'을(를) 날짜로 읽을 수 없습니다. 기간은 2026.05.14.-2026.05.16.처럼 적어 주세요.` };
+  const a = oneDate(parts[0], year);
+  const b = parts[1] !== undefined ? oneDate(parts[1], a ? Number(a.slice(0, 4)) : year) : null;
+  if (!a || (parts[1] !== undefined && !b)) return { ok: false, value: '', error: `'${s}'을(를) 날짜로 읽을 수 없습니다. 2026.05.14.처럼 적어 주세요.` };
+  if (b && b < a) return { ok: false, value: '', error: '기간의 끝 날짜가 시작 날짜보다 앞입니다.' };
+  return { ok: true, value: b && b !== a ? `${a}-${b}` : a, error: null };
+}
+
+/** 초안에 쓸 행사 표기: '학생자치회 임원 선거(2026.03.15.)' */
+export const eventLabel = (ev) => `${String(ev?.name ?? '').trim()}(${String(ev?.date ?? '').trim()})`;
+
+/** 행사 저장(새로 또는 고치기). 날짜순으로 정렬 */
+export function saveEvent(events, ev) {
+  const next = { id: ev.id, name: String(ev.name ?? '').trim(), date: String(ev.date ?? '').trim() };
+  const list = (Array.isArray(events) ? events : []).filter((e) => e.id !== next.id);
+  list.push(next);
+  return list.sort((x, y) => (x.date < y.date ? -1 : x.date > y.date ? 1 : 0));
+}
+
+/** 초안에서 빠진 행사 표기 (점검용) */
+export function missingEventLabels(text, events) {
+  const t = String(text ?? '');
+  return (Array.isArray(events) ? events : []).map(eventLabel).filter((l) => !t.includes(l));
+}

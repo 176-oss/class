@@ -141,7 +141,7 @@ function onPaste() {
 }
 
 function startCheck(groups) {
-  if (groups.some((g) => !g.area || !areaById(g.area)?.chars[S.school])) { S.notice = { kind: 'error', text: '모든 시트의 항목을 골라 주세요. (자유학기 항목은 중학교만)' }; render(); return; }
+  if (groups.some((g) => !g.area || !areaById(g.area)?.chars[S.school])) { S.notice = { kind: 'error', text: '모든 시트의 항목을 골라 주세요.' }; render(); return; }
   loadGroups(groups);
   pending = null;
   S.notice = null;
@@ -240,7 +240,7 @@ function sendToWriter() {
   const changed = S.items.filter((it) => it.current.trim() && it.current !== it.original);
   const ok = changed.filter((it) => SENDABLE.has(it.area) && it.studentId);
   const skipped = changed.length - ok.length;
-  if (!ok.length) { S.notice = { kind: 'warn', text: changed.length ? '작성 도우미가 받을 수 없는 항목이거나 학번이 없어 보낼 수 없습니다 (자유학기, 개인 세특, 일상생활 등은 작성 도우미에 없습니다).' : '고친 글이 없습니다. [적용]이나 [정리]로 글을 고친 뒤 보내세요.' }; render(); return; }
+  if (!ok.length) { S.notice = { kind: 'warn', text: changed.length ? '작성 도우미가 받을 수 없는 항목이거나 학번이 없어 보낼 수 없습니다 (개인별 세특은 작성 도우미에 없습니다).' : '고친 글이 없습니다. [적용]이나 [정리]로 글을 고친 뒤 보내세요.' }; render(); return; }
   const r = writeBatch(window.localStorage, { source: 'sgb-checker', groups: groupsForWriter(ok.map((it) => ({ studentId: it.studentId, name: it.name, area: it.area, subject: it.subject, text: it.current }))) });
   if (!r.ok) { S.notice = { kind: 'error', text: r.reason }; render(); return; }
   openTool('sgb-writer', '../textgenerator-v2/#write');

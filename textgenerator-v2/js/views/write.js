@@ -55,7 +55,7 @@ function rosterAll() {
 }
 function aiRecord(rec) {
   const c = cls();
-  return { ...rec, achievement: rec.achievement || c?.achievement || '' };
+  return { ...rec, achievement: rec.achievement || c?.achievement || '', achievementReached: !!rec.achievement };
 }
 function syncParams() {
   ctx?.setParams('write-detail', { class: S.classId, area: S.area, student: S.open });

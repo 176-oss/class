@@ -106,3 +106,45 @@ test('성취기준 나누기: 줄마다 하나, 한 줄에 여러 개면 코드 
   assert.equal(standardsText(new Set([list[0].line, list[2].line])), '[10통과01-01] 우주의 기원을 설명한다.\n[10통과01-03] 별을 이해한다.');
   assert.deepEqual(parseStandards(''), []);
 });
+
+test('composeMemo 세 갈래, 모둠 저장·찾기·이름', async () => {
+  const { groupOfStudent, saveGroup, nextGroupName } = await import('../js/core/grid.js');
+  assert.equal(composeMemo('공통', '모둠', '학생'), '공통\n모둠\n학생');
+  assert.equal(composeMemo('', '모둠', ''), '모둠');
+  let g = saveGroup([], { id: 'g1', name: '1모둠', memo: '전지 만들기 실험', studentIds: ['10101', '10102'] });
+  g = saveGroup(g, { id: 'g2', name: '', memo: '', studentIds: ['10102', '10103'] });
+  assert.deepEqual(g.map((x) => [x.id, x.name, x.studentIds]), [['g1', '1모둠', ['10101']], ['g2', '모둠', ['10102', '10103']]]);
+  assert.equal(groupOfStudent(g, '10102').id, 'g2');
+  assert.equal(groupOfStudent(g, 10101).memo, '전지 만들기 실험');
+  assert.equal(groupOfStudent(undefined, '1'), null);
+  g = saveGroup(g, { id: 'g1', name: '1모둠', memo: 'x', studentIds: ['10102', '10103'] });
+  assert.deepEqual(g.map((x) => x.id), ['g1'], '학생을 모두 뺏긴 모둠은 지워짐');
+  assert.equal(nextGroupName([{ name: '1모둠' }, { name: '3모둠' }]), '2모둠');
+  assert.equal(nextGroupName(), '1모둠');
+});
+
+test('행사 날짜 형식, 표기, 저장, 빠진 표기', async () => {
+  const { formatEventDate, eventLabel, saveEvent, missingEventLabels } = await import('../js/core/grid.js');
+  const f = (s, y) => formatEventDate(s, y).value;
+  assert.equal(f('2026.05.14.'), '2026.05.14.');
+  assert.equal(f('2026-5-14'), '2026.05.14.');
+  assert.equal(f('2026.5.14'), '2026.05.14.');
+  assert.equal(f('20260514'), '2026.05.14.');
+  assert.equal(f('2026년 5월 14일'), '2026.05.14.');
+  assert.equal(f('5/14', 2026), '2026.05.14.');
+  assert.equal(formatEventDate('5/14').ok, false, '학년도 없이 월·일만');
+  assert.equal(f('2026.05.14.~2026.05.16.'), '2026.05.14.-2026.05.16.');
+  assert.equal(f('2026.5.14 ~ 5.16'), '2026.05.14.-2026.05.16.');
+  assert.equal(f('2026.05.14.-2026.05.16.'), '2026.05.14.-2026.05.16.');
+  assert.equal(f('2026.05.14.~2026.05.14.'), '2026.05.14.', '같은 날 기간은 하루');
+  assert.equal(formatEventDate('2026.02.30').ok, false);
+  assert.match(formatEventDate('2026.05.16~2026.05.14').error, /앞입니다/);
+  assert.equal(formatEventDate('').ok, false);
+  assert.equal(formatEventDate('다음 주').ok, false);
+  assert.equal(eventLabel({ name: ' 학생자치회 임원 선거 ', date: '2026.03.15.' }), '학생자치회 임원 선거(2026.03.15.)');
+  let ev = saveEvent([], { id: 'b', name: '체육대회', date: '2026.05.14.' });
+  ev = saveEvent(ev, { id: 'a', name: '임원 선거', date: '2026.03.15.' });
+  ev = saveEvent(ev, { id: 'b', name: '체육 대회', date: '2026.05.14.' });
+  assert.deepEqual(ev.map((e) => e.name), ['임원 선거', '체육 대회']);
+  assert.deepEqual(missingEventLabels('임원 선거(2026.03.15.)에서 공약을 발표함.', ev), ['체육 대회(2026.05.14.)']);
+});

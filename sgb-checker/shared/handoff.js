@@ -6,7 +6,7 @@ export const HANDOFF_KEY = 'sgb-handoff';
 export const HANDOFF_TTL_MS = 5 * 60 * 1000;
 export const HANDOFF_MAX_BYTES = 20 * 1024;
 const SOURCES = ['sgb-checker', 'textgenerator-v2'];
-const AREAS = ['autonomy', 'club', 'career', 'subject', 'individual', 'behavior', 'free-career', 'free-topic', 'free-art', 'free-club', 'daily'];
+const AREAS = ['autonomy', 'club', 'career', 'subject', 'individual', 'behavior'];
 
 /** 모양이 맞으면 정리한 값, 아니면 null */
 export function validHandoff(v, now) {

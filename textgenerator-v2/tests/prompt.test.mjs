@@ -165,3 +165,51 @@ test('checkRecord: 스타일 예시와 겹치면 styleOverlap 경고, issueCount
   assert.deepEqual(none.styleOverlap, []);
   assert.equal(none.issueCount, 0);
 });
+
+test('buildPrompt: 체크한 성취기준은 도달한 것으로 초안에 넣게 하고, 체크 안 한 반 목록은 참고만', () => {
+  const ach = '[10통과01-01] 물질의 규칙성과 결합을 설명할 수 있다.';
+  const memo = '주기율표 탐구에서 족별 성질을 정리함.';
+  const on = buildPrompt({ area: 'subject', subject: '통합과학', achievement: ach, achievementReached: true, memo, length: 'standard', limit: 1500, count: 1 });
+  assert.ok(on.user.includes('[도달한 성취기준]') && on.user.includes(ach));
+  assert.match(on.user, /빠짐없이 드러냄/);
+  assert.ok(!on.user.includes('방향을 잡는 데만'));
+  assert.match(on.system, /메모에 적힌 사실과 \[도달한 성취기준\]만 씀/);
+  assert.ok(on.user.indexOf('[도달한 성취기준]') < on.user.indexOf(MEMO_OPEN), '성취기준은 메모 앞');
+  const off = buildPrompt({ area: 'subject', subject: '통합과학', achievement: ach, memo, length: 'standard', limit: 1500, count: 1 });
+  assert.ok(off.user.includes('[관련 성취기준]') && off.user.includes('방향을 잡는 데만'));
+  assert.ok(!off.system.includes('[도달한 성취기준]'));
+  // 도달한 성취기준이 있으면 메모가 짧아도 분량을 덜 줄인다
+  const target = (p) => Number(p.user.match(/약 (\d+)자/)[1]);
+  assert.ok(target(on) > target(off));
+  // 교과세특이 아니면 성취기준을 넣지 않음
+  const other = buildPrompt({ area: 'career', achievement: ach, achievementReached: true, memo, length: 'standard', limit: 1500, count: 1 });
+  assert.ok(!other.user.includes('성취기준]'));
+});
+
+test('buildPrompt: 자율·진로 행사 표기와 추가 요청', async () => {
+  const { fakeGenerate } = await import('../js/core/fake-ai.js');
+  const events = ['학생자치회 임원 선거(2026.03.15.)', '체육대회(2026.05.14.-2026.05.15.)'];
+  const p = buildPrompt({ area: 'autonomy', events, request: '리더십을  강조', memo: '공약을 정리해 발표하고 응원단을 꾸림.', length: 'standard', limit: 1500, count: 1 });
+  assert.ok(p.user.includes('[행사]\n학생자치회 임원 선거(2026.03.15.)\n체육대회(2026.05.14.-2026.05.15.)'));
+  assert.match(p.user, /행사 표기 그대로 시작함/);
+  assert.ok(p.user.includes('[추가 요청] 리더십을 강조'));
+  assert.match(p.user, /메모에 없는 사실을 더하지 않음/);
+  assert.ok(p.user.indexOf('[행사]') < p.user.indexOf(MEMO_OPEN));
+  const d = JSON.parse((await fakeGenerate(p, { delayMs: 0 })).text).drafts[0];
+  assert.ok(d.startsWith('학생자치회 임원 선거(2026.03.15.)에서 '), d);
+  assert.ok(d.includes('체육대회(2026.05.14.-2026.05.15.)'));
+  // 교과세특·행특에는 행사를 넣지 않음
+  assert.ok(!buildPrompt({ area: 'behavior', events, memo: '성실함을 보임. 친구를 도움.', length: 'standard', limit: 900, count: 1 }).user.includes('[행사]'));
+});
+
+test('generateDrafts: 행사와 추가 요청의 이름·학번도 가림', async () => {
+  const { generateDrafts } = await import('../js/core/gemini.js');
+  let sent = '';
+  const fetchImpl = async (url, init) => { sent = init.body; return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: '{"drafts":["임원 선거(2026.03.15.)에서 발표함."]}' }] } }] }), { status: 200 }); };
+  await generateDrafts({
+    record: { id: '30501|autonomy', studentId: '30501', area: 'autonomy', memo: '공약을 발표함. 질문에 답함.', events: ['박하늘 임원 선거(2026.03.15.)'], request: '30501 박하늘 리더십 강조' },
+    studentName: '박하늘', roster: [{ studentId: '30501', name: '박하늘' }], settings: { models: ['m'] }, apiKey: 'k', count: 1, fetchImpl,
+  });
+  assert.ok(sent && !sent.includes('박하늘') && !sent.includes('30501'));
+  assert.ok(sent.includes('(2026.03.15.)'));
+});
