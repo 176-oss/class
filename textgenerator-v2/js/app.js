@@ -11,7 +11,6 @@ import { rosterView } from './views/roster.js';
 import { writeView } from './views/write.js';
 import { gridView } from './views/grid.js';
 import { styleView } from './views/style.js';
-import { statusView } from './views/status.js';
 import { neisView } from './views/neis.js';
 import { backupView } from './views/backup.js';
 import { settingsView } from './views/settings.js';
@@ -21,7 +20,6 @@ const ROUTES = [
   { name: 'write', label: '작성', icon: 'pen', view: gridView },
   { name: 'write-detail', label: '작성(자세히)', icon: 'pen', view: writeView, hidden: true },
   { name: 'style', label: '내 스타일', icon: 'brush', view: styleView },
-  { name: 'status', label: '현황', icon: 'grid', view: statusView },
   { name: 'neis', label: 'NEIS 옮기기', icon: 'send', view: neisView },
   { name: 'backup', label: '백업', icon: 'archive', view: backupView },
   { name: 'settings', label: '설정', icon: 'gear', view: settingsView },
