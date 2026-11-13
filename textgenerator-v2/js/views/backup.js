@@ -5,7 +5,8 @@ import * as store from '../store.js';
 import { AREAS, AREA_LABELS } from '../core/model.js';
 import { makeBackup, validateBackup, previewImport, mergeBackup, excelRows } from '../core/backup-format.js';
 import { checkDataFile } from '../core/sync-merge.js';
-import { downloadSheet, hasXlsx, XLSX_MISSING_TEXT } from '../xlsx-io.js';
+import { downloadSheet, hasXlsx, XLSX_MISSING_TEXT, fillWorkbookFile } from '../xlsx-io.js';
+import { planNeisFill, FILL_MODES } from '../core/neis-excel.js';
 
 let root = null;
 let ctx = null;
@@ -14,6 +15,9 @@ let driveHost = null;
 let incoming = null; // { backup, preview, fileName }
 let importMsg = null;
 let exportArea = 'autonomy';
+let fillMode = 'empty';
+let fillNotDone = false;
+let fillResult = null; // { fileName, outName, total, sheets, sums, issues } | { error }
 
 function currentBackup() {
   const d = store.snapshotData();
@@ -257,6 +261,64 @@ function excelCard() {
       }, icon('download'), '엑셀로 내보내기')));
 }
 
+const SUM_LABELS = [['filled', '새로 채움'], ['appended', '이어씀'], ['overwritten', '덮어씀'], ['same', '이미 같은 글'], ['kept', '나이스 글을 그대로 둠'], ['noRecord', '작성기에 글 없음'], ['notDone', '완료 아님'], ['nameMismatch', '이름 다름'], ['notInRoster', '명단에 없음'], ['tooLong', '한도 초과'], ['noArea', '영역 모름'], ['bad', '읽지 못한 행']];
+
+function fillCard() {
+  const fileInput = h('input', {
+    type: 'file', accept: '.xlsx,.xls', hidden: true,
+    onchange: async () => {
+      const file = fileInput.files?.[0];
+      fileInput.value = '';
+      if (!file) return;
+      const d = store.snapshotData();
+      const limits = d.settings?.limits || {};
+      try {
+        const sums = {}; const issues = [];
+        const res = await fillWorkbookFile(file, ({ name, rows, rowOffset }) => {
+          const plan = planNeisFill({ sheetName: name, rows, rowOffset, students: d.students, records: d.records, limits, mode: fillMode, includeNotDone: fillNotDone });
+          if (plan.found) {
+            for (const [k, v] of Object.entries(plan.summary)) sums[k] = (sums[k] || 0) + v;
+            for (const it of plan.issues) issues.push({ sheet: name, ...it });
+          }
+          return plan;
+        });
+        fillResult = { fileName: file.name, outName: res.outName, total: res.total, sheets: res.perSheet.filter((x) => x.plan?.found).length, sums, issues };
+      } catch (e) {
+        fillResult = { error: e.message || '엑셀을 처리하지 못했습니다.' };
+      }
+      render();
+      root?.querySelector('#bk-fill-title')?.focus();
+    },
+  });
+  const modeSel = h('select', { class: 'select', id: 'bk-fill-mode', value: fillMode, onchange: (e) => { fillMode = e.target.value; } },
+    Object.entries(FILL_MODES).map(([k, v]) => h('option', { value: k }, v)));
+  const notDone = h('input', { type: 'checkbox', id: 'bk-fill-notdone', checked: fillNotDone, onchange: (e) => { fillNotDone = e.target.checked; } });
+  let result = null;
+  if (fillResult?.error) result = alertBox('danger', fillResult.error, { role: 'alert' });
+  else if (fillResult) {
+    const lines = SUM_LABELS.filter(([k]) => fillResult.sums[k]).map(([k, t]) => `${t} ${fillResult.sums[k]}`);
+    result = h('div', { class: 'stack', role: 'status' },
+      fillResult.outName
+        ? alertBox('ok', `'${fillResult.fileName}'의 ${fillResult.total}칸을 채워 '${fillResult.outName}'로 내려받았습니다.`)
+        : alertBox('warn', fillResult.sheets ? '채울 칸이 없습니다. 아래 내용을 확인하세요.' : '나이스 특기사항 표를 찾지 못했습니다. 나이스에서 내려받은 엑셀 파일인지 확인하세요.'),
+      lines.length ? h('p', { class: 'small' }, lines.join(' · ')) : null,
+      fillResult.issues.length ? h('ul', { class: 'small' },
+        fillResult.issues.slice(0, 10).map((i) => h('li', {}, `${i.sheet} ${i.row}행: ${i.message}`)),
+        fillResult.issues.length > 10 ? h('li', {}, `그 밖에 ${fillResult.issues.length - 10}건`) : null) : null);
+  }
+  return h('section', { class: 'card stack', 'aria-labelledby': 'bk-fill-title' },
+    h('h2', { class: 'card-title', id: 'bk-fill-title', tabindex: '-1' }, '나이스 엑셀 양식에 채우기'),
+    h('p', { class: 'small' }, '나이스에서 내려받은 특기사항 엑셀(자율, 진로, 동아리, 행동특성, 교과세특)을 고르면, 학년·반·번호와 이름이 맞는 학생의 최종본을 본문 칸에 넣어 새 파일로 받습니다. 원본 파일은 바뀌지 않고 다른 칸은 그대로입니다. 글꼴·색 같은 꾸밈은 새 파일에 남지 않을 수 있습니다.'),
+    hasXlsx() ? null : alertBox('warn', XLSX_MISSING_TEXT),
+    h('div', { class: 'row align-end' },
+      field('이미 글이 있는 칸', modeSel),
+      h('label', { class: 'row', for: 'bk-fill-notdone' }, notDone, '완료로 표시하지 않은 글도 넣기')),
+    h('div', { class: 'row' },
+      h('button', { type: 'button', class: 'btn btn-secondary', onclick: () => fileInput.click() }, icon('upload'), '나이스 엑셀 고르기'),
+      fileInput),
+    result);
+}
+
 function render() {
   if (!root) return;
   driveHost = h('div', {});
@@ -268,6 +330,7 @@ function render() {
     h('div', { class: 'grid-2' }, exportCard(), importCard()),
     restoreCard(),
     driveHost,
+    fillCard(),
     excelCard());
   renderDrive();
 }

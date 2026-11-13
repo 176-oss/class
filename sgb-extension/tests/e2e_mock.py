@@ -32,6 +32,7 @@ BATCH = {'kind': 'sgb-neis-batch', 'version': 1, 'schoolYear': 2026, 'semester':
     item(10, 2, '이나래', '다른 반', cls=6),
 ]}
 NAMES = {i['name'] for i in BATCH['items']}
+MOCK_NAMES = set('김가람 이나래 박다온 최라온 정마루 강바다 조사랑 윤아라 장자람 임차오 한카라 오타미 서파랑 신하늘 권가온 황나비 안다솜 송라희 류마음 전보람 홍새봄 고아인 문지안 양초롱 손하람'.split())
 
 
 def main():
@@ -113,6 +114,24 @@ def main():
         assert not any(n in survey for n in NAMES | {'김가람'}), 'survey leaked names'
         logs = panel.inner_text('.log-lines')
         assert not any(n in logs for n in NAMES), 'log leaked names'
+        assert neis.evaluate('window.__mockViolations') == []
+
+        # 값 읽기: 조회 조건, 나이스 메시지, 본문 길이 비교. 이름·본문 글자는 없음
+        neis.goto(f'http://localhost:{PORT}/mock-neis/sgb.html?existing=7,12')
+        expect(panel.get_by_text('나이스 생기부 화면 감지됨')).to_be_visible(timeout=10000)
+        panel.get_by_text('도구와 작업 기록').click()
+        panel.get_by_role('button', name='값 읽기 (읽기 전용)').click()
+        values = panel.locator('textarea.sgb-values').input_value()
+        v = json.loads(values)
+        sc = v['screens'][0]
+        assert sc['key'] == 'mock' and sc['search']['grd'] == '3' and sc['search']['clsCd'] == '5', sc.get('search')
+        assert sc['grid']['rowCount'] == 25 and sc['grid']['rowsWithText'] == 2, sc['grid']
+        smp = sc['grid']['samples'][0]
+        assert smp['neisLength'] == smp['utf8'] and smp['chars'] > 0, smp  # 가상 화면의 길이 = UTF-8 바이트(줄바꿈 2)
+        assert any(m[1] == '저장하시겠습니까?' for m in v['messages']), v['messages']
+        assert sc['textareas'][0]['found'] is True
+        assert not any(n in values for n in MOCK_NAMES | NAMES), 'values leaked names'
+        assert '이미 저장된 다른 글' not in values, 'values leaked text'
         assert neis.evaluate('window.__mockViolations') == []
 
         # 교과세특 화면: 과목 감지

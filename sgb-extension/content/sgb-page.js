@@ -53,48 +53,83 @@
     if (!P || typeof P.getAllRunningAppInstances !== 'function') return null;
     try { return P.getAllRunningAppInstances() || []; } catch (e) { return []; }
   }
-  function findScreen() {
-    for (const s of CFG.screens) {
-      const inst = (instances() || []).find((i) => i && i.app && String(i.app.id || '').includes(s.appId));
-      if (inst) return { s, inst };
-    }
-    return null;
-  }
-  function screen() {
-    const f = findScreen();
-    if (!f) throw new NeisError('no_screen', '나이스 생기부 입력 화면을 찾지 못했습니다. 생기부 입력 화면을 연 뒤 다시 시도하세요.');
-    return f;
-  }
+  const val = (ds, r, c) => { const v = ds.getValue(r, c); return v == null ? '' : String(v); };
+  const isClean = (st) => st === 1 || st === 0;
   function ctrl(inst, id) {
     const c = inst && typeof inst.lookup === 'function' ? inst.lookup(id) : null;
     if (!c) throw new NeisError('no_control', `나이스 화면에서 '${id}' 요소를 찾지 못했습니다. 화면 구조가 바뀌었을 수 있습니다.`);
     return c;
   }
-  function dataSet(inst) {
-    const g = ctrl(inst, CFG.grid.id);
-    const ds = g.dataSet || (typeof g.getDataSet === 'function' ? g.getDataSet() : null);
+  function dataSet(f) {
+    let ds = null;
+    try { ds = f.inst.lookup(f.s.ds); } catch (e) { ds = null; }
+    if (!ds || typeof ds.getRowCount !== 'function') {
+      const g = ctrl(f.inst, f.s.gridId);
+      ds = g.dataSet || (typeof g.getDataSet === 'function' ? g.getDataSet() : null);
+    }
     if (!ds || typeof ds.getRowCount !== 'function') throw new NeisError('no_dataset', '학생 표의 데이터를 읽지 못했습니다.');
     return ds;
   }
-  const val = (ds, r, c) => { const v = ds.getValue(r, c); return v == null ? '' : String(v); };
-  const isClean = (st) => st === 1 || st === 0;
-  const COL = CFG.grid.cols;
+
+  // ---------- 화면 감지: 표가 지금 눈에 보일 때만 활성 ----------
+  // 나이스 탭(MDI)을 다른 것으로 바꾸거나 같은 화면의 출결·누가기록 탭으로 옮기면 표의 getActualRect 가 0이 된다 (실측).
+  // 가상 화면은 항상 보이는 것으로 본다. 실제 나이스에서 이 값을 못 읽으면 '안 보임'으로 본다.
+  function isShown(inst, s) {
+    if (s.mock) return true;
+    try {
+      const g = inst.lookup(s.gridId);
+      if (!g || typeof g.getActualRect !== 'function') return false;
+      const r = g.getActualRect();
+      return !!r && r.width > 0 && r.height > 0;
+    } catch (e) { return false; }
+  }
+  function openedOf(s) { return (instances() || []).filter((i) => i && i.app && String(i.app.id || '').includes(s.appId)); }
+  // 보이는 화면 (같은 화면이 여럿이면 보이는 것 중 가장 나중 것)
+  function findScreen() {
+    for (const s of CFG.screens) {
+      const shown = openedOf(s).filter((i) => isShown(i, s));
+      if (shown.length) return { s, inst: shown[shown.length - 1] };
+    }
+    return null;
+  }
+  // 열려 있지만 지금 안 보이는 화면 (안내용)
+  function hiddenScreen() {
+    for (const s of CFG.screens) if (openedOf(s).length) return s;
+    return null;
+  }
+  function screen() {
+    const f = findScreen();
+    if (f) return f;
+    const h = hiddenScreen();
+    if (h) throw new NeisError('not_visible', `'${h.label}' 화면이 지금 보이지 않습니다. 입력하려는 탭(학생부 자료 기록)을 화면에 띄우세요.`);
+    throw new NeisError('no_screen', '나이스 생기부 입력 화면을 찾지 못했습니다. 생기부 입력 화면을 연 뒤 다시 시도하세요.');
+  }
+  function assertShown(f) {
+    if (!isShown(f.inst, f.s)) throw new NeisError('not_visible', `'${f.s.label}' 화면이 보이지 않게 되어 멈췄습니다. 입력하려는 탭을 다시 화면에 띄우세요.`);
+  }
+  const COLS = (f) => f.s.cols;
 
   // ---------- 조회 조건 ----------
   function readCond(f) {
-    const dm = f.inst.lookup(CFG.search.dm);
+    const S = f.s;
+    let dm = null;
+    try { dm = f.inst.lookup(S.search.dm); } catch (e) { dm = null; }
     if (!dm || typeof dm.getValue !== 'function') return null;
-    const get = (k) => { const c = CFG.search.cols[k]; const v = c ? dm.getValue(c) : null; return v == null ? '' : String(v); };
-    let area = f.s.area || null;
-    if (!area) {
-      const code = get('area');
-      area = Object.keys(CFG.search.areaCodes).find((k) => CFG.search.areaCodes[k] === code) || null;
+    const get = (c) => { if (!c) return ''; let v; try { v = dm.getValue(c); } catch (e) { v = null; } return v == null ? '' : String(v); };
+    let area = S.area || null;
+    if (!area && S.areaCodeCol) area = (S.areaCodes && S.areaCodes[get(S.areaCodeCol)]) || null;
+    // 화면이 영역 코드를 가지고 있으면 설정과 같아야 한다 (다른 영역 화면을 잘못 잡는 것을 막음)
+    if (S.areaCode) { const code = get('actScCd'); if (code && code !== S.areaCode) return null; }
+    let semester = Number(get(S.search.semester)) || null;
+    if (!semester && S.semesterFallback) {
+      try { const d = f.inst.lookup(S.semesterFallback.ds); if (d && d.getRowCount() > 0) semester = Number(d.getValue(0, S.semesterFallback.col)) || null; } catch (e) { /* 무시 */ }
     }
     return {
-      screen: f.s.key, screenLabel: f.s.label,
-      schoolYear: Number(get('schoolYear')) || null, semester: Number(get('semester')) || null,
-      grade: Number(get('grade')) || null, classNo: Number(get('classNo')) || null,
-      area, subject: area === 'subject' ? get('subject') : null,
+      screen: S.key, screenLabel: S.label,
+      schoolYear: Number(get(S.search.schoolYear)) || null, semester,
+      grade: S.search.grade ? (Number(get(S.search.grade)) || null) : null,
+      classNo: S.search.classNo ? (Number(get(S.search.classNo)) || null) : null,
+      area, subject: area === 'subject' ? get(S.search.subject) : null,
     };
   }
   // 입력·저장 직전마다: 화면 조건이 사이드 패널이 보고 시작한 조건과 같은지
@@ -108,8 +143,25 @@
     }
     return now;
   }
+  // 학생부가 마감·확정된 화면이면 입력하지 않는다
+  function closedReason(f) {
+    const cf = f.s.closedFlags;
+    if (!cf) return null;
+    let dm = null;
+    try { dm = f.inst.lookup(cf.dm); } catch (e) { dm = null; }
+    if (!dm || typeof dm.getValue !== 'function') return null;
+    for (const c of cf.cols) {
+      let v; try { v = dm.getValue(c); } catch (e) { v = null; }
+      if (String(v == null ? '' : v).toUpperCase() === 'Y') return '학생부가 마감(확정)된 상태라 입력할 수 없습니다.';
+    }
+    return null;
+  }
   function assertWrite() {
-    if (!WRITE_ALLOWED) throw new NeisError('not_verified', '실제 나이스 생기부 화면 구조를 아직 확인하지 않아 입력하지 않습니다. 지금은 화면 감지와 구조 기록만 할 수 있습니다.');
+    if (!WRITE_ALLOWED) throw new NeisError('not_verified', '실제 나이스 생기부 입력 방식을 아직 시험하지 않아 입력하지 않습니다. 지금은 화면 감지, 구조 기록, 값 읽기만 할 수 있습니다.');
+  }
+  function assertOpen(f) {
+    const why = closedReason(f);
+    if (why) throw new NeisError('closed', why);
   }
 
   // ---------- 버튼 ----------
@@ -137,30 +189,55 @@
   const normMsg = (m) => String(m || '').replace(/\s+/g, '');
 
   // ---------- 행 ----------
-  function findRow(ds, no) {
-    for (let r = 0; r < ds.getRowCount(); r++) if (Number(val(ds, r, COL.no)) === Number(no)) return r;
+  const countBytes = (t) => { let n = 0; for (const ch of String(t).replace(/\r\n?/g, '\n')) { const c = ch.codePointAt(0); n += (c >= 0xAC00 && c <= 0xD7A3) || (c >= 0x3131 && c <= 0x318E) ? 3 : 1; } return n; };
+  // 학생 식별: 학년|반|번호. 표에 학년·반 열이 있으면(동아리, 교과세특) 행에서, 없으면 조회 조건에서 가져온다
+  const idKey = (g, c, n) => `${Number(g) || 0}|${Number(c) || 0}|${Number(n) || 0}`;
+  function rowKey(f, ds, r, cond) {
+    const C = COLS(f);
+    const g = C.grade ? val(ds, r, C.grade) : cond.grade;
+    const c = C.classNo ? val(ds, r, C.classNo) : cond.classNo;
+    return idKey(g, c, val(ds, r, C.no));
+  }
+  const itemKey = (it) => idKey(it.grade, it.classNo, it.no);
+  function findRow(f, ds, cond, it) {
+    const want = itemKey(it);
+    for (let r = 0; r < ds.getRowCount(); r++) if (rowKey(f, ds, r, cond) === want) return r;
     return -1;
   }
+  function rowLocked(f, ds, r) {
+    const L = f.s.rowLock;
+    return !!L && String(val(ds, r, L.col)).toLowerCase() === String(L.value).toLowerCase();
+  }
   function setText(f, ds, r, text) {
-    if (CFG.input.mode === 'control') {
-      const g = ctrl(f.inst, CFG.grid.id);
+    const C = COLS(f);
+    if (f.s.input.mode === 'control') {
+      const g = ctrl(f.inst, f.s.gridId);
       if (typeof g.selectRows !== 'function') throw new NeisError('no_select', '표에서 학생 행을 고르지 못했습니다.');
       g.selectRows([r]);
-      ctrl(f.inst, CFG.input.textControl).value = text;
+      ctrl(f.inst, f.s.input.textControl).value = text;
     } else {
-      ds.setValue(r, COL.text, text);
+      ds.setValue(r, C.text, text);
+      // 실제 입력(타이핑)은 길이 열과 화면의 바이트 표시도 바꾼다. setValue 만으로는 안 바뀌므로 같이 맞춘다.
+      if (f.s.lengthCol) ds.setValue(r, f.s.lengthCol, String(countBytes(text)));
+      try { const g = f.inst.lookup(f.s.gridId); if (g && typeof g.redraw === 'function') g.redraw(); } catch (e) { /* 무시 */ }
     }
   }
 
   const commands = {
     async detect() {
       const list = instances();
+      const out = { ver: CFG.version || null, cpr: !!list, mock: MOCK, writeAllowed: WRITE_ALLOWED, verified: CFG.verified === true, state: 'none', hiddenLabel: null, cond: null, rowCount: 0, dirtyRows: 0, dialog: null, closed: null };
       const f = findScreen();
-      const out = { cpr: !!list, mock: MOCK, writeAllowed: WRITE_ALLOWED, verified: CFG.verified === true, cond: null, rowCount: 0, dirtyRows: 0, dialog: null };
-      if (!f) return out;
+      if (!f) {
+        const h = hiddenScreen();
+        if (h) { out.state = 'hidden'; out.hiddenLabel = h.label; }
+        return out;
+      }
+      out.state = 'active';
       out.cond = readCond(f);
+      out.closed = closedReason(f);
       try {
-        const ds = dataSet(f.inst);
+        const ds = dataSet(f);
         out.rowCount = ds.getRowCount();
         for (let r = 0; r < out.rowCount; r++) if (!isClean(ds.getRowState(r))) out.dirtyRows++;
       } catch (e) { /* 표 없음 */ }
@@ -193,52 +270,170 @@
       return out;
     },
 
-    // 조건에 맞는 학생들 본문 넣기. 이미 다른 글이 있는 학생, 이름 불일치, 표에 없는 학생은 넣지 않고 결과로 알린다.
+    // 값 읽기 (읽기 전용): 조회 조건 값, 마감 표시, 입력칸 상태, 표 행 상태 개수, 본문 길이 비교(글자는 읽어 내보내지 않음),
+    // 나이스 안내 메시지(dsExMessage), 화면 제목, 콤보 선택 항목. 학생 이름·번호·생년월일·본문은 결과에 넣지 않고,
+    // 결과 어디에든 표의 학생 이름이 섞이면 '[이름]'으로 지운다.
+    async surveyValues() {
+      const SEARCH_KEYS = ['ayr', 'sem', 'dghtCrseScCd', 'ordScCd', 'grd', 'dddepCd', 'clsCd', 'actScCd', 'sbjtCd', 'sbjtNm', 'etbSbjtCd', 'etbClrmCd', 'osuCd', 'orgaCd',
+        'clubActDptScCd', 'clubActDptCd', 'clubActDptClsCd', 'dgr', 'enrScCd', 'classFinYn'];
+      const DDLN_KEYS = ['scrgClsDdlnYn', 'scrgDdlnCfmtnYn', 'coaDdlnYn', 'ddlnYn', 'ddlnInfoCn'];
+      const short = (v, n) => { const s = v == null ? '' : String(v); const m = n || 80; return s.length > m ? s.slice(0, m) + '...' : s; };
+      const count = (t, nl) => { let n = 0; for (const ch of String(t).replace(/\r\n?/g, '\n')) { const c = ch.codePointAt(0); if (ch === '\n') n += nl; else if ((c >= 0xAC00 && c <= 0xD7A3) || (c >= 0x3131 && c <= 0x318E)) n += 3; else n += 1; } return n; };
+      // 메서드 이름만 모은다 (값은 읽지 않음)
+      const fnNames = (o, re) => {
+        const set = new Set();
+        try {
+          let cur = o;
+          for (let i = 0; cur && i < 5; i++, cur = Object.getPrototypeOf(cur)) {
+            for (const k of Object.getOwnPropertyNames(cur)) {
+              const d = Object.getOwnPropertyDescriptor(cur, k);
+              if (d && typeof d.value === 'function' && re.test(k)) set.add(k);
+            }
+          }
+        } catch (e) { /* 무시 */ }
+        return [...set].sort().slice(0, 60);
+      };
+      const names = new Set();
+      const out = { at: new Date().toISOString(), url: location.origin + location.pathname, screens: [], headers: [], combos: [], messages: [] };
+      const all = instances() || [];
+
+      for (const p of CFG.probes || []) {
+        all.filter((i) => i && i.app && String(i.app.id || '').includes(p.appId)).forEach((inst, idx) => {
+          const sc = { key: p.key, label: p.label, appId: String(inst.app.id), instance: idx };
+          try { const dm = inst.lookup('dmSearch'); sc.search = {}; for (const k of (p.searchKeys || SEARCH_KEYS)) { let v; try { v = dm.getValue(k); } catch (e) { v = undefined; } if (v !== undefined) sc.search[k] = short(v, 40); } } catch (e) { sc.searchError = true; }
+          try { const dm = inst.lookup('dmScrgDdln'); if (dm) { sc.ddln = {}; for (const k of DDLN_KEYS) { let v; try { v = dm.getValue(k); } catch (e) { v = undefined; } if (v !== undefined) sc.ddln[k] = short(v, 120); } } } catch (e) { sc.ddlnError = true; }
+          sc.outputs = {};
+          for (const id of ['optDdln', 'optMagam']) { try { const c = inst.lookup(id); if (c) sc.outputs[id] = short(c.value != null && c.value !== '' ? c.value : c.text, 120); } catch (e) { /* 무시 */ } }
+          try {
+            let ds = null;
+            try { ds = inst.lookup(p.ds); } catch (e) { ds = null; }
+            const g = (() => { try { return inst.lookup('grdMain'); } catch (e) { return null; } })();
+            if (!ds || typeof ds.getRowCount !== 'function') ds = g && (g.dataSet || (typeof g.getDataSet === 'function' ? g.getDataSet() : null));
+            if (ds && typeof ds.getRowCount === 'function') {
+              const rc = ds.getRowCount();
+              const states = {}; const samples = []; let withText = 0, lenMin = null, lenMax = null;
+              for (let r = 0; r < rc; r++) {
+                const nm = ds.getValue(r, p.name); if (nm && String(nm).length >= 2) names.add(String(nm));
+                const st = ds.getRowState(r); states[st] = (states[st] || 0) + 1;
+                const raw = ds.getValue(r, p.text); const s = raw == null ? '' : String(raw);
+                const lv = p.len ? Number(ds.getValue(r, p.len)) : NaN;
+                if (Number.isFinite(lv)) { lenMin = lenMin === null ? lv : Math.min(lenMin, lv); lenMax = lenMax === null ? lv : Math.max(lenMax, lv); }
+                if (s) {
+                  withText++;
+                  if (samples.length < 6) {
+                    const smp = { neisLength: Number.isFinite(lv) ? lv : null, chars: [...s].length, hangul3_other1_nl1: count(s, 1), hangul3_other1_nl2: count(s, 2), utf8: new TextEncoder().encode(s).length, hasCR: s.includes('\r'), hasLF: s.includes('\n') };
+                    if (p.extra) { smp.extra = {}; for (const k of p.extra) { const n = Number(ds.getValue(r, k)); smp.extra[k] = Number.isFinite(n) ? n : null; } }
+                    samples.push(smp);
+                  }
+                }
+              }
+              sc.grid = { rowCount: rc, rowStates: states, rowsWithText: withText, lengthColumnMin: lenMin, lengthColumnMax: lenMax, samples };
+              sc.api = { dataset: fnNames(ds, /(value|rowstate|commit|reset|update|revert|dirty|modif|clone|insert|delete)/i), grid: g ? fnNames(g, /(edit|readonly|column|select|getrow|dataset|bind|focus|cell)/i) : [] };
+            } else { sc.gridError = '표 데이터를 찾지 못했습니다'; }
+          } catch (e) { sc.gridError = short(e && e.message, 80); }
+          sc.textareas = (p.textareas || []).map((id) => {
+            let c = null; try { c = inst.lookup(id); } catch (e) { c = null; }
+            if (!c) return { id, found: false };
+            return { id, found: true, type: c.type || '', enabled: c.enabled, readOnly: c.readOnly, maxLength: c.maxLength, bindApi: fnNames(c, /bind/i) };
+          });
+          out.screens.push(sc);
+        });
+      }
+
+      // 화면 제목, 콤보 선택 항목, 나이스 안내 메시지
+      const msgs = new Map();
+      for (const inst of all) {
+        const id = String(inst && inst.app && inst.app.id || '');
+        try {
+          if (id === 'udc/com/appHeader') { const t = inst.lookup('optTit'); out.headers.push(short(t && (t.value != null ? t.value : t.text), 60)); }
+          if (id === 'udc/sw/swc/udcSwcAuth') {
+            const d = inst.lookup('dsAuth'); const cols = typeof d.getColumnNames === 'function' ? d.getColumnNames() : [];
+            const rows = []; for (let r = 0; r < Math.min(d.getRowCount(), 10); r++) { const row = {}; for (const c of cols) row[c] = short(d.getValue(r, c), 40); rows.push(row); }
+            out.combos.push(rows);
+          }
+          const em = inst.lookup && inst.lookup('dsExMessage');
+          if (em && typeof em.getRowCount === 'function') for (let r = 0; r < Math.min(em.getRowCount(), 200); r++) { const a = short(em.getValue(r, 'messageId'), 40), b = short(em.getValue(r, 'messageDiv'), 160); msgs.set(`${a}|${b}`, [a, b]); }
+        } catch (e) { /* 무시 */ }
+      }
+      out.messages = [...msgs.values()];
+
+      // 마지막 안전망: 표의 학생 이름이 어디에든 섞였으면 지운다
+      let json = JSON.stringify(out);
+      for (const n of [...names].sort((a, b) => b.length - a.length)) json = json.split(n).join('[이름]');
+      return JSON.parse(json);
+    },
+
+    // 조건에 맞는 학생들 본문 넣기. 이미 다른 글이 있는 학생, 이름 불일치, 표에 없는 학생, 입력할 수 없는 행, 나이스 입력 가능 바이트를 넘는 글은 넣지 않고 결과로 알린다.
     async fill(args, seq) {
       assertWrite();
       const f = screen();
       assertCond(f, args.cond);
-      const ds = dataSet(f.inst);
+      assertOpen(f);
+      const ds = dataSet(f);
+      const C = COLS(f);
       const results = [];
       for (const it of args.items || []) {
         checkAbort(seq);
+        assertShown(f);
         assertCond(f, args.cond);
-        const r = findRow(ds, it.no);
+        const r = findRow(f, ds, args.cond, it);
         if (r < 0) { results.push({ id: it.id, status: 'not_found' }); log(`${it.no}번: 나이스 표에 없음`, 'warn'); continue; }
-        if (normName(val(ds, r, COL.name)) !== normName(it.name)) { results.push({ id: it.id, status: 'name_mismatch' }); log(`${it.no}번: 이름이 다름`, 'warn'); continue; }
-        const cur = normText(val(ds, r, COL.text));
+        if (normName(val(ds, r, C.name)) !== normName(it.name)) { results.push({ id: it.id, status: 'name_mismatch' }); log(`${it.no}번: 이름이 다름`, 'warn'); continue; }
+        if (rowLocked(f, ds, r)) { results.push({ id: it.id, status: 'locked' }); log(`${it.no}번: 나이스에서 입력할 수 없는 행`, 'warn'); continue; }
+        const curRaw = val(ds, r, C.text);
+        const cur = normText(curRaw);
         const want = normText(it.text);
         if (cur === want) { results.push({ id: it.id, status: isClean(ds.getRowState(r)) ? 'already' : 'entered' }); log(`${it.no}번: 나이스에 같은 글이 이미 있음`); continue; }
-        if (cur) { results.push({ id: it.id, status: 'existing', neisText: cur }); log(`${it.no}번: 나이스에 다른 글이 있어 건너뜀`, 'warn'); continue; }
-        setText(f, ds, r, it.text);
+        let finalText = it.text;
+        let mode = null;
+        if (cur) {
+          // 이미 글이 있으면 바로 덮어쓰지 않는다. 선생님이 mode(overwrite | append)를 고른 학생만 넣는다.
+          if (it.mode !== 'overwrite' && it.mode !== 'append') {
+            if (cur.includes(want)) { results.push({ id: it.id, status: 'contained' }); log(`${it.no}번: 나이스 글에 새 글이 이미 들어 있음`); continue; }
+            results.push({ id: it.id, status: 'existing', neisText: cur }); log(`${it.no}번: 나이스에 다른 글이 있어 선택을 기다림`, 'warn'); continue;
+          }
+          mode = it.mode;
+          if (mode === 'append') {
+            if (cur.includes(want)) { results.push({ id: it.id, status: 'contained' }); log(`${it.no}번: 나이스 글에 새 글이 이미 들어 있음`); continue; }
+            finalText = curRaw.replace(/\s+$/, '') + (CFG.appendSeparator == null ? ' ' : CFG.appendSeparator) + it.text;
+          }
+        }
+        // 바이트 한도: 웹앱 한도(it.limit)와 나이스 학생별 입력 가능 바이트 중 작은 값
+        let cap = Number.isFinite(Number(it.limit)) && it.limit != null ? Number(it.limit) : Infinity;
+        if (f.s.capacityCol) { const c2 = Number(val(ds, r, f.s.capacityCol)); if (Number.isFinite(c2) && val(ds, r, f.s.capacityCol) !== '') cap = Math.min(cap, c2); }
+        if (countBytes(finalText) > cap) { results.push({ id: it.id, status: 'too_long', capacity: cap, mode }); log(`${it.no}번: 바이트 한도(${cap})를 넘음`, 'warn'); continue; }
+        setText(f, ds, r, finalText);
         await sleep(30);
-        const after = normText(val(ds, r, COL.text));
-        if (after !== want) { results.push({ id: it.id, status: 'mismatch', neisText: after }); log(`${it.no}번: 넣은 뒤 값이 보낸 글과 다름`, 'error'); continue; }
-        results.push({ id: it.id, status: 'entered' });
-        log(`${it.no}번 입력`);
+        const after = normText(val(ds, r, C.text));
+        if (after !== normText(finalText)) { results.push({ id: it.id, status: 'mismatch', neisText: after }); log(`${it.no}번: 넣은 뒤 값이 보낸 글과 다름`, 'error'); continue; }
+        results.push({ id: it.id, status: 'entered', mode, entered: finalText, neisText: mode ? cur : undefined });
+        log(`${it.no}번 ${mode === 'append' ? '이어쓰기' : mode === 'overwrite' ? '덮어쓰기' : '입력'}`);
         emit({ type: 'progress', done: results.length, total: args.items.length });
       }
       return { results };
     },
 
-    // 저장: 바뀐 행이 모두 이번에 확장이 넣은 행이고 값이 확인한 글 그대로일 때만 [저장]. expect: [{ no, text }]
+    // 저장: 바뀐 행이 모두 이번에 확장이 넣은 행이고 값이 확인한 글 그대로일 때만 [저장]. expect: [{ grade, classNo, no, text }]
     async save(args, seq) {
       assertWrite();
       const f = screen();
       assertCond(f, args.cond);
-      const ds = dataSet(f.inst);
+      assertOpen(f);
+      const ds = dataSet(f);
+      const C = COLS(f);
       const expect = args.expect || [];
-      const allowed = new Set(expect.map((e) => Number(e.no)));
+      const allowed = new Set(expect.map((e) => itemKey(e)));
       const stray = [];
       for (let r = 0; r < ds.getRowCount(); r++) {
-        if (!isClean(ds.getRowState(r)) && !allowed.has(Number(val(ds, r, COL.no)))) stray.push(Number(val(ds, r, COL.no)));
+        if (!isClean(ds.getRowState(r)) && !allowed.has(rowKey(f, ds, r, args.cond))) stray.push(Number(val(ds, r, C.no)));
       }
       if (stray.length) throw new NeisError('stray_change', `확장프로그램이 입력하지 않은 행이 바뀌어 있습니다 (${stray.join(', ')}번). 나이스에서 되돌리거나 [조회]로 처음부터 다시 하세요.`, { stray });
       for (const e of expect) {
-        const r = findRow(ds, e.no);
-        if (r < 0 || normText(val(ds, r, COL.text)) !== normText(e.text)) throw new NeisError('value_changed', `${e.no}번 본문이 확인한 글과 달라 저장하지 않았습니다.`);
+        const r = findRow(f, ds, args.cond, e);
+        if (r < 0 || normText(val(ds, r, C.text)) !== normText(e.text)) throw new NeisError('value_changed', `${e.no}번 본문이 확인한 글과 달라 저장하지 않았습니다.`);
       }
       checkAbort(seq);
+      assertShown(f);
       const before = new Set(cmnDialogs());
       clickControl(f.inst, 'btnSave');
       const dlg = await waitFor(() => cmnDialogs().find((d) => !before.has(d)), { timeout: 8000, what: '[저장] 뒤 나이스 확인창을 기다렸습니다.', code: 'save_no_confirm' });
@@ -251,22 +446,23 @@
         const next = await waitFor(() => cmnDialogs().find((d) => d !== dlg && !before.has(d)), { timeout: 20000, what: '저장 결과 알림을 기다렸습니다.', code: 'save_no_alert' });
         const msg = cmnMessage(next);
         if (isConfirm(next)) throw new NeisError('neis_confirm', `저장 중 예상하지 못한 확인창이 떠서 멈췄습니다: ${msg}`, { message: msg });
-        if (normMsg(msg).replace(/\.$/, '') !== normMsg(D.saveDone).replace(/\.$/, '')) throw new NeisError('neis_alert', msg, { message: msg });
+        if (![].concat(D.saveDone).some((t) => normMsg(msg).replace(/\.$/, '') === normMsg(t).replace(/\.$/, ''))) throw new NeisError('neis_alert', msg, { message: msg });
         clickControl(next, 'btnConfirm');
-        log('나이스가 "저장했습니다."를 알렸습니다.');
+        log('나이스가 저장 완료를 알렸습니다.');
         // 저장 확인: 모든 행 상태 깨끗 + 넣은 글 유지 (저장 뒤 다시 조회되어도 같은 조건)
         let okCount = 0;
         await waitFor(() => {
-          const d = dataSet(screen().inst);
+          const d = dataSet(screen());
           if (!d.getRowCount()) { okCount = 0; return false; }
           for (let r = 0; r < d.getRowCount(); r++) if (!isClean(d.getRowState(r))) { okCount = 0; return false; }
           okCount++;
           return okCount >= 2;
         }, { timeout: 15000, interval: 300, what: '나이스가 저장했다고 알렸지만 저장 뒤 표 상태를 확인하지 못했습니다.', code: 'save_verify' });
-        const d = dataSet(screen().inst);
+        const nf = screen();
+        const d = dataSet(nf);
         for (const e of expect) {
-          const r = findRow(d, e.no);
-          if (r < 0 || normText(val(d, r, COL.text)) !== normText(e.text)) throw new NeisError('save_verify', `저장 뒤 ${e.no}번 본문이 확인한 글과 다릅니다. 나이스 표를 직접 확인하세요.`);
+          const r = findRow(nf, d, args.cond, e);
+          if (r < 0 || normText(val(d, r, C.text)) !== normText(e.text)) throw new NeisError('save_verify', `저장 뒤 ${e.no}번 본문이 확인한 글과 다릅니다. 나이스 표를 직접 확인하세요.`);
         }
       } catch (e) {
         if (e instanceof NeisError) e.data = Object.assign({}, e.data, { afterConfirm: true });
@@ -301,7 +497,7 @@
     const { reqId, cmd, args } = d;
     const fn = Object.prototype.hasOwnProperty.call(commands, cmd) ? commands[cmd] : null;
     if (!fn) { post({ type: 'response', reqId, ok: false, error: { code: 'unknown', message: `알 수 없는 명령: ${cmd}` } }); return; }
-    const exclusive = !['detect', 'abort', 'survey', 'guardCheck'].includes(cmd);
+    const exclusive = !['detect', 'abort', 'survey', 'surveyValues', 'guardCheck'].includes(cmd);
     if (exclusive && busy) for (let i = 0; i < 40 && busy; i++) await sleep(50);
     if (exclusive && busy) { post({ type: 'response', reqId, ok: false, error: { code: 'busy', message: '이전 작업이 아직 끝나지 않았습니다.' } }); return; }
     if (exclusive) busy = true;

@@ -83,7 +83,7 @@ export async function download(token) {
   const f = await findFile(token);
   if (!f) return { fileId: null, data: null, stamp: null };
   const res = await api(token, `${API}/files/${f.id}?alt=media`);
-  return { fileId: f.id, data: await res.json(), stamp: metaStamp(f) };
+  return { fileId: f.id, data: await res.json(), stamp: metaStamp(f), name: DATA_FILE_NAME, modifiedTime: f.modifiedTime || null };
 }
 // 파일 id를 알 때 본문만 받기 (자동 확인에서 바뀐 것을 안 뒤)
 export async function downloadById(token, fileId) {

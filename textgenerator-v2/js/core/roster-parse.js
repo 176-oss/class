@@ -49,13 +49,14 @@ const ID_HEAD = /^학번$/;
 const GRADE_HEAD = /^학년$/;
 const CLASS_HEAD = /^반$/;
 const NO_HEAD = /^(번호|번)$/;
+const CLASS_NO_HEAD = /^반[/-]번호$/; // 나이스 교과세특 엑셀: '8/1' (반/번호)
 
 /** 처음 20행 안에서 머리글 찾기. 없으면 null */
 export function findHeader(rows) {
   const limit = Math.min(rows.length, 20);
   for (let r = 0; r < limit; r += 1) {
     const row = Array.isArray(rows[r]) ? rows[r] : [];
-    const cols = { name: -1, id: -1, grade: -1, classNo: -1, no: -1 };
+    const cols = { name: -1, id: -1, grade: -1, classNo: -1, no: -1, classNoNo: -1 };
     row.forEach((cell, c) => {
       const t = norm(cell);
       if (cols.name < 0 && NAME_HEAD.test(t)) cols.name = c;
@@ -63,8 +64,9 @@ export function findHeader(rows) {
       else if (cols.grade < 0 && GRADE_HEAD.test(t)) cols.grade = c;
       else if (cols.classNo < 0 && CLASS_HEAD.test(t)) cols.classNo = c;
       else if (cols.no < 0 && NO_HEAD.test(t)) cols.no = c;
+      else if (cols.classNoNo < 0 && CLASS_NO_HEAD.test(t)) cols.classNoNo = c;
     });
-    const split = cols.grade >= 0 && cols.classNo >= 0 && cols.no >= 0;
+    const split = cols.grade >= 0 && ((cols.classNo >= 0 && cols.no >= 0) || cols.classNoNo >= 0);
     if (cols.name >= 0 && (cols.id >= 0 || split)) return { row: r, ...cols };
   }
   return null;
@@ -94,7 +96,7 @@ export function parseRosterRows(rows) {
   const errors = [];
   const seen = new Map(); // studentId -> { name, row }
 
-  const cols = header || { row: -1, name: 1, id: 0, grade: -1, classNo: -1, no: -1 };
+  const cols = header || { row: -1, name: 1, id: 0, grade: -1, classNo: -1, no: -1, classNoNo: -1 };
   const useSplit = header && header.id < 0;
 
   for (let r = cols.row + 1; r < list.length; r += 1) {
@@ -106,8 +108,13 @@ export function parseRosterRows(rows) {
     let rawId;
     if (useSplit) {
       const g = digitsOf(row[cols.grade]);
-      const c = digitsOf(row[cols.classNo]);
-      const n = digitsOf(row[cols.no]);
+      let c = digitsOf(row[cols.classNo]);
+      let n = digitsOf(row[cols.no]);
+      if (cols.classNoNo >= 0) {
+        const m = cellText(row[cols.classNoNo]).match(/(\d+)\s*[/-]\s*(\d+)/);
+        c = m ? m[1] : '';
+        n = m ? m[2] : '';
+      }
       if (!g && !c && !n) {
         if (!name) continue;
         errors.push({ row: rowNo, message: `${rowNo}행: 학년, 반, 번호가 비어 있습니다.` });

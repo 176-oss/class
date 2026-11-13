@@ -1,6 +1,6 @@
 // node tests/model.test.mjs
 import assert from 'node:assert/strict';
-import { normText, neisBytes, textHash, splitStudentId, parseBatch, fromDriveData, applyNeisDone, itemsFor, limitFor, groupSummary } from '../shared/sgb-model.js';
+import { addSource, activeItems, ensureSources, condLabel, normText, neisBytes, textHash, splitStudentId, parseBatch, fromDriveData, applyNeisDone, itemsFor, limitFor, groupSummary } from '../shared/sgb-model.js';
 import { textHash as webHash, buildNeisBatch } from '../../textgenerator-v2/js/core/neis-export.js';
 import { byteLength as webBytes } from '../../textgenerator-v2/js/core/bytes.js';
 
@@ -44,6 +44,23 @@ const auto = itemsFor(d.items, { grade: 3, classNo: 5, area: 'autonomy' });
 assert.deepEqual(auto.map((x) => [x.id, x.dup]), [['30503|autonomy', false], ['b', true], ['c', true]]);
 assert.equal(itemsFor(d.items, { grade: 3, classNo: 5, area: 'subject', subject: '통합과학' }).length, 1);
 assert.equal(itemsFor(d.items, { grade: 3, classNo: 6, area: 'autonomy' }).length, 0);
+
+// 동아리·교과세특 화면은 학년·반이 섞여 있어 조건에 반이 없다 (null 이면 거르지 않음)
+const mixed = [
+  { id: 'm1', grade: 3, classNo: 1, no: 3, name: 'ㄱ', area: 'club', text: 'a' },
+  { id: 'm2', grade: 3, classNo: 5, no: 3, name: 'ㄴ', area: 'club', text: 'b' },   // 번호는 같지만 반이 다름: 중복이 아님
+  { id: 'm3', grade: 2, classNo: 5, no: 1, name: 'ㄷ', area: 'club', text: 'c' },
+  { id: 'm4', grade: 3, classNo: 8, no: 1, name: 'ㄹ', area: 'subject', subject: '과학', text: 'd' },
+];
+const club = itemsFor(mixed, { grade: null, classNo: null, area: 'club' });
+assert.equal(club.length, 3);
+assert.ok(club.every((it) => !it.dup), '반이 다르면 같은 번호여도 중복 아님');
+assert.deepEqual(club.map((it) => it.id), ['m3', 'm1', 'm2'], '학년, 반, 번호 순');
+assert.equal(itemsFor(mixed, { grade: 3, classNo: null, area: 'club' }).length, 2);
+assert.equal(itemsFor(mixed, { grade: 3, classNo: null, area: 'subject', subject: '과학' }).length, 1);
+assert.equal(condLabel({ grade: null, classNo: null, area: 'club' }), '동아리');
+assert.equal(condLabel({ grade: 3, classNo: null, area: 'subject', subject: '과학' }), '3학년 교과세특 (과학)');
+
 assert.deepEqual(groupSummary(d.items), ['3학년 5반 자율·자치 3명', '3학년 5반 교과세특 (통합 과학) 1명']);
 
 // 웹앱이 만든 batch 를 그대로 읽으면 hash 가 같다
@@ -87,5 +104,31 @@ assert.deepEqual(file.records[0].neis, { hash: await webHash('글 A\r\n둘째 �
 before.records[0].neis = file.records[0].neis;
 assert.deepEqual(file, before); // 그 밖에는 아무것도 바뀌지 않음 (secrets, updatedAt 포함)
 await assert.rejects(applyNeisDone({ ...file, schemaVersion: 3 }, []), /더 새 버전/);
+
+// ---------- 불러온 파일 여러 개: 출처 표시, 일부만 적용 ----------
+{
+  const it = (no, text) => ({ id: 'x' + no, grade: 3, classNo: 5, no, name: '이' + no, area: 'autonomy', subject: null, text, bytes: 3, hash: 'h' + no });
+  const drv = { schoolYear: 2026, semester: 2, limits: { autonomy: 1500 }, receivedAt: 1, items: [it(1, '가'), it(2, '나')] };
+  const xl = { schoolYear: 2026, semester: 2, limits: null, receivedAt: 2, items: [it(3, '다')] };
+  let r = addSource(null, drv, { id: 'drive', kind: 'drive', name: 'sgb-data.json', detail: '' });
+  r = addSource(r.data, xl, { id: 'file:a.xlsx', kind: 'excel', name: 'a.xlsx', detail: '' });
+  assert.equal(r.replacedOthers, false);
+  assert.deepEqual(r.data.sources.map((x) => x.name + ':' + x.count), ['sgb-data.json:2', 'a.xlsx:1']);
+  assert.equal(activeItems(r.data).length, 3);
+  assert.deepEqual(r.data.limits, { autonomy: 1500 });
+  r.data.sources[0].on = false;
+  assert.deepEqual(activeItems(r.data).map((x) => x.src), ['file:a.xlsx']);
+  // 같은 파일을 다시 읽으면 바꿔 넣고, 켜고 끈 상태는 유지
+  const r2 = addSource(r.data, { ...drv, items: [it(1, '가')] }, { id: 'drive', kind: 'drive', name: 'sgb-data.json', detail: '' });
+  assert.equal(r2.data.sources.find((x) => x.id === 'drive').count, 1);
+  assert.equal(r2.data.sources.find((x) => x.id === 'drive').on, false);
+  // 학기가 다르면 이전 파일은 뺀다
+  const r3 = addSource(r.data, { ...xl, semester: 1 }, { id: 'file:b.xlsx', kind: 'excel', name: 'b.xlsx', detail: '' });
+  assert.equal(r3.replacedOthers, true);
+  assert.deepEqual(r3.data.sources.map((x) => x.id), ['file:b.xlsx']);
+  // 예전에 저장된 데이터(sources 없음)도 읽는다
+  const old = ensureSources({ source: 'drive', schoolYear: 2026, semester: 2, items: [it(1, '가')] });
+  assert.equal(old.sources[0].name, 'sgb-data.json'); assert.equal(old.items[0].src, 'drive');
+}
 
 console.log('model tests ok');

@@ -58,7 +58,7 @@ function aiRecord(rec) {
   return { ...rec, achievement: rec.achievement || c?.achievement || '' };
 }
 function syncParams() {
-  ctx?.setParams('write', { class: S.classId, area: S.area, student: S.open });
+  ctx?.setParams('write-detail', { class: S.classId, area: S.area, student: S.open });
 }
 
 // ---------- 자동 저장 (0.6초 디바운스) ----------

@@ -44,7 +44,7 @@ function cell(student, col, classes) {
   return h('td', { class: alert ? 'cell-alert' : null },
     h('button', {
       type: 'button', class: 'cell-link', 'aria-label': parts.join(', '),
-      onclick: () => ctx.go('write', { class: cls.id, area: col.area, student: student.studentId }),
+      onclick: () => ctx.go('write-detail', { class: cls.id, area: col.area, student: student.studentId }),
     },
     byteBar(bytes, limit, level),
     h('span', { class: 'small status-cell-text', 'aria-hidden': 'true' },

@@ -47,7 +47,7 @@ const posInt = (v) => Number.isInteger(Number(v)) && Number(v) > 0;
 const hasText = (s) => typeof s === 'string' && s.trim() !== '';
 
 // 기록 하나 검사 + 바이트·해시는 직접 다시 계산 (받은 값은 믿지 않음). 본문은 원문 그대로 둔다.
-async function toItem(r, where) {
+export async function toItem(r, where) {
   if (!r || typeof r !== 'object') throw new Error(`${where}: 형식이 올바르지 않습니다.`);
   if (!AREAS[r.area]) throw new Error(`${where}: 영역(area) '${r.area}'를 알 수 없습니다.`);
   if (!posInt(r.grade) || !posInt(r.classNo) || !posInt(r.no)) throw new Error(`${where}: 학년·반·번호가 올바르지 않습니다.`);
@@ -122,19 +122,23 @@ export async function applyNeisDone(obj, saved) {
   return changed;
 }
 
-// 나이스 화면 조건에 맞는 글 + 같은 학생 글이 2개 이상이면 dup 표시
+// 나이스 화면 조건에 맞는 글 + 같은 학생 글이 2개 이상이면 dup 표시.
+// 조건에 학년·반이 없으면(동아리, 교과세특은 반이 섞여 있음) 그 항목은 거르지 않는다.
+const idOf = (it) => `${it.grade}|${it.classNo}|${it.no}`;
 export function itemsFor(items, cond) {
   if (!cond) return [];
-  const list = items.filter((it) => it.grade === Number(cond.grade) && it.classNo === Number(cond.classNo) && it.area === cond.area &&
+  const list = items.filter((it) => it.area === cond.area &&
+    (cond.grade == null || it.grade === Number(cond.grade)) &&
+    (cond.classNo == null || it.classNo === Number(cond.classNo)) &&
     (it.area !== 'subject' || normSubject(it.subject) === normSubject(cond.subject)));
   const count = new Map();
-  for (const it of list) count.set(it.no, (count.get(it.no) || 0) + 1);
-  return list.map((it) => ({ ...it, dup: count.get(it.no) > 1 })).sort((a, b) => a.no - b.no);
+  for (const it of list) count.set(idOf(it), (count.get(idOf(it)) || 0) + 1);
+  return list.map((it) => ({ ...it, dup: count.get(idOf(it)) > 1 })).sort((a, b) => a.grade - b.grade || a.classNo - b.classNo || a.no - b.no);
 }
 
 export const limitFor = (data, area) => Number((data && data.limits && data.limits[area]) || DEFAULT_LIMITS[area]);
 
-export const condLabel = (c) => (c ? `${c.grade}학년 ${c.classNo}반 ${AREAS[c.area] || c.area}${c.area === 'subject' && c.subject ? ` (${c.subject})` : ''}` : '');
+export const condLabel = (c) => (c ? `${c.grade ? `${c.grade}학년 ` : ''}${c.classNo ? `${c.classNo}반 ` : ''}${AREAS[c.area] || c.area}${c.area === 'subject' && c.subject ? ` (${c.subject})` : ''}` : '');
 
 // 불러온 글을 조건별로 묶어 요약 ('3학년 5반 자율·자치 12명')
 export function groupSummary(items) {
@@ -144,4 +148,42 @@ export function groupSummary(items) {
     m.set(k, (m.get(k) || 0) + 1);
   }
   return Array.from(m, ([label, n]) => `${label} ${n}명`);
+}
+
+// ---------- 불러온 파일(출처) 여러 개 ----------
+// data.sources: [{ id, kind: 'drive'|'excel'|'json'|'legacy', name, detail, receivedAt, count, on }]. 각 글의 it.src 가 출처 id.
+// 선생님이 일부 파일만 적용할 수 있도록 on 이 꺼진 출처의 글은 activeItems 에서 빠진다.
+export function ensureSources(data) {
+  if (!data || Array.isArray(data.sources)) return data;
+  const kind = data.source === 'drive' ? 'drive' : 'legacy';
+  const src = { id: kind === 'drive' ? 'drive' : 'legacy', kind, name: kind === 'drive' ? DATA_FILE_NAME : '이전에 불러온 파일', detail: kind === 'drive' ? '구글 드라이브' : '', receivedAt: data.receivedAt || null, count: (data.items || []).length, on: true };
+  return { ...data, sources: [src], items: (data.items || []).map((it) => ({ ...it, src: src.id })) };
+}
+export const activeItems = (data) => {
+  const d = ensureSources(data);
+  if (!d) return [];
+  const on = new Set(d.sources.filter((s) => s.on).map((s) => s.id));
+  return d.items.filter((it) => on.has(it.src));
+};
+// 새로 읽은 파일을 목록에 넣는다. 같은 출처 id 면 바꿔 넣는다. 학년도·학기가 이미 불러온 것과 다르면 이전 파일은 모두 뺀다 (replacedOthers).
+export function addSource(data, incoming, src) {
+  let base = ensureSources(data);
+  let replacedOthers = false;
+  const differs = (a, b) => a != null && b != null && Number(a) !== Number(b);
+  if (base && base.sources.some((s) => s.id !== src.id) && (differs(base.schoolYear, incoming.schoolYear) || differs(base.semester, incoming.semester))) {
+    base = { ...base, sources: base.sources.filter((s) => s.id === src.id), items: base.items.filter((it) => it.src === src.id) };
+    replacedOthers = true;
+  }
+  const sources = (base ? base.sources.filter((s) => s.id !== src.id) : []).concat([{ ...src, receivedAt: incoming.receivedAt || Date.now(), count: incoming.items.length, on: true }]);
+  const items = (base ? base.items.filter((it) => it.src !== src.id) : []).concat(incoming.items.map((it) => ({ ...it, src: src.id })));
+  const out = {
+    schoolYear: incoming.schoolYear ?? (base && base.schoolYear) ?? null,
+    semester: incoming.semester ?? (base && base.semester) ?? null,
+    limits: incoming.limits || (base && base.limits) || null,
+    receivedAt: incoming.receivedAt || Date.now(), skipped: incoming.skipped || 0, sources, items,
+  };
+  // 켜고 끈 상태는 같은 출처를 다시 받아도 유지한다
+  const prev = base && base.sources.find((s) => s.id === src.id);
+  if (prev) out.sources.find((s) => s.id === src.id).on = prev.on;
+  return { data: out, replacedOthers };
 }
