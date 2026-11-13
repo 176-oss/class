@@ -180,7 +180,8 @@ a.sync-status-text { text-decoration: underline; }
 .grid-jobbox { padding: var(--sp-3); border: var(--bw) solid var(--color-border); border-radius: var(--r-md); background: var(--color-surface); }
 .grid-job { align-items: center; gap: var(--sp-3); }
 .grid-wrap { max-height: none; overflow-x: auto; }
-.grid-table { table-layout: fixed; min-width: 880px; }
+/* 휴대폰에서도 최종본 칸이 300px 안팎은 되도록 (좁으면 표가 가로로 넘어감) */
+.grid-table { table-layout: fixed; min-width: 1000px; }
 .grid-table td, .grid-table th { vertical-align: top; }
 .grid-table .col-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .grid-ta {
@@ -193,7 +194,18 @@ a.sync-status-text { text-decoration: underline; }
 .grid-table tr.has-issue > td:nth-child(5) .grid-ta { border-color: var(--color-danger); }
 .grid-table tr.is-done > td { background: var(--color-bg); }
 .grid-issue-cell { font-size: var(--fs-sm); }
-.grid-issues { margin: var(--sp-1) 0; padding-left: var(--sp-4); }
+.grid-issue-cell .row { flex-wrap: wrap; }
+/* 점검 지적 줄: 학생 행 바로 아래, 메모부터 끝까지 넓게. 지적은 점 + 글로 가로로 이어 쓴다 */
+.grid-table tr.has-detail > * { border-bottom-color: transparent; }
+.grid-issue-row > td { padding-top: 0; }
+.grid-issue-line { display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-5); margin: 0; padding: 0; list-style: none; font-size: var(--fs-sm); line-height: var(--lh-normal); }
+.grid-issue-line > li { display: inline-flex; align-items: center; gap: var(--sp-2); max-width: 100%; color: var(--color-text); }
+.grid-issue-line > li::before { content: ''; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--color-warn-line); }
+.grid-issue-line > li.is-danger { color: var(--color-danger-text); }
+.grid-issue-line > li.is-danger::before { background: var(--color-danger); }
+.grid-issue-line > li.muted { color: var(--color-text-muted); }
+.grid-issue-line > li.muted::before { display: none; }
+.grid-issue-tag { flex: none; padding: 0 var(--sp-1); border: var(--bw) solid var(--color-border-strong); border-radius: var(--r-sm); font-size: var(--fs-xs); line-height: 1.5; color: var(--color-text-muted); }
 .grid-draft { padding: var(--sp-2); border: var(--bw) solid var(--color-divider); border-radius: var(--r-md); }
 .grid-draft-meta.text-danger { color: var(--color-danger); }
 @media (min-width: 1100px) {
@@ -203,9 +215,8 @@ a.sync-status-text { text-decoration: underline; }
 @media (min-width: 1100px) {
   .view-grid .write-layout:not(.has-panel) { grid-template-columns: minmax(0, 1fr); }
 }
-/* 패널이 열리면 표를 촘촘하게: 점검은 개수만, 나머지 열은 좁게 */
-.view-grid .write-layout.has-panel .grid-issues { display: none; }
-.view-grid .write-layout.has-panel .grid-table { min-width: 640px; }
+/* 넓은 화면에서 패널이 옆에 열리면 표를 촘촘하게 (좁은 화면은 패널이 아래로 가니 그대로) */
+@media (min-width: 1100px) { .view-grid .write-layout.has-panel .grid-table { min-width: 640px; } }
 
 /* 파일 끌어다 놓기 */
 .dropzone { transition: outline-color var(--dur-fast, 0.1s); }
