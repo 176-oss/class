@@ -258,7 +258,9 @@ test('시트 이름으로 항목 알아보기', () => {
   assert.deepEqual(areaFromSheetName('세특_국어'), { area: 'subject', subject: '국어' });
   assert.deepEqual(areaFromSheetName('자율'), { area: 'autonomy' });
   assert.deepEqual(areaFromSheetName('행특'), { area: 'behavior' });
-  assert.deepEqual(areaFromSheetName('자유학기 진로탐색'), { area: 'free-career' });
+  assert.equal(areaFromSheetName('자유학기 진로탐색'), null, '자유학기는 뺌');
+  assert.equal(areaFromSheetName('자유학기 동아리'), null);
+  assert.equal(areaFromSheetName('일상생활'), null);
   assert.equal(areaFromSheetName('Sheet1'), null);
 });
 
@@ -266,4 +268,11 @@ test('전후 비교', () => {
   const d = diff('토론에 참여했다.', '토론에 참여함.');
   assert.equal(d.filter((p) => p.type !== 'ins').map((p) => p.text).join(''), '토론에 참여했다.');
   assert.equal(d.filter((p) => p.type !== 'del').map((p) => p.text).join(''), '토론에 참여함.');
+});
+
+test('자유학기·일상생활 항목은 없음', async () => {
+  const { AREAS, areasFor } = await import('../rules/areas.js');
+  assert.deepEqual(AREAS.map((a) => a.id), ['autonomy', 'club', 'career', 'subject', 'individual', 'behavior']);
+  assert.equal(areasFor('mid').length, 6);
+  assert.equal(areasFor('high').length, 6);
 });

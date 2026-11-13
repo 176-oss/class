@@ -236,7 +236,7 @@
     {
       "id": "thesis-activity", "cat": "창체", "label": "소논문 실적",
       "terms": ["소논문", "연구보고서"],
-      "level": "warn", "schools": ["mid", "high"], "areas": ["autonomy", "club", "career", "free-career", "free-topic", "free-art", "free-club"],
+      "level": "warn", "schools": ["mid", "high"], "areas": ["autonomy", "club", "career"],
       "basis": { "mid": "중 77", "high": "고 82" },
       "desc": "학생 주도 자율탐구활동의 특기사항은 쓸 수 있으나, 산출물(소논문 포함)의 제목, 연구 주제, 참여인원, 소요시간은 쓸 수 없음",
       "fix": "제목·주제·인원·시간을 지우고 탐구 과정의 특성만 남김"
