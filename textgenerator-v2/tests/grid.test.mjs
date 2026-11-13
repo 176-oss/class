@@ -96,3 +96,13 @@ test('후보 하나를 여러 학생에게: 배정대로 글을 모으고, 후�
   assert.deepEqual(p.patches.map((x) => x.id), ['s1', 's3']);
   assert.equal(p.summary.done, 1);
 });
+
+test('성취기준 나누기: 줄마다 하나, 한 줄에 여러 개면 코드 앞에서 나눔, 중복 제거', async () => {
+  const { parseStandards, standardsText } = await import('../js/core/grid.js');
+  const list = parseStandards('[10통과01-01] 우주의 기원을 설명한다.\n[10통과01-02] 원소의 생성을 설명한다. [10통과01-03] 별을 이해한다.\n\n[10통과01-01] 우주의 기원을 설명한다.\n자유롭게 쓴 줄');
+  assert.deepEqual(list.map((x) => x.code), ['10통과01-01', '10통과01-02', '10통과01-03', '']);
+  assert.equal(list[0].text, '우주의 기원을 설명한다.');
+  assert.equal(list[3].line, '자유롭게 쓴 줄');
+  assert.equal(standardsText(new Set([list[0].line, list[2].line])), '[10통과01-01] 우주의 기원을 설명한다.\n[10통과01-03] 별을 이해한다.');
+  assert.deepEqual(parseStandards(''), []);
+});

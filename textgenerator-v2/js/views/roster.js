@@ -345,12 +345,13 @@ function studentTable(cls) {
     h('table', { class: 'table' },
       h('caption', { class: 'sr-only' }, `${cls.name} 학생 ${students.length}명`),
       h('thead', {}, h('tr', {},
-        h('th', { scope: 'col' }, '학번'), h('th', { scope: 'col' }, '이름'),
+        h('th', { scope: 'col' }, '학번'), cls.kind !== 'homeroom' ? h('th', { scope: 'col' }, '학년-반') : null, h('th', { scope: 'col' }, '이름'),
         h('th', { scope: 'col' }, '함께 속한 반'), h('th', { scope: 'col' }, h('span', { class: 'sr-only' }, '빼기')))),
       h('tbody', {}, students.map((s) => {
         const others = store.classesOfStudent(s.studentId).filter((c) => c.id !== cls.id).map((c) => c.name);
         return h('tr', {},
           h('th', { scope: 'row', class: 'num' }, s.studentId),
+          cls.kind !== 'homeroom' ? h('td', { class: 'num' }, `${Number(s.studentId.slice(0, 1))}학년 ${Number(s.studentId.slice(1, 3))}반`) : null,
           h('td', {}, s.name),
           h('td', { class: 'muted' }, others.join(', ') || '-'),
           h('td', {}, h('button', {

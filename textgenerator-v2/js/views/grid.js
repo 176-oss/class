@@ -2,7 +2,7 @@
 // 학생을 체크하면 오른쪽 패널에서 '특징 -> 초안 -> 수정 -> 표에 순서대로 붙여넣기'를 한다.
 // 맨 위 버튼 하나는 메모를 적어 둔 학생의 초안을 한꺼번에 만든다.
 import { h, clear, icon, debounce } from '../dom.js';
-import { toast, announce, chip, seg, badge, alertBox, emptyState, field, progressBar, openTool } from '../ui.js';
+import { toast, announce, chip, seg, badge, alertBox, emptyState, field, progressBar, openTool, openDialog } from '../ui.js';
 import * as store from '../store.js';
 import { AREA_LABELS, STATUS_LABELS, LENGTH_LABELS, TRAITS_BY_AREA, KIND_LABELS, newCandidate, deriveStatus } from '../core/model.js';
 import { byteLength, byteLevel } from '../core/bytes.js';
@@ -10,11 +10,12 @@ import { generateDrafts, AiError } from '../core/gemini.js';
 import { pickExamples } from '../core/style.js';
 import { createBatch } from '../core/batch.js';
 import { writeBatch, groupsForCheck } from '../core/handoff.js';
-import { checkCell, tidyText, composeMemo, planPaste, memoTargets, PASTE_MODES, assignedDrafts, removeCandidate, candidateTarget, autoAssign } from '../core/grid.js';
+import { checkCell, tidyText, composeMemo, planPaste, memoTargets, PASTE_MODES, assignedDrafts, removeCandidate, candidateTarget, autoAssign, parseStandards, standardsText } from '../core/grid.js';
 
 const G = {
   area: null,
   hidden: new Set(), // 숨긴 반 id
+  onlySelected: false, // 체크한 학생만 보기 (반을 가리지 않고 체크한 학생을 모두 보여 준다)
   selected: new Set(), // 기록 id
   panel: false,
   common: '',
@@ -26,6 +27,7 @@ const G = {
   generated: new Set(), // 이번에 패널에서 만든 기록 id
   short: new Set(), // 메모가 부족해 못 만든 기록 id
   job: null, // { batch, label, ids, kind }
+  stds: new Set(), // 이번 초안에 쓸 성취기준 (줄 전체 글자)
   method: 'each', // each: 학생마다 만들기 | shared: 후보 몇 개를 만들어 학생에게 나눠 붙이기
   cands: [], // shared 방식의 후보 글 (최대 6개, 화면 메모리)
   assign: new Map(), // 기록 id -> 후보 번호
@@ -61,9 +63,10 @@ function allAreas() {
 function buildRows() {
   const out = [];
   for (const cls of classesForArea()) {
-    if (G.hidden.has(cls.id)) continue;
+    if (!G.onlySelected && G.hidden.has(cls.id)) continue;
     for (const student of store.studentsOf(cls)) {
       const rec = store.getRecord(student.studentId, G.area, G.area === 'subject' ? cls.subject : null);
+      if (G.onlySelected && !G.selected.has(rec.id)) continue;
       out.push({ cls, student, rec });
     }
   }
@@ -138,6 +141,7 @@ function refreshRow(id, { setText = false } = {}) {
   clear(ref.bytes, text ? `${bytes}` : '-');
   ref.bytes.classList.toggle('text-danger', level === 'over' && !!text);
   clear(ref.status, badge(STATUS_LABELS[status], status));
+  if (ref.std) { const n = parseStandards(live.achievement).length; ref.std.textContent = n ? `성취기준 ${n}` : '성취기준'; }
   clearTimeout(checkTimers.get(id));
   checkTimers.set(id, setTimeout(() => {
     const chk = checkOfText(rec, ref.final.value);
@@ -187,20 +191,24 @@ function rowEl(row) {
       refreshRow(id);
     },
   });
+  const stdBtn = h('button', { type: 'button', class: 'btn btn-secondary btn-sm', 'aria-label': `${student.name} 성취기준 고르기`, onclick: () => openStandards(row) });
   const ref = {
-    tr: null, memo, final: fin, done: doneBox,
+    tr: null, memo, final: fin, done: doneBox, std: stdBtn,
     bytes: h('td', { class: 'num' }), status: h('td', {}), issues: h('td', { class: 'grid-issue-cell' }),
   };
   const compact = G.panel;
+  const showStd = G.area === 'subject' && !compact;
+  const showClass = cls.kind !== 'homeroom';
   ref.tr = h('tr', { 'data-id': id },
     h('td', { class: 'col-check' }, h('label', { class: 'check-hit' }, sel)),
-    h('td', { class: 'num' }, String(student.studentId).slice(3) * 1 || student.studentId),
+    h('td', { class: 'num' }, showClass ? `${Number(String(student.studentId).slice(0, 1))}-${Number(String(student.studentId).slice(1, 3))} ${Number(String(student.studentId).slice(3)) || ''}` : (String(student.studentId).slice(3) * 1 || student.studentId)),
     h('th', { scope: 'row', class: 'col-name' }, student.name),
     h('td', {}, memo),
     h('td', {}, fin),
     ref.bytes,
     compact ? null : ref.status,
     ref.issues,
+    showStd ? h('td', {}, stdBtn) : null,
     compact ? null : h('td', { class: 'col-done' }, h('label', { class: 'check-hit' }, doneBox)),
     compact ? null : h('td', {}, h('a', {
       class: 'btn btn-ghost btn-sm', 'aria-label': `${student.name} 자세히 (후보 3개 비교, 검사, NEIS)`,
@@ -216,7 +224,7 @@ function renderTable() {
   rows = buildRows();
   const classes = classesForArea();
   if (!classes.length) { clear(els.tableHost, emptyState('users', '이 영역을 쓰는 반이 없습니다.')); return; }
-  if (!rows.length) { clear(els.tableHost, emptyState('users', G.hidden.size ? '위에서 반을 체크하면 그 반의 명단이 나옵니다.' : '표시할 학생이 없습니다.', h('a', { class: 'btn btn-primary', href: '#roster' }, '명단으로 가기'))); return; }
+  if (!rows.length) { clear(els.tableHost, emptyState('users', G.onlySelected ? '체크한 학생이 없습니다. "체크한 학생만 보기"를 끄고 학생을 체크하세요.' : G.hidden.size ? '위에서 반을 체크하면 그 반의 명단이 나옵니다.' : '표시할 학생이 없습니다.', h('a', { class: 'btn btn-primary', href: '#roster' }, '명단으로 가기'))); return; }
   const selAll = h('input', {
     type: 'checkbox', id: 'grid-select-all', 'aria-label': '보이는 학생 모두 고르기',
     onchange: (e) => { for (const r of rows) { if (e.target.checked) G.selected.add(r.rec.id); else G.selected.delete(r.rec.id); } syncChecks(); onSelection(); },
@@ -234,19 +242,22 @@ function renderTable() {
       });
       body.push(h('tr', { class: 'grid-group' },
         h('td', { class: 'col-check' }, h('label', { class: 'check-hit' }, gbox)),
-        h('th', { colspan: G.panel ? '6' : '9', scope: 'colgroup' }, `${row.cls.name} (${KIND_LABELS[row.cls.kind]}${row.cls.subject ? ` · ${row.cls.subject}` : ''}) · ${mine.length}명`)));
+        h('th', { colspan: G.panel ? '6' : '10', scope: 'colgroup' }, `${row.cls.name} (${KIND_LABELS[row.cls.kind]}${row.cls.subject ? ` · ${row.cls.subject}` : ''}) · ${mine.length}명`)));
     }
     body.push(rowEl(row));
   }
+  const wide = rows.some((r) => r.cls.kind !== 'homeroom'); // 교과·동아리 반은 학년-반 번호로 보인다
+  const noW = wide ? '76px' : '48px';
+  const subj = G.area === 'subject' && !G.panel;
   const table = h('table', { class: 'table grid-table' },
     h('caption', { class: 'sr-only' }, `${AREA_LABELS[G.area]} 작성 표 (명렬순)`),
-    h('colgroup', {}, ...(G.panel ? ['44px', '48px', '84px', '14%', 'auto', '72px', '96px'] : ['44px', '48px', '84px', '17%', 'auto', '72px', '84px', '19%', '56px', '72px']).map((w) => h('col', { style: { width: w } }))),
+    h('colgroup', {}, ...(G.panel ? ['44px', noW, '84px', '14%', 'auto', '72px', '96px'] : ['44px', noW, '84px', '17%', 'auto', '72px', '84px', '19%', ...(subj ? ['96px'] : []), '56px', '72px']).map((w) => h('col', { style: { width: w } }))),
     h('thead', {}, h('tr', {},
       h('th', { scope: 'col', class: 'col-check' }, h('label', { class: 'check-hit' }, selAll)),
-      h('th', { scope: 'col', class: 'num' }, '번호'), h('th', { scope: 'col' }, '이름'),
+      h('th', { scope: 'col', class: 'num' }, wide ? '반 번호' : '번호'), h('th', { scope: 'col' }, '이름'),
       h('th', { scope: 'col' }, '메모'), h('th', { scope: 'col' }, '최종본 (칸에서 바로 쓰기)'),
       h('th', { scope: 'col', class: 'num' }, '바이트'), G.panel ? null : h('th', { scope: 'col' }, '상태'),
-      h('th', { scope: 'col' }, '점검'), G.panel ? null : h('th', { scope: 'col' }, '완료'), G.panel ? null : h('th', { scope: 'col' }, ''))),
+      h('th', { scope: 'col' }, '점검'), subj ? h('th', { scope: 'col' }, '성취기준') : null, G.panel ? null : h('th', { scope: 'col' }, '완료'), G.panel ? null : h('th', { scope: 'col' }, ''))),
     h('tbody', {}, body));
   els.table = table;
   clear(els.tableHost, h('div', { class: 'table-wrap grid-wrap' }, table));
@@ -274,9 +285,56 @@ function syncChecks() {
 function selectedRows() { return rows.filter((r) => G.selected.has(r.rec.id)); }
 
 function onSelection() {
+  if (G.onlySelected) renderTable(); // 체크를 풀면 그 학생은 표에서 빠진다
   syncChecks();
   renderBar();
   if (G.panel) renderPanel();
+}
+
+// ---------- 성취기준 ----------
+/** 이 학생에게 쓸 성취기준 글: 패널에서 체크한 것 > 학생에게 고른 것 > 반에 올려 둔 전체 */
+function achFor(rec, cls) {
+  if (G.stds.size) return standardsText(G.stds);
+  return rec.achievement || cls?.achievement || '';
+}
+
+/** 학생 한 명이 성취한 성취기준을 체크한다. 아무것도 안 고르면 반에 올려 둔 전체를 AI에 알려 준다 */
+function openStandards(row) {
+  const rec = store.state.records.get(row.rec.id) || row.rec;
+  const all = parseStandards(row.cls.achievement);
+  const mine = new Set(parseStandards(rec.achievement).map((x) => x.line));
+  const extra = [...mine].filter((l) => !all.some((x) => x.line === l)); // 반 목록에 없는 직접 쓴 줄
+  const items = [...all.map((x) => x.line), ...extra];
+  if (!items.length) {
+    openDialog({
+      title: `${row.student.name} 성취기준`,
+      body: [h('p', {}, '이 반에 올려 둔 성취기준이 없습니다. 명단 화면의 반 설정에서 성취기준을 먼저 올려 주세요.'), h('a', { class: 'btn btn-secondary', href: `#roster?class=${encodeURIComponent(row.cls.id)}` }, '명단으로 가기')],
+      actions: [{ label: '닫기', variant: 'secondary', value: true }],
+    });
+    return;
+  }
+  const checked = new Set(mine);
+  const boxes = items.map((line, i) => h('label', { class: 'check-row grid-std', for: `std-${i}` },
+    h('input', { type: 'checkbox', id: `std-${i}`, checked: checked.has(line), onchange: (e) => { if (e.target.checked) checked.add(line); else checked.delete(line); } }),
+    h('span', {}, line)));
+  const dlg = openDialog({
+    title: `${row.student.name}이(가) 성취한 성취기준`,
+    wide: true,
+    body: [
+      h('p', { class: 'small muted' }, '체크한 성취기준을 포함해 글을 만듭니다. 아무것도 체크하지 않으면 반에 올려 둔 성취기준 전체를 AI에 알려 줍니다.'),
+      h('div', { class: 'row' },
+        h('button', { type: 'button', class: 'btn btn-ghost btn-sm', onclick: () => { items.forEach((l, i) => { checked.add(l); const b = dlg.el.querySelector(`#std-${i}`); if (b) b.checked = true; }); } }, '모두 체크'),
+        h('button', { type: 'button', class: 'btn btn-ghost btn-sm', onclick: () => { checked.clear(); dlg.el.querySelectorAll('input[type=checkbox]').forEach((b) => { b.checked = false; }); } }, '모두 풀기')),
+      h('div', { class: 'stack gap-1' }, boxes),
+    ],
+    actions: [{ label: '취소', variant: 'secondary', value: false }, { label: '저장', variant: 'primary', value: true }],
+  });
+  dlg.closed.then((ok) => {
+    if (!ok) return;
+    store.updateRecord(row.rec.id, { achievement: standardsText(items.filter((l) => checked.has(l))) });
+    refreshRow(row.rec.id);
+    toast(`${row.student.name}: 성취기준 ${checked.size}개를 골랐습니다`);
+  });
 }
 
 // ---------- 위쪽 ----------
@@ -444,6 +502,7 @@ function renderPanel() {
         h('div', { class: 'row chips', role: 'group', 'aria-labelledby': 'gp-traits' }, traits.map((t) => chip(t, G.traits.has(t), (on) => { if (on) G.traits.add(t); else G.traits.delete(t); })))),
       h('div', { class: 'field' }, h('span', { class: 'label', id: 'gp-len' }, '목표 분량'),
         seg({ labelledby: 'gp-len', options: Object.entries(LENGTH_LABELS), value: G.length, onChange: (v) => { G.length = v; } })),
+      standardsBox(sel),
       h('label', { class: 'check-row' }, h('input', { type: 'checkbox', checked: G.withOwn, onchange: (e) => { G.withOwn = e.target.checked; renderPanel(); } }), '학생 메모도 함께 쓰기'),
       picked ? h('label', { class: 'check-row' }, h('input', { type: 'checkbox', checked: G.styleOn, onchange: (e) => { G.styleOn = e.target.checked; renderPanel(); } }), `내 스타일 적용 (${picked.summary})`) : null),
     ...methodSections(sel, generated, canMake));
@@ -456,6 +515,24 @@ function updateMakeButtons() {
   els.panel?.querySelectorAll('[data-make]').forEach((b) => {
     b.disabled = !(base && (b.dataset.make === 'shared' ? G.common.trim() && G.cands.length < candidateTarget(n) : (G.common.trim() || G.withOwn)));
   });
+}
+
+// 패널: 이번 초안에 쓸 성취기준 (고른 학생들 반에 올려 둔 것을 모아 보여 준다)
+function standardsBox(sel) {
+  if (G.area !== 'subject') return null;
+  const list = [];
+  const seen = new Set();
+  for (const r of sel) for (const x of parseStandards(r.cls.achievement)) if (!seen.has(x.line)) { seen.add(x.line); list.push(x.line); }
+  for (const l of [...G.stds]) if (!seen.has(l)) G.stds.delete(l); // 다른 반을 고르면 없는 줄은 뺀다
+  if (!list.length) return h('p', { class: 'hint' }, '반에 올려 둔 성취기준이 없습니다. 명단 화면의 반 설정에서 올리면 여기서 고를 수 있습니다.');
+  return h('div', { class: 'field' }, h('span', { class: 'label', id: 'gp-std' }, '이번 글에 포함할 성취기준 (성취한 것을 체크)'),
+    h('div', { class: 'row' },
+      h('button', { type: 'button', class: 'btn btn-ghost btn-sm', onclick: () => { list.forEach((l) => G.stds.add(l)); renderPanel(); } }, '모두 체크'),
+      h('button', { type: 'button', class: 'btn btn-ghost btn-sm', onclick: () => { G.stds.clear(); renderPanel(); } }, '모두 풀기')),
+    h('div', { class: 'stack gap-1', role: 'group', 'aria-labelledby': 'gp-std' }, list.map((l, i) => h('label', { class: 'check-row grid-std', for: `gp-std-${i}` },
+      h('input', { type: 'checkbox', id: `gp-std-${i}`, checked: G.stds.has(l), onchange: (e) => { if (e.target.checked) G.stds.add(l); else G.stds.delete(l); } }),
+      h('span', {}, l)))),
+    h('p', { class: 'hint' }, G.stds.size ? '체크한 성취기준으로 글을 만듭니다 (학생별로 고른 것보다 우선).' : '아무것도 체크하지 않으면 학생별로 고른 성취기준, 없으면 반에 올려 둔 전체를 씁니다.'));
 }
 
 function methodSeg() {
@@ -572,7 +649,7 @@ function makeShared() {
   const rec = store.state.records.get(first.rec.id) || first.rec;
   const settings = store.state.settings;
   const roster = rosterAll();
-  const common = G.common; const traits = [...G.traits]; const length = G.length;
+  const common = G.common; const traits = [...G.traits]; const length = G.length; const stdText = G.stds.size ? standardsText(G.stds) : '';
   const calls = Math.ceil(need / 3);
   const job = { label: '후보 만들기', total: calls, done: 0, failed: [], short: 0, stopReason: '', batch: null, summary: () => `후보 ${G.cands.length}개` };
   const target = candidateTarget(sel.length);
@@ -584,7 +661,7 @@ function makeShared() {
       const left = target - G.cands.length;
       if (left <= 0) return 'skipped';
       const res = await generateDrafts({
-        record: { ...rec, memo: common, traits, length, achievement: rec.achievement || first.cls.achievement || '' },
+        record: { ...rec, memo: common, traits, length, achievement: stdText || rec.achievement || first.cls.achievement || '' },
         studentName: '', roster, settings, apiKey: store.getApiKey(), count: Math.min(3, left), fake: ctx.isFakeAI(), style: styleFor(rec),
       });
       const drafts = (res?.drafts || []).filter((d) => d && d.trim()).map((d) => d.trim());
@@ -635,11 +712,11 @@ function draftEditor(r) {
 function makeSelected() {
   const sel = selectedRows().filter((r) => statusOf(r.rec) !== 'done');
   if (!sel.length) { toast('고른 학생이 없습니다'); return; }
-  const common = G.common; const withOwn = G.withOwn; const traits = [...G.traits]; const length = G.length;
+  const common = G.common; const withOwn = G.withOwn; const traits = [...G.traits]; const length = G.length; const stdText = G.stds.size ? standardsText(G.stds) : '';
   G.generated = new Set([...G.generated].filter((id) => !sel.some((r) => r.rec.id === id)));
   startJob({
     ids: sel.map((r) => r.rec.id), label: '초안 만들기',
-    makeRecord: (rec, row) => ({ ...rec, memo: composeMemo(common, withOwn ? rec.memo : ''), traits, length, achievement: rec.achievement || row?.cls?.achievement || '' }),
+    makeRecord: (rec, row) => ({ ...rec, memo: composeMemo(common, withOwn ? rec.memo : ''), traits, length, achievement: stdText || rec.achievement || row?.cls?.achievement || '' }),
     onText: (rid, text) => {
       store.updateRecord(rid, { draft: text, candidates: [newCandidate(text)] });
       G.generated.add(rid);
@@ -707,17 +784,18 @@ function renderAll() {
     for (const id of [...G.selected]) { /* 숨긴 반의 선택은 그대로 둔다 */ void id; }
     renderTable(); renderBar(); if (G.panel) renderPanel();
   }));
+  const onlyChip = chip('체크한 학생만 보기', G.onlySelected, (on) => { G.onlySelected = on; renderTable(); renderBar(); if (G.panel) renderPanel(); });
   clear(root,
     h('div', { class: 'view-head row-between' }, h('h1', { class: 'view-title', tabindex: '-1' }, '작성'), els.save),
     noKey() ? alertBox('info', h('p', {}, 'AI 초안을 만들려면 설정에서 Gemini API 키를 넣어 주세요. 표에서 직접 쓰기와 점검은 키 없이도 됩니다. ', h('a', { href: '#settings' }, '설정으로 가기'))) : null,
     h('div', { class: 'write-toolbar' },
       h('div', { class: 'tabs', role: 'tablist', 'aria-label': '영역' }, areas.map((a) => h('button', {
         type: 'button', class: 'tab', role: 'tab', 'aria-selected': a === G.area, tabindex: a === G.area ? '0' : '-1',
-        onclick: () => { flushEdits(); G.area = a; G.selected.clear(); G.generated.clear(); G.cands = []; G.assign = new Map(); G.hidden = defaultHidden(); G.method = a === 'subject' ? 'shared' : 'each'; ctx.setParams('write', { area: a }); renderAll(); },
+        onclick: () => { flushEdits(); G.area = a; G.selected.clear(); G.generated.clear(); G.cands = []; G.assign = new Map(); G.hidden = defaultHidden(); G.method = a === 'subject' ? 'shared' : 'each'; G.stds.clear(); G.onlySelected = false; ctx.setParams('write', { area: a }); renderAll(); },
       }, AREA_LABELS[a]))),
       h('button', { type: 'button', class: 'btn btn-secondary', onclick: sendToChecker }, icon('send'), '점검기로 보내기'),
       h('div', { class: 'field' }, h('span', { class: 'label', id: 'grid-class-label' }, G.area === 'subject' ? '명단을 불러올 반 (체크)' : '보이는 반'),
-        h('div', { class: 'row chips', role: 'group', 'aria-labelledby': 'grid-class-label' }, classChips))),
+        h('div', { class: 'row chips', role: 'group', 'aria-labelledby': 'grid-class-label' }, classChips, onlyChip))),
     els.bar, els.job, els.layout);
   renderTable(); renderBar(); renderJob(); renderPanel(); setSave();
 }

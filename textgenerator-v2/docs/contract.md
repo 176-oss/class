@@ -756,3 +756,6 @@ export async function refineDraft({ record, text, request, studentName, roster, 
 - 점검기 -> 작성기: [고친 글을 작성 도우미로 보내기](원문과 달라진 글만). 작성기가 `planReturn` 으로 계획해 대화상자로 보여 주고, 확인하면 최종본에 넣는다. 명단에 없거나 이름이 다른 학생, 완료한 기록, 같은 글은 건너뛴다.
 - 두 도구는 이름 붙은 창(`sgb-checker`, `sgb-writer`)으로 열어, 이미 열려 있으면 다시 불러오지 않고 앞으로 가져오기만 한다 (고친 글을 잃지 않도록).
 - 후보 개수는 `candidateTarget` = 고른 학생 수 + 5 (최대 40). 명단 등록은 `classContext`(선택한 반의 학년·반)로 `1 김가온` 줄을 학번으로 바꾼다 (`parsePastedRoster(text, context)`, `parseRosterRows(rows, context)`).
+- `AREAS_BY_KIND.homeroom` 에서 `club` 을 뺐다 (담임은 동아리를 쓰지 않음). 이미 담임 반에 쓴 동아리 기록은 지우지 않고 남아 있다 (표에는 안 보임).
+- 성취기준 (`parseStandards`, `standardsText`): 반 `achievement` 를 줄 또는 `[코드]` 단위 항목으로 나눈다. 학생별 선택은 그 기록의 `achievement` 에 체크한 줄들을 줄바꿈으로 저장하고(비면 반 전체), 패널에서 체크한 `G.stds` 가 있으면 그것이 모두에 우선한다. AI 요청의 `achievement` 로만 쓰인다 (교과세특).
+- 표의 `체크한 학생만 보기`(`G.onlySelected`)는 가려 둔 반이어도 체크한 학생은 보여 준다.

@@ -186,6 +186,28 @@ export function removeCandidate(assign, index) {
   return next;
 }
 
+/**
+ * 반에 올려 둔 성취기준 글을 항목으로: 줄마다 하나, 한 줄에 '[코드] 내용'이 여러 개면 코드 앞에서 나눈다.
+ * 반환: [{ code, text, line }] — line 은 줄 전체 (체크 상태를 이 글자로 기억한다). 같은 줄은 한 번만.
+ */
+export function parseStandards(text) {
+  const out = [];
+  const seen = new Set();
+  for (const raw of String(text ?? '').split(/\r\n|\r|\n/)) {
+    for (const part of raw.trim().split(/\s+(?=\[[^\]]{2,24}\]\s*\S)/)) {
+      const line = part.trim();
+      if (!line || seen.has(line)) continue;
+      seen.add(line);
+      const m = line.match(/^\[([^\]]+)\]\s*(.*)$/);
+      out.push({ code: m ? m[1] : '', text: m ? m[2] : line, line });
+    }
+  }
+  return out;
+}
+
+/** 체크한 항목들의 글 (AI에 보낼 성취기준) */
+export const standardsText = (lines) => [...lines].map((l) => String(l).trim()).filter(Boolean).join('\n');
+
 /** 메모가 있고 최종본이 비어 있는 (완료 아님) 기록 id — 맨 위 [메모로 초안 만들기] 대상 */
 export function memoTargets(rows) {
   const filled = (v) => typeof v === 'string' && v.trim() !== '';

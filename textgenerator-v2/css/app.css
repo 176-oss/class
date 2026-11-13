@@ -227,3 +227,6 @@ a.sync-status-text { text-decoration: underline; }
 }
 .switch a:hover { background: rgba(255, 255, 255, 0.14); }
 .switch [aria-current] { background: var(--color-primary-hover); font-weight: var(--fw-semibold); }
+
+.grid-std { align-items: flex-start; gap: var(--sp-2); }
+.grid-std span { overflow-wrap: anywhere; line-height: 1.5; }

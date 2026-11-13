@@ -8,7 +8,8 @@ import {
 import { DEFAULT_FORBIDDEN } from '../js/core/forbidden.js';
 
 test('model: 영역, 칩, 한도', () => {
-  assert.deepEqual(AREAS_BY_KIND.homeroom, ['autonomy', 'career', 'behavior', 'club']);
+  assert.deepEqual(AREAS_BY_KIND.homeroom, ['autonomy', 'career', 'behavior']); // 담임은 동아리를 쓰지 않는다 (동아리 반에서 씀)
+  assert.deepEqual(AREAS_BY_KIND.club, ['club']);
   for (const a of AREAS) {
     assert.ok(TRAITS_BY_AREA[a].length >= 8 && TRAITS_BY_AREA[a].length <= 10, a);
     assert.equal(DEFAULT_LIMITS.high[a], a === 'behavior' ? 900 : 1500);
