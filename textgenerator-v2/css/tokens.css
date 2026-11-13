@@ -24,10 +24,10 @@
   --c-ink-900: #2E2418;    /* 본문 글자 (15.2) */
   --c-ink-600: #6E604E;    /* 보조 글자 (6.1, 연한 배경 위 5.3) */
   --c-ink-400: #8E7A5E;    /* 입력칸 테두리, 비활성 글자 (4.1, 선 3:1 이상) */
-  --c-line:    #E8DCC6;    /* 구분선 (장식용) */
-  --c-line-soft: #F1E8D7;  /* 표 줄 구분 */
-  --c-paper:   #FDF8EE;    /* 앱 배경 */
-  --c-paper-2: #F6EEDF;    /* 표 머리, 눌림 배경 */
+  --c-line:    #E6E1D8;    /* 구분선 (장식용) */
+  --c-line-soft: #EFEBE4;  /* 표 줄 구분 */
+  --c-paper:   #F7F5F1;    /* 앱 배경: 노란 기 뺀 따뜻한 회색 */
+  --c-paper-2: #EFEBE4;    /* 표 머리, 눌림 배경 */
   --c-white:   #FFFFFF;
 
   --c-red-700: #B42318;    /* 경고·초과 (6.6) */
@@ -73,7 +73,7 @@
   --color-done-bg: var(--c-green-50);
 
   --color-info-text: var(--c-brown-700);
-  --color-info-bg: var(--c-amber-100);
+  --color-info-bg: var(--c-white);              /* 안내는 흰 바탕 + 갈색 선, 색 배경은 주의에만 */
 
   --color-focus: var(--c-brown-700);             /* 밝은 바탕 위 포커스 링 (8.5) */
   --color-focus-on-dark: var(--c-amber-100);     /* 주 색 바탕 위 포커스 링 (7.5) */
@@ -85,7 +85,7 @@
 
   --fw-regular: 400;
   --fw-medium: 500;
-  --fw-semibold: 600;
+  --fw-semibold: 500; /* 위계는 크기와 색으로, 굵기는 400·500 두 단계만 */
 
   --fs-xs: calc(12 * var(--u));   /* 배지 */
   --fs-sm: calc(14 * var(--u));   /* 라벨, 도움말, 표 보조 */
