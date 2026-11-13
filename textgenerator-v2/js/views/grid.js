@@ -6,7 +6,7 @@ import { toast, announce, chip, seg, badge, alertBox, emptyState, field, progres
 import * as store from '../store.js';
 import { AREA_LABELS, STATUS_LABELS, LENGTH_LABELS, TRAITS_BY_AREA, KIND_LABELS, newCandidate, deriveStatus, recordKey } from '../core/model.js';
 import { byteLength, byteLevel } from '../core/bytes.js';
-import { generateDrafts, AiError } from '../core/gemini.js';
+import { generateDrafts, aiCheck, AiError } from '../core/gemini.js';
 import { pickExamples } from '../core/style.js';
 import { createBatch } from '../core/batch.js';
 import { writeBatch, groupsForCheck } from '../core/handoff.js';
@@ -30,6 +30,7 @@ const G = {
   stds: new Set(), // 이번 초안에 쓸 성취기준 (줄 전체 글자)
   evIds: new Set(), // 이번 초안에 쓸 행사 id (자율·진로)
   request: '', // 추가 요청 (강조점·문장 모양)
+  ai: new Map(), // AI 점검 결과: 기록 id -> { text, issues } (점검한 글과 지금 글이 같을 때만 보여 줌, 화면 메모리)
   method: 'each', // each: 학생마다 만들기 | shared: 후보 몇 개를 만들어 학생에게 나눠 붙이기
   cands: [], // shared 방식의 후보 글 (최대 6개, 화면 메모리)
   assign: new Map(), // 기록 id -> 후보 번호
@@ -137,6 +138,70 @@ function issueLines(chk) {
   return shown;
 }
 
+// ---------- AI 점검 (설정 aiCheck 로 켜고 끔) ----------
+const aiOn = () => !!store.state.settings?.aiCheck;
+/** 점검 칸의 AI 지적. 점검한 뒤 글이 바뀌었으면 결과를 버린다 */
+function aiLines(id, row, ref, locked) {
+  if (!aiOn()) return null;
+  const got = G.ai.get(id);
+  if (!got) return null;
+  if (got.text !== ref.final.value) { G.ai.delete(id); return null; }
+  if (!got.issues.length) return h('p', { class: 'small muted' }, 'AI: 지적 없음');
+  return h('div', { class: 'stack gap-1' }, badge(`AI ${got.issues.length}`, 'warn'),
+    h('ul', { class: 'issue-list grid-issues' }, got.issues.slice(0, 4).map((i) => h('li', { class: 'is-warn' }, i.message,
+      i.fix && !locked ? h('button', {
+        type: 'button', class: 'btn btn-ghost btn-sm', 'aria-label': `${row.student.name} AI 고침 적용: ${i.message}`,
+        onclick: () => {
+          const cur = ref.final.value;
+          if (cur.indexOf(i.original) < 0) return;
+          const next = cur.replace(i.original, i.fix);
+          ref.final.value = next; autosize(ref.final);
+          G.ai.set(id, { text: next, issues: got.issues.filter((x) => x !== i && next.includes(x.original)) });
+          queue(id, { final: next }); refreshRow(id);
+          announce('AI 고침을 적용했습니다');
+        },
+      }, 'AI 고침 적용') : null)),
+      got.issues.length > 4 ? h('li', { class: 'muted' }, `외 ${got.issues.length - 4}건`) : null));
+}
+
+function runAiCheck() {
+  flushEdits();
+  const targets = scopeRows().filter((r) => String(liveRec(r.rec).final || '').trim());
+  if (!targets.length) { toast('최종본이 있는 학생이 없습니다'); return; }
+  const roster = rosterAll();
+  const settings = store.state.settings;
+  const job = { label: 'AI 점검', total: targets.length, done: 0, failed: [], short: 0, stopReason: '', batch: null, summary: () => `${targets.length}명 점검했습니다` };
+  job.batch = createBatch({
+    targets: targets.map((r) => r.rec.id),
+    intervalMs: (Number(settings.batchIntervalSec) || 5) * 1000,
+    onProgress: (st) => { job.done = st.done + st.skipped + st.failed.length; job.failed = st.failed; job.stopReason = st.stopReason ? (st.stopMessage || '오류로 멈췄습니다') : ''; renderJob(); },
+    run: async (rid) => {
+      const rec = store.state.records.get(rid);
+      const text = rec?.final || '';
+      if (!text.trim()) return 'skipped';
+      const st = store.getStudent(rec.studentId);
+      const issues = await aiCheck({ record: rec, text, studentName: st?.name || '', roster, settings, apiKey: store.getApiKey(), fake: ctx.isFakeAI() });
+      G.ai.set(rid, { text, issues });
+      refreshRow(rid);
+    },
+  });
+  G.job = job;
+  renderBar(); renderJob();
+  Promise.resolve(job.batch.start()).catch((e) => { if (!(e instanceof AiError)) console.warn('AI 점검 중 예상 못 한 오류:', e?.name || 'Error'); }).finally(() => {
+    if (G.job === job && !job.batch.state.running && job.batch.state.next >= job.total) finishJob(); else renderJob();
+  });
+}
+
+function aiBar() {
+  const n = scopeRows().filter((r) => String(liveRec(r.rec).final || '').trim()).length;
+  return h('div', { class: 'row grid-ai' },
+    h('label', { class: 'check-row', for: 'grid-ai-on' },
+      h('input', { type: 'checkbox', id: 'grid-ai-on', checked: aiOn(), onchange: (e) => { store.updateSettings({ aiCheck: e.target.checked }); renderBar(); for (const id of cellRefs.keys()) refreshRow(id); document.getElementById('grid-ai-on')?.focus(); } }),
+      h('span', {}, 'AI 점검 (맞춤법, 영역, 나열식)')),
+    aiOn() ? h('button', { type: 'button', class: 'btn btn-secondary btn-sm', disabled: !!G.job || noKey() || !n, onclick: runAiCheck }, icon('spark'), `AI로 점검 (${n}명)`) : null,
+    aiOn() ? h('span', { class: 'small muted' }, noKey() ? '설정에서 API 키를 넣으면 쓸 수 있습니다.' : `${selectedRows().length ? '고른 학생' : '표의 학생'} 중 최종본이 있는 학생을 점검합니다. 이름과 학번은 가리고 보냅니다.`) : null);
+}
+
 function refreshRow(id, { setText = false } = {}) {
   const ref = cellRefs.get(id);
   const row = rows.find((r) => r.rec.id === id);
@@ -168,6 +233,7 @@ function refreshRow(id, { setText = false } = {}) {
     if (chk.empty) { clear(ref.issues, h('span', { class: 'muted' }, '-')); return; }
     clear(ref.issues,
       chk.count ? badge(`문제 ${chk.count}`, 'danger') : h('span', { class: 'small muted' }, '문제 없음'),
+      aiLines(id, row, ref, locked),
       chk.count ? h('ul', { class: 'issue-list grid-issues' }, issueLines(chk)) : null,
       chk.fixable && !locked ? h('button', {
         type: 'button', class: 'btn btn-ghost btn-sm', 'aria-label': `${row.student.name} 글 정리하기`,
@@ -431,6 +497,7 @@ function renderBar() {
         noKey() ? '설정에서 API 키를 넣으면 쓸 수 있습니다.'
           : memoCount ? `${n ? '고른 학생 중 ' : ''}메모가 있고 최종본이 빈 ${memoCount}명의 초안을 최종본 칸에 만듭니다.`
             : `${n ? '고른 학생 중 ' : ''}메모가 있고 최종본이 빈 학생이 없습니다.`)),
+    aiBar(),
     groupBar(),
     n ? h('div', { class: 'row grid-selbar', role: 'status' },
       h('strong', {}, `${n}명 선택`),

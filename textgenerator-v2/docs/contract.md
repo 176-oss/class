@@ -769,3 +769,9 @@ export async function refineDraft({ record, text, request, studentName, roster, 
 - 행사: 반에 `cls.events = { autonomy: [{ id, name, date }], career: [...] }` 로 저장 (날짜순). 날짜는 `formatEventDate` 로 기재요령 꼴 (하루 `2026.05.14.`, 기간 `2026.05.14.-2026.05.15.`, 중 77·고 82, 점검기 `date-format` 과 같음). `eventLabel` = `행사명(날짜)`. `missingEventLabels` 로 초안의 빠진 표기를 알린다.
 - AI: `buildPrompt({ events: [표기], request })`. 자율·진로에만 `[행사]` 블록을 넣고 '행사마다 그 행사를 쓰는 첫 문장을 표기 그대로 시작'하게 한다. `[추가 요청]` 은 모든 영역, 강조점·문장 모양에만 반영. 둘 다 `scrubMemo` 로 이름·학번을 가린다.
 - 행사를 체크하면 붙여넣기 방식이 `skip` 이면 `append` 로 바꾼다 (행사마다 이어 붙임).
+
+## 30. 작성 표 AI 점검, 시작 준비 팝업 (2026-11-13)
+- `js/core/ai-check.js` (순수): 점검기 `js/ai.js` 의 프롬프트·응답 검사를 옮김. `buildCheckPrompt`, `parseCheckResponse(raw, sent)`(보낸 글에 있는 original 만), `toCheckIssues(res, text)` -> `{ kind: 'ai', message, original, fix? }` (fix 는 원문에 original 이 한 번만 있을 때, 수정 문장은 마침표로 끝날 때), `fakeCheck`.
+- `gemini.js aiCheck({ record, text, studentName, roster, settings, apiKey, fake })`: `scrubMemo` 로 이름·학번·반 번호를 가리고, 이 학생 이름·학번이 남으면 `privacy` 로 보내지 않는다.
+- 설정 `aiCheck`(기본 false)로 켜고 끈다. 결과는 화면 메모리 `G.ai`(기록 id -> { text, issues }), 지금 최종본이 점검한 글과 다르면 버린다.
+- 시작 준비 팝업(`setupDialog`, app.js): `sync.start()` 가 끝난 뒤 드라이브 미연결(설정된 경우) 또는 키 없음이면 띄운다. [나중에]는 sessionStorage `sgb-v2-setup-later` 로 이번 창에서만 다시 묻지 않는다. 예전 '처음 실행 드라이브 연결' 대화상자(`sgb-v2-drive-intro`)를 대신한다.

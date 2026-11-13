@@ -30,7 +30,6 @@ const BY_NAME = Object.fromEntries(ROUTES.map((r) => [r.name, r]));
 
 const devMode = new URLSearchParams(location.search).get('dev') === '1';
 const FAKE_DRIVE_FLAG = 'sgb-v2-dev-fake-drive';
-const INTRO_FLAG = 'sgb-v2-drive-intro';
 const lsGet = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
 const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch { /* 막혀 있으면 넘어감 */ } };
 
@@ -297,21 +296,67 @@ async function offerSecrets(e) {
   await sync.answerSecrets(e.updatedAt);
 }
 
-function firstRunIntro() {
-  if (!store.firstRun || lsGet(INTRO_FLAG) || !drive.isConfigured()) return;
-  lsSet(INTRO_FLAG, '1');
+// 시작 준비: 드라이브 연결이나 API 키가 없으면 한 팝업에서 둘 다 하게 한다. [나중에]는 이번 창에서만 다시 묻지 않음
+const SETUP_LATER = 'sgb-v2-setup-later';
+const ssGet = (k) => { try { return sessionStorage.getItem(k); } catch { return null; } };
+let setupOpen = false;
+function setupDialog() {
+  const needDrive = drive.isConfigured() && !sync.status.connected;
+  const needKey = !store.getApiKey() && !ctx.isFakeAI();
+  if (setupOpen || (!needDrive && !needKey) || ssGet(SETUP_LATER)) return;
+  setupOpen = true;
+  const driveState = h('p', { class: 'small', role: 'status' });
+  const driveBtn = h('button', { type: 'button', class: 'btn btn-primary' }, icon('drive'), '구글 드라이브에 연결');
+  const paintDrive = () => {
+    const on = sync.status.connected;
+    clear(driveState, on ? '연결됨: 쓴 글이 드라이브에 저장됩니다.' : '연결 안 됨: 지금은 이 브라우저에만 저장됩니다.');
+    driveState.classList.toggle('text-danger', !on);
+    driveBtn.hidden = on;
+  };
+  driveBtn.addEventListener('click', async () => { driveBtn.disabled = true; await connectDrive(); driveBtn.disabled = false; paintDrive(); paintKey(); });
+  const keyState = h('p', { class: 'small', role: 'status' });
+  const keyIn = h('input', { class: 'input', type: 'password', id: 'setup-key', autocomplete: 'off', spellcheck: 'false', placeholder: 'AIza로 시작하는 키를 붙여 넣으세요' });
+  const keyErr = h('p', { class: 'hint form-error', role: 'alert' });
+  const keyRow = h('div', { class: 'stack gap-1' },
+    h('label', { class: 'label', for: 'setup-key' }, 'Gemini API 키'), keyIn, keyErr,
+    h('div', { class: 'row' }, h('button', { type: 'button', class: 'btn btn-primary', onclick: () => {
+      const k = keyIn.value.trim();
+      if (!/^\S{30,100}$/.test(k)) { keyErr.textContent = 'API 키 모양이 아닙니다. 공백 없이 30~100자로 된 키를 붙여 넣으세요.'; keyIn.focus(); return; }
+      keyErr.textContent = '';
+      store.setApiKey(k, store.state.settings.publicPC ? 'session' : (store.state.settings.keyStorage || 'local'));
+      keyIn.value = '';
+      toast('API 키를 저장했습니다');
+      paintKey();
+    } }, '키 저장')),
+    h('p', { class: 'hint' }, '개인 구글 계정으로 ', h('a', { href: 'https://aistudio.google.com/apikey', target: '_blank', rel: 'noopener noreferrer' }, 'Google AI Studio'), '에서 [API 키 만들기]로 받습니다. 결제를 연결하지 않은 무료 키를 쓰세요. 자세한 방법과 보관 방식은 설정에 있습니다.'));
+  const paintKey = () => {
+    const has = !!store.getApiKey() || ctx.isFakeAI();
+    clear(keyState, has ? (ctx.isFakeAI() && !store.getApiKey() ? '가짜 AI 모드라 키 없이 시험할 수 있습니다.' : 'API 키가 있습니다. AI 초안과 AI 점검을 쓸 수 있습니다.') : '키가 없습니다. 표에 직접 쓰기와 규칙 점검은 되지만, AI 초안과 AI 점검은 쓸 수 없습니다.');
+    keyState.classList.toggle('text-danger', !has);
+    keyRow.hidden = has;
+  };
+  paintDrive(); paintKey();
   const dlg = openDialog({
-    title: '구글 드라이브에 연결 (추천)',
+    title: '작성 도우미 시작 준비',
     body: [
-      h('p', {}, '쓴 글을 선생님의 구글 드라이브(앱 전용 폴더)에 저장합니다. 브라우저의 사이트 데이터가 지워지거나 학교 PC가 초기화되어도 다시 연결하면 되살아나고, 다른 PC에서도 이어서 쓸 수 있습니다.'),
-      h('p', { class: 'small' }, '학교 계정은 막혀 있을 수 있으니 개인 구글 계정을 권합니다. 앱 전용 폴더는 드라이브 목록에 보이지 않고 공유되지 않습니다.'),
+      drive.isConfigured() ? h('section', { class: 'stack gap-1', 'aria-labelledby': 'setup-drive' },
+        h('h3', { class: 'section-title', id: 'setup-drive' }, '1 구글 드라이브 연결 (추천)'),
+        h('p', { class: 'small' }, '쓴 글을 선생님 구글 드라이브의 앱 전용 폴더에 저장합니다. 사이트 데이터가 지워지거나 학교 PC가 초기화되어도 다시 연결하면 되살아나고, 다른 PC에서도 이어 씁니다. 학교 계정은 막혀 있을 수 있어 개인 계정을 권합니다.'),
+        driveState, h('div', { class: 'row' }, driveBtn)) : null,
+      h('section', { class: 'stack gap-1', 'aria-labelledby': 'setup-key-title' },
+        h('h3', { class: 'section-title', id: 'setup-key-title' }, `${drive.isConfigured() ? '2' : '1'} API 키 설정`),
+        keyState, keyRow),
     ],
     actions: [
-      { label: '나중에', variant: 'secondary', value: false },
-      { label: '구글 드라이브에 연결', variant: 'primary', value: true, autofocus: true },
+      { label: '나중에', variant: 'secondary', value: 'later' },
+      { label: '시작하기', variant: 'primary', value: 'go' },
     ],
   });
-  dlg.closed.then((v) => { if (v) connectDrive(); });
+  dlg.closed.then((v) => {
+    setupOpen = false;
+    if (v !== 'go' && (drive.isConfigured() && !sync.status.connected || !store.getApiKey())) { try { sessionStorage.setItem(SETUP_LATER, '1'); } catch { /* 넘어감 */ } }
+  });
+  setTimeout(() => (needDrive ? driveBtn : keyIn).focus(), 0);
 }
 
 // 가짜 드라이브로 연결한 상태는 가짜 드라이브 모드에서만 쓴다. 모드가 다르면 '연결 안 됨'으로 다뤄 진짜 드라이브를 부르지 않는다
@@ -357,8 +402,8 @@ async function start() {
   onDoneList(handleDoneList);
   requestDone();
 
-  sync.start().catch(() => console.warn('동기화를 시작하지 못했습니다'));
-  firstRunIntro();
+  // 조용한 재연결이 끝난 뒤에 연결·키 상태를 보고 시작 준비 팝업을 띄운다
+  sync.start().catch(() => console.warn('동기화를 시작하지 못했습니다')).finally(() => setupDialog());
 
   const flushAll = () => {
     try { current?.view.flush?.(); } catch (e) { console.error(e); }

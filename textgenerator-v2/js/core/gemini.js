@@ -5,6 +5,7 @@ import { AiError } from './ai-error.js';
 import { scrubMemo, buildPrompt, buildRefinePrompt, parseResponse, tidyDraft, MAX_DRAFTS } from './prompt.js';
 import { maskExample, buildStyleSummaryPrompt, parseStyleRules } from './style.js';
 import { fakeGenerate } from './fake-ai.js';
+import { buildCheckPrompt, parseCheckResponse, toCheckIssues, fakeCheck } from './ai-check.js';
 import { DEFAULT_MODELS, DEFAULT_LIMITS } from './model.js';
 
 export { AiError, AI_USER_MESSAGES } from './ai-error.js';
@@ -280,4 +281,20 @@ export async function summarizeStyle({
   }
   const result = await send(prompt, { settings, apiKey, fake, fetchImpl, timeoutMs, signal, fakeDelayMs });
   return { rules: parseStyleRules(result.text), model: result.model };
+}
+
+/**
+ * 작성 표 AI 점검: 최종본(text)의 이름·학번·반 번호를 가리고 보낸 뒤 지적 목록으로.
+ * @returns {Promise<Array<{ kind: 'ai', message, original, fix? }>>}
+ */
+export async function aiCheck({ record, text, studentName = '', roster = [], settings = {}, apiKey, fake, fetchImpl, signal, timeoutMs } = {}) {
+  const people = peopleOf(roster, record, studentName);
+  const sent = scrubMemo(text, people);
+  const prompt = buildCheckPrompt({ text: sent, area: record?.area, subject: record?.subject, school: settings?.schoolLevel });
+  if (containsIdentity(`${prompt.system}\n${prompt.user}`, record?.studentId, studentName)) {
+    throw new AiError('privacy', '요청에 학번이나 이름이 남아 있어 보내지 않음');
+  }
+  const useFake = fake ?? Boolean(settings?.devFakeAI);
+  const raw = useFake ? fakeCheck(sent) : (await callGemini({ models: settings?.models, apiKey, prompt, fetchImpl: fetchImpl ?? globalThis.fetch, timeoutMs: timeoutMs ?? DEFAULT_TIMEOUT_MS, signal })).text;
+  return toCheckIssues(parseCheckResponse(raw, sent), text);
 }
