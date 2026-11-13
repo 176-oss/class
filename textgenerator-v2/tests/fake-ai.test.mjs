@@ -41,3 +41,12 @@ test('fake-ai: 명사형 바꾸기', () => {
   assert.equal(toNounEnding('학급 회장'), '학급 회장 활동을 함.');
   assert.equal(toNounEnding('  '), '');
 });
+
+test('fakeGenerate: 도달한 성취기준을 초안에 넣음', async () => {
+  const { buildPrompt } = await import('../js/core/prompt.js');
+  const p = buildPrompt({ area: 'subject', subject: '통합과학', achievement: '[10통과01-01] 물질의 규칙성과 결합을 설명할 수 있다.', achievementReached: true, memo: '주기율표 탐구에서 족별 성질을 정리함.', length: 'standard', limit: 1500, count: 1 });
+  const r = await fakeGenerate(p, { delayMs: 0 });
+  const d = JSON.parse(r.text).drafts[0];
+  assert.match(d, /물질의 규칙성과 결합을 설명 수준에 도달함/);
+  assert.ok(!d.includes('10통과'));
+});

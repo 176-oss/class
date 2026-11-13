@@ -106,6 +106,18 @@ function fakeRefine(text, request, memo) {
  * @param {{delayMs?: number, signal?: AbortSignal}} [opts]
  * @returns {Promise<{ text: string, model: 'fake' }>}
  */
+/** [도달한 성취기준] 줄마다 '...수준에 도달함.' 문장 하나 (코드와 '할 수 있다'는 뺀다) */
+function fakeReached(user) {
+  const s = String(user ?? '');
+  const head = '[도달한 성취기준]\n';
+  const a = s.indexOf(head);
+  if (a < 0) return [];
+  const b = s.indexOf('\n교사가 이 학생이', a);
+  return s.slice(a + head.length, b < 0 ? undefined : b).split('\n')
+    .map((l) => l.replace(/^\[[^\]]+\]\s*/, '').replace(/\s*(할|될) 수 있다\.?$|\.$/, '').trim())
+    .filter(Boolean).map((t) => `수업 활동을 통해 ${t} 수준에 도달함.`);
+}
+
 export async function fakeGenerate(prompt, { delayMs = 300, signal } = {}) {
   await sleep(delayMs, signal);
   const user = typeof prompt === 'string' ? prompt : prompt?.user;
@@ -122,6 +134,7 @@ export async function fakeGenerate(prompt, { delayMs = 300, signal } = {}) {
     .map(toNounEnding)
     .filter(Boolean);
   const seed = hashString(memo);
+  const reached = fakeReached(user);
   const drafts = [];
   for (let i = 0; i < count; i += 1) {
     const k = sentences.length ? i % sentences.length : 0;
@@ -129,7 +142,7 @@ export async function fakeGenerate(prompt, { delayMs = 300, signal } = {}) {
       ? [...sentences].reverse()
       : [...sentences.slice(k), ...sentences.slice(0, k)];
     const closing = CLOSINGS[(seed + i) % CLOSINGS.length];
-    drafts.push(`${order.join(' ')} ${closing}`);
+    drafts.push([...order, ...reached, closing].join(' '));
   }
   return { text: JSON.stringify({ drafts }), model: 'fake' };
 }

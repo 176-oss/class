@@ -106,3 +106,19 @@ test('성취기준 나누기: 줄마다 하나, 한 줄에 여러 개면 코드 
   assert.equal(standardsText(new Set([list[0].line, list[2].line])), '[10통과01-01] 우주의 기원을 설명한다.\n[10통과01-03] 별을 이해한다.');
   assert.deepEqual(parseStandards(''), []);
 });
+
+test('composeMemo 세 갈래, 모둠 저장·찾기·이름', async () => {
+  const { groupOfStudent, saveGroup, nextGroupName } = await import('../js/core/grid.js');
+  assert.equal(composeMemo('공통', '모둠', '학생'), '공통\n모둠\n학생');
+  assert.equal(composeMemo('', '모둠', ''), '모둠');
+  let g = saveGroup([], { id: 'g1', name: '1모둠', memo: '전지 만들기 실험', studentIds: ['10101', '10102'] });
+  g = saveGroup(g, { id: 'g2', name: '', memo: '', studentIds: ['10102', '10103'] });
+  assert.deepEqual(g.map((x) => [x.id, x.name, x.studentIds]), [['g1', '1모둠', ['10101']], ['g2', '모둠', ['10102', '10103']]]);
+  assert.equal(groupOfStudent(g, '10102').id, 'g2');
+  assert.equal(groupOfStudent(g, 10101).memo, '전지 만들기 실험');
+  assert.equal(groupOfStudent(undefined, '1'), null);
+  g = saveGroup(g, { id: 'g1', name: '1모둠', memo: 'x', studentIds: ['10102', '10103'] });
+  assert.deepEqual(g.map((x) => x.id), ['g1'], '학생을 모두 뺏긴 모둠은 지워짐');
+  assert.equal(nextGroupName([{ name: '1모둠' }, { name: '3모둠' }]), '2모둠');
+  assert.equal(nextGroupName(), '1모둠');
+});

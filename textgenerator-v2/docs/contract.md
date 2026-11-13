@@ -759,3 +759,8 @@ export async function refineDraft({ record, text, request, studentName, roster, 
 - `AREAS_BY_KIND.homeroom` 에서 `club` 을 뺐다 (담임은 동아리를 쓰지 않음). 이미 담임 반에 쓴 동아리 기록은 지우지 않고 남아 있다 (표에는 안 보임).
 - 성취기준 (`parseStandards`, `standardsText`): 반 `achievement` 를 줄 또는 `[코드]` 단위 항목으로 나눈다. 학생별 선택은 그 기록의 `achievement` 에 체크한 줄들을 줄바꿈으로 저장하고(비면 반 전체), 패널에서 체크한 `G.stds` 가 있으면 그것이 모두에 우선한다. AI 요청의 `achievement` 로만 쓰인다 (교과세특).
 - 표의 `체크한 학생만 보기`(`G.onlySelected`)는 가려 둔 반이어도 체크한 학생은 보여 준다.
+
+## 28. 교과세특 모둠 메모와 도달한 성취기준 (2026-11-13)
+- 모둠: 반에 `cls.groups = [{ id, name, memo, studentIds }]` 로 저장한다 (반의 다른 칸처럼 동기화·백업에 그대로 들어감). 한 반에서 학생은 모둠 하나에만 든다. 순수 함수 `groupOfStudent`, `saveGroup`(이 모둠 학생을 다른 모둠에서 빼고, 빈 모둠은 지움), `nextGroupName` (`js/core/grid.js`).
+- AI 메모: `composeMemo(공통 특징, 모둠 메모, 학생 메모)` 순서로 빈 것은 빼고 줄로 잇는다. 패널의 '학생마다 따로 만들기'와 맨 위 [메모로 초안 만들기]에 들어간다 (모둠 메모만 있어도 [메모로 초안 만들기] 대상). '후보를 만들어 나눠 붙이기'는 공통 특징만 쓴다.
+- 성취기준: 체크한 것(패널 `G.stds` 또는 학생별로 고른 기록 `achievement`)은 `achievementReached: true` 로 넘겨 `[도달한 성취기준]` 으로 보내고, 초안에 빠짐없이 드러내게 한다. 원칙 1·7도 '메모와 도달한 성취기준'으로 바뀐다. 아무것도 체크하지 않아 반 전체를 보낼 때는 지금처럼 `[관련 성취기준]` 참고용이다. 도달한 성취기준 글자 수는 분량 계산에도 넣는다. 공유 후보에는 학생별 성취기준을 넣지 않는다.

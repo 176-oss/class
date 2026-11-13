@@ -183,6 +183,7 @@ export async function generateDrafts({
     area,
     subject: record.subject,
     achievement: ach,
+    achievementReached: !!record.achievementReached,
     memo,
     traits: record.traits,
     length: record.length,

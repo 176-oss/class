@@ -165,3 +165,23 @@ test('checkRecord: 스타일 예시와 겹치면 styleOverlap 경고, issueCount
   assert.deepEqual(none.styleOverlap, []);
   assert.equal(none.issueCount, 0);
 });
+
+test('buildPrompt: 체크한 성취기준은 도달한 것으로 초안에 넣게 하고, 체크 안 한 반 목록은 참고만', () => {
+  const ach = '[10통과01-01] 물질의 규칙성과 결합을 설명할 수 있다.';
+  const memo = '주기율표 탐구에서 족별 성질을 정리함.';
+  const on = buildPrompt({ area: 'subject', subject: '통합과학', achievement: ach, achievementReached: true, memo, length: 'standard', limit: 1500, count: 1 });
+  assert.ok(on.user.includes('[도달한 성취기준]') && on.user.includes(ach));
+  assert.match(on.user, /빠짐없이 드러냄/);
+  assert.ok(!on.user.includes('방향을 잡는 데만'));
+  assert.match(on.system, /메모에 적힌 사실과 \[도달한 성취기준\]만 씀/);
+  assert.ok(on.user.indexOf('[도달한 성취기준]') < on.user.indexOf(MEMO_OPEN), '성취기준은 메모 앞');
+  const off = buildPrompt({ area: 'subject', subject: '통합과학', achievement: ach, memo, length: 'standard', limit: 1500, count: 1 });
+  assert.ok(off.user.includes('[관련 성취기준]') && off.user.includes('방향을 잡는 데만'));
+  assert.ok(!off.system.includes('[도달한 성취기준]'));
+  // 도달한 성취기준이 있으면 메모가 짧아도 분량을 덜 줄인다
+  const target = (p) => Number(p.user.match(/약 (\d+)자/)[1]);
+  assert.ok(target(on) > target(off));
+  // 교과세특이 아니면 성취기준을 넣지 않음
+  const other = buildPrompt({ area: 'career', achievement: ach, achievementReached: true, memo, length: 'standard', limit: 1500, count: 1 });
+  assert.ok(!other.user.includes('성취기준]'));
+});
