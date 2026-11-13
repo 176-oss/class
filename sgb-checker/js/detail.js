@@ -5,7 +5,6 @@ import { applyFix, tidy, diff } from '../rules/fix.js';
 import { byteLength } from '../rules/bytes.js';
 import { finish } from '../rules/check.js';
 import { aiReview, AiError } from './ai.js';
-import { writeHandoff } from '../shared/handoff.js';
 import { announce, ask, confirmBox, badge } from './ui.js';
 
 let mode = 'detail'; // 'detail' | 'compare'
@@ -108,15 +107,6 @@ export function renderDetail(it, { go, render }) {
     after(it.aiNote || `AI 지적 ${it.ai.length}개를 더했습니다.`);
   }
 
-  function sendToWriter() {
-    if (!writeHandoff(window.localStorage, { studentId: it.studentId, area: it.area, subject: it.subject, text: it.current })) {
-      announce('글을 넘기지 못했습니다. 글이 너무 길거나 비어 있습니다.');
-      return;
-    }
-    window.open('../textgenerator-v2/', '_blank', 'noopener');
-    announce('작성 도우미를 새 탭으로 열었습니다. 5분 안에 열어야 글이 넘어갑니다.');
-  }
-
   function issueCard(i) {
     const lv = i.level === 'error' ? 'error' : 'warn';
     const canFix = typeof i.fix === 'string' && !i.off;
@@ -144,8 +134,7 @@ export function renderDetail(it, { go, render }) {
     h('button', { type: 'button', class: 'btn', disabled: !tidyCount, onclick: () => { setText(it, tidy(it.current, on)); after(`연속 공백, 깨짐 문자, 날짜 형식 ${tidyCount}곳을 정리했습니다.`); } }, `정리 (${tidyCount})`),
     h('button', { type: 'button', class: 'btn', disabled: !it.history.length, onclick: () => { undo(it); after('한 단계 되돌렸습니다.'); } }, '되돌리기'),
     h('button', { type: 'button', class: 'btn', 'aria-pressed': String(mode === 'compare'), onclick: () => { mode = mode === 'compare' ? 'detail' : 'compare'; render(); } }, '전후 비교'),
-    settings.aiOn ? h('button', { type: 'button', class: 'btn', disabled: aiBusy || !it.current.trim(), onclick: runAi }, aiBusy ? 'AI 점검 중' : 'AI로 점검') : null,
-    h('button', { type: 'button', class: 'btn', disabled: !it.current.trim(), onclick: sendToWriter }, '작성 도우미에서 고치기'));
+    settings.aiOn ? h('button', { type: 'button', class: 'btn', disabled: aiBusy || !it.current.trim(), onclick: runAi }, aiBusy ? 'AI 점검 중' : 'AI로 점검') : null);
 
   let body;
   if (mode === 'compare') {

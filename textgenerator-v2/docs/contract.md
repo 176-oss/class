@@ -750,10 +750,10 @@ export async function refineDraft({ record, text, request, studentName, roster, 
 - 후보 나눠 붙이기(`G.method === 'shared'`, 교과세특 기본): 공통 특징만으로 후보를 만든다 (학생 메모·이름 없이, 한 번에 3개, 최대 6개, 화면 메모리). 배정은 `Map(기록 id -> 후보 번호)`이고 `assignedDrafts`·`removeCandidate`(core/grid.js)가 계산한다. 붙이기 뒤 붙은 학생은 선택과 배정에서 뺀다.
 - 교과세특에서 반이 둘 이상이면 처음에는 모든 반을 숨기고(`defaultHidden`) 반 칩을 체크해 명단을 불러온다. 패널이 열리면 표는 상태·완료·자세히 칸을 빼고 점검은 개수만 보인다.
 
-## 27. 점검기와 반 전체 주고받기 (`js/core/handoff.js`, `js/handoff-ui.js`, 점검기 `shared/handoff-batch.js`)
+## 27. 점검기로 반 전체 보내기 (`js/core/handoff.js`, 점검기 `shared/handoff-batch.js`)
 - localStorage `sgb-handoff-batch` = `{ v:1, source:'textgenerator-v2'|'sgb-checker', school?:'mid'|'high', groups:[{ area, subject, items:[{ studentId, name, text }] }], at }`. 받는 쪽이 읽고 바로 지우고, 5분 지났거나 모양이 틀리면 지운다. 글 6,000자·3,000명·1.5MB 이하. area 는 작성기 5개 영역만.
 - 작성기 -> 점검기: 표의 [점검기로 보내기]. 점검기는 시작할 때와 storage 이벤트로 받아 바로 점검한다 (이미 점검 중이면 바꿀지 묻는다).
-- 점검기 -> 작성기: [고친 글을 작성 도우미로 보내기](원문과 달라진 글만). 작성기가 `planReturn` 으로 계획해 대화상자로 보여 주고, 확인하면 최종본에 넣는다. 명단에 없거나 이름이 다른 학생, 완료한 기록, 같은 글은 건너뛴다.
+- 점검기 -> 작성기 되돌려 보내기는 2026-11-13에 뺐다 (선생님 결정). `handoff-ui.js`, `planReturn` 을 지웠다. 작성기 -> 점검기만 남는다.
 - 두 도구는 이름 붙은 창(`sgb-checker`, `sgb-writer`)으로 열어, 이미 열려 있으면 다시 불러오지 않고 앞으로 가져오기만 한다 (고친 글을 잃지 않도록).
 - 후보 개수는 `candidateTarget` = 고른 학생 수 + 5 (최대 40). 명단 등록은 `classContext`(선택한 반의 학년·반)로 `1 김가온` 줄을 학번으로 바꾼다 (`parsePastedRoster(text, context)`, `parseRosterRows(rows, context)`).
 - `AREAS_BY_KIND.homeroom` 에서 `club` 을 뺐다 (담임은 동아리를 쓰지 않음). 이미 담임 반에 쓴 동아리 기록은 지우지 않고 남아 있다 (표에는 안 보임).
@@ -769,3 +769,12 @@ export async function refineDraft({ record, text, request, studentName, roster, 
 - 행사: 반에 `cls.events = { autonomy: [{ id, name, date }], career: [...] }` 로 저장 (날짜순). 날짜는 `formatEventDate` 로 기재요령 꼴 (하루 `2026.05.14.`, 기간 `2026.05.14.-2026.05.15.`, 중 77·고 82, 점검기 `date-format` 과 같음). `eventLabel` = `행사명(날짜)`. `missingEventLabels` 로 초안의 빠진 표기를 알린다.
 - AI: `buildPrompt({ events: [표기], request })`. 자율·진로에만 `[행사]` 블록을 넣고 '행사마다 그 행사를 쓰는 첫 문장을 표기 그대로 시작'하게 한다. `[추가 요청]` 은 모든 영역, 강조점·문장 모양에만 반영. 둘 다 `scrubMemo` 로 이름·학번을 가린다.
 - 행사를 체크하면 붙여넣기 방식이 `skip` 이면 `append` 로 바꾼다 (행사마다 이어 붙임).
+
+## 30. 작성 표 AI 점검, 시작 준비 팝업 (2026-11-13)
+- `js/core/ai-check.js` (순수): 점검기 `js/ai.js` 의 프롬프트·응답 검사를 옮김. `buildCheckPrompt`, `parseCheckResponse(raw, sent)`(보낸 글에 있는 original 만), `toCheckIssues(res, text)` -> `{ kind: 'ai', message, original, fix? }` (fix 는 원문에 original 이 한 번만 있을 때, 수정 문장은 마침표로 끝날 때), `fakeCheck`.
+- `gemini.js aiCheck({ record, text, studentName, roster, settings, apiKey, fake })`: `scrubMemo` 로 이름·학번·반 번호를 가리고, 이 학생 이름·학번이 남으면 `privacy` 로 보내지 않는다.
+- 설정 `aiCheck`(기본 false)로 켜고 끈다. 결과는 화면 메모리 `G.ai`(기록 id -> { text, issues }), 지금 최종본이 점검한 글과 다르면 버린다.
+- 시작 준비 팝업(`setupDialog`, app.js): `sync.start()` 가 끝난 뒤 드라이브 미연결(설정된 경우) 또는 키 없음이면 띄운다. [나중에]는 sessionStorage `sgb-v2-setup-later` 로 이번 창에서만 다시 묻지 않는다. 예전 '처음 실행 드라이브 연결' 대화상자(`sgb-v2-drive-intro`)를 대신한다.
+
+## 31. 현황 화면 뺌 (2026-11-13)
+- 선생님 결정으로 `#status`(현황)와 `js/views/status.js`를 지웠다. 메뉴는 명단, 작성, 내 스타일, NEIS 옮기기, 백업, 설정. 진행 상황은 작성 표의 상태·완료 열로 본다. 위 9절의 현황 설명은 옛 내용.

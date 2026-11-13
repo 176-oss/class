@@ -1,12 +1,12 @@
 // 생기부 점검기 화면: 시작, 결과 목록, 보고서. 상세는 detail.js, 설정은 settings.js.
 import { h, clear } from './dom.js';
-import { S, recheck, loadGroups, statusOf, activeIssues, issuesOf, areaLabel, STATUS_LABEL, LEVEL_LABEL } from './state.js';
+import { S, recheck, loadGroups, statusOf, activeIssues, issuesOf, areaLabel, STATUS_LABEL, LEVEL_LABEL, settings, saveSettings, keys } from './state.js';
 import { readWorkbook, parseSheets, parseTsv, SheetError } from './sheet.js';
 import { buildReport, reportFile, textSheet } from './report.js';
 import { areasFor, areaById } from '../rules/areas.js';
 import { takeHandoff } from '../shared/handoff.js';
-import { takeBatch, writeBatch, groupsForWriter, BATCH_KEY } from '../shared/handoff-batch.js';
-import { announce, ask, confirmBox, download, badge, enableDrop, openTool } from './ui.js';
+import { takeBatch, BATCH_KEY } from '../shared/handoff-batch.js';
+import { announce, ask, confirmBox, download, badge, enableDrop } from './ui.js';
 import { renderDetail } from './detail.js';
 import { renderSettings } from './settings.js';
 
@@ -42,12 +42,10 @@ function notice() {
 
 // ---------- 시작 ----------
 function startView() {
-  const schoolOpts = [['mid', '중학교'], ['high', '고등학교']];
   const areaSelect = h('select', { id: 'pick-area' },
     h('option', { value: '' }, '자동 (시트 이름으로)'),
     areasFor(S.school).map((a) => h('option', { value: a.id }, a.label)));
   if (pasteMeta?.area && areaById(pasteMeta.area)) areaSelect.value = pasteMeta.area;
-  const subjectInput = h('input', { type: 'text', id: 'pick-subject', maxlength: 40, value: pasteMeta?.subject || '', placeholder: '세특일 때 과목 이름 (예: 공통국어1)' });
   const paste = h('textarea', { id: 'paste', 'aria-describedby': 'paste-help', value: pasteText, oninput: (e) => { pasteText = e.target.value; } });
   const file = h('input', { type: 'file', id: 'file', accept: '.xlsx,.xls,.csv', onchange: (e) => onFile(e.target.files?.[0], e.target) });
   const fileField = h('div', { class: 'field' }, h('label', { for: 'file' }, '엑셀 올리기 (끌어다 놓기 가능, 5MB까지)'), file);
@@ -57,30 +55,35 @@ function startView() {
     h('h2', '생기부 점검'),
     h('p', { class: 'muted' }, '올린 엑셀과 글은 이 페이지 안에서만 다루고 저장하지 않습니다. 페이지를 닫으면 사라집니다.'),
     notice(),
-    h('section', { class: 'card stack', 'aria-labelledby': 's1' },
-      h('h3', { id: 's1' }, '1. 학교급과 학년'),
-      h('fieldset', null, h('legend', '학교급'),
-        h('div', { class: 'row' }, schoolOpts.map(([v, l]) => h('label', { class: 'check' },
-          h('input', { type: 'radio', name: 'school', value: v, checked: S.school === v, onchange: () => { S.school = v; if (S.items.length) recheck(); render(); } }), l)))),
-      h('div', { class: 'field' }, h('label', { for: 'grade' }, '학년'),
-        h('select', { id: 'grade', value: String(S.grade), onchange: (e) => { S.grade = Number(e.target.value); if (S.items.length) recheck(); } },
-          [1, 2, 3].map((g) => h('option', { value: String(g) }, `${g}학년`))))),
     h('section', { class: 'card stack', 'aria-labelledby': 's2' },
-      h('h3', { id: 's2' }, '2. 항목'),
+      h('h3', { id: 's2' }, '1. 항목'),
+      h('p', { class: 'muted' }, `${S.school === 'high' ? '고등학교' : '중학교'} 기준으로 점검합니다. `, h('button', { type: 'button', class: 'btn', onclick: () => go('settings') }, '설정에서 학교급 바꾸기')),
       h('div', { class: 'field' }, h('label', { for: 'pick-area' }, '점검할 항목'), areaSelect,
         h('span', { class: 'muted' }, '엑셀 시트 이름이 자율, 동아리, 진로, 행특, 세특_국어처럼 되어 있으면 저절로 고릅니다.')),
-      h('div', { class: 'field' }, h('label', { for: 'pick-subject' }, '과목 (세특)'), subjectInput)),
+      aiChoice()),
     h('section', { class: 'card stack', 'aria-labelledby': 's3' },
-      h('h3', { id: 's3' }, '3. 글 넣기'),
+      h('h3', { id: 's3' }, '2. 글 넣기'),
       h('div', { class: 'row' },
         h('button', { type: 'button', class: 'btn', onclick: downloadTemplate }, '양식 내려받기'),
-        h('span', { class: 'muted' }, '학번 | 이름 | 과목 | 내용. 과목은 세특에서만 씁니다.')),
+        h('span', { class: 'muted' }, '학번 | 이름 | 과목 | 내용. 세특은 과목 칸을 채우면 같은 과목끼리 비교하고, 공통과목 1·2 합산을 봅니다.')),
       fileField,
       pending ? pendingView() : null,
       h('div', { class: 'field' }, h('label', { for: 'paste' }, '또는 붙여넣기'),
         h('span', { id: 'paste-help', class: 'muted' }, '학생 한 명의 글을 붙여넣거나, 엑셀에서 머리글(학번, 이름, 내용)까지 표째로 복사해 붙여넣으세요.'), paste),
       h('div', null, h('button', { type: 'button', class: 'btn btn-primary', onclick: onPaste }, '점검하기'))),
   );
+}
+
+// AI 점검 쓰기 (맞춤법, 영역 적합성, 나열식, 수정 문구). 키와 모델은 설정에서
+function aiChoice() {
+  const noKey = !keys.read() && !settings.fakeAi;
+  return h('div', { class: 'stack' },
+    h('label', { class: 'check' }, h('input', { type: 'checkbox', id: 'ai-on', checked: settings.aiOn, onchange: (e) => {
+      settings.aiOn = e.target.checked; saveSettings(); render(); announce(settings.aiOn ? 'AI 점검을 켰습니다.' : 'AI 점검을 껐습니다.');
+      document.getElementById('ai-on')?.focus();
+    } }), 'AI 점검도 쓰기 (맞춤법, 영역 적합성, 나열식)'),
+    settings.aiOn ? h('p', { class: 'alert alert-warn' }, '학교 개인정보 지침을 확인한 뒤 쓰세요. 학번과 이름은 보내지 않고, 글 안의 명단 이름은 \'학생\'으로 가려서 보냅니다. 결과의 학생 상세에서 [AI로 점검]을 누르면 봅니다.') : null,
+    settings.aiOn && noKey ? h('p', null, 'API 키가 없습니다. ', h('button', { type: 'button', class: 'btn', onclick: () => go('settings') }, '설정에서 키 넣기')) : null);
 }
 
 async function onFile(f, input) {
@@ -126,7 +129,7 @@ function onPaste() {
   const text = pasteText.replace(/\r\n?/g, '\n');
   if (!text.trim()) { S.notice = { kind: 'error', text: '붙여넣은 글이 없습니다.' }; render(); return; }
   const area = document.getElementById('pick-area').value;
-  const subject = document.getElementById('pick-subject').value.trim();
+  const subject = pasteMeta?.subject || '';
   let groups;
   if (text.includes('\t')) {
     const r = parseSheets([{ name: '붙여넣기', rows: parseTsv(text) }]);
@@ -159,12 +162,12 @@ function downloadTemplate() {
 
 // ---------- 결과 ----------
 const FILTERS = [
-  ['all', '전체'], ['error', '오류만'], ['warn', '확인만'], ['bytes', '바이트 초과만'], ['forbidden', '금지 내용만'], ['empty', '미작성'],
+  ['all', '전체'], ['error', '오류만'], ['warn', '확인만'], ['pass', '통과만'], ['bytes', '바이트 초과만'], ['forbidden', '금지 내용만'], ['empty', '미작성'],
 ];
 function passes(it, f) {
   const st = statusOf(it);
   if (f === 'all') return true;
-  if (f === 'error' || f === 'warn' || f === 'empty') return st === f;
+  if (f === 'error' || f === 'warn' || f === 'pass' || f === 'empty') return st === f;
   const act = activeIssues(it);
   if (f === 'bytes') return act.some((i) => i.ruleId === 'bytes-over' || i.ruleId === 'common-sum');
   if (f === 'forbidden') return act.some((i) => i.ruleId.startsWith('forbidden-'));
@@ -172,26 +175,19 @@ function passes(it, f) {
 }
 
 const keyOf = (it) => `${it.area}|${it.subject || ''}`;
-const SENDABLE = new Set(['autonomy', 'career', 'behavior', 'club', 'subject']);
 
 function resultsView() {
   if (!S.items.length) {
     return h('div', null, h('h2', '결과'), h('div', { class: 'card' }, h('p', '아직 점검한 글이 없습니다.'), h('button', { type: 'button', class: 'btn btn-primary', onclick: () => go('start') }, '시작 화면으로')));
   }
-  const counts = { pass: 0, warn: 0, error: 0, empty: 0 };
   const labels = new Map();
-  for (const it of S.items) {
-    counts[statusOf(it)]++;
-    for (const i of activeIssues(it)) labels.set(i.label, (labels.get(i.label) || 0) + 1);
-  }
+  for (const it of S.items) for (const i of activeIssues(it)) labels.set(i.label, (labels.get(i.label) || 0) + 1);
   const top = [...labels].sort((a, b) => b[1] - a[1]).slice(0, 5);
   const groups = new Map(S.items.map((it) => [keyOf(it), areaLabel(it) + (it.subject ? ` (${it.subject})` : '')]));
   if (S.areaKey !== 'all' && !groups.has(S.areaKey)) S.areaKey = 'all';
   const rows = S.items.map((it, idx) => ({ it, idx })).filter(({ it }) => passes(it, S.filter) && (S.areaKey === 'all' || keyOf(it) === S.areaKey));
-  const changed = S.items.filter((it) => it.current.trim() && it.current !== it.original).length;
-
   const filterSel = h('select', { id: 'res-filter', value: S.filter, onchange: (e) => { S.filter = e.target.value; render(); announce(`${S.items.filter((x) => passes(x, S.filter)).length}명`); } },
-    FILTERS.map(([v, l]) => h('option', { value: v }, l)));
+    FILTERS.map(([v, l]) => h('option', { value: v }, `${l} (${S.items.filter((x) => passes(x, v)).length}명)`)));
   filterSel.value = S.filter;
 
   const table = h('div', { class: 'table-wrap' }, h('table', { class: 'results-table' },
@@ -220,33 +216,15 @@ function resultsView() {
   const panel = S.panel && S.items[S.current] ? h('aside', { class: 'panel', 'aria-label': '학생 상세' }, renderDetail(S.items[S.current], { go, render })) : null;
 
   return h('div', null,
-    h('div', { class: 'row' }, h('h2', '결과'),
-      h('button', { type: 'button', class: 'btn btn-primary', onclick: downloadReport }, '보고서 내려받기'),
-      h('button', { type: 'button', class: 'btn', onclick: sendToWriter, disabled: !changed, title: changed ? '' : '점검기에서 고친 글이 있어야 보낼 수 있습니다' }, `작성 도우미로 보내기${changed ? ` (${changed}명)` : ''}`)),
+    h('div', { class: 'row' }, h('h2', `결과 (${S.items.length}명)`),
+      h('button', { type: 'button', class: 'btn btn-primary', onclick: downloadReport }, '보고서 내려받기')),
     notice(),
-    h('section', { class: 'card', 'aria-labelledby': 'sum' },
-      h('h3', { id: 'sum' }, `반 전체 요약 (${S.items.length}명)`),
-      h('div', { class: 'stats' }, ['error', 'warn', 'pass', 'empty'].map((k) => h('div', { class: 'stat' }, h('b', counts[k]), badge(k === 'empty' ? 'empty' : k, STATUS_LABEL[k])))),
-      top.length ? h('div', null, h('p', { class: 'muted' }, '많이 나온 지적'), h('ol', null, top.map(([l, n]) => h('li', null, `${l} `, h('span', { class: 'num' }, `${n}건`))))) : null),
+    top.length ? h('p', { class: 'muted' }, '많이 나온 지적: ', top.map(([l, n]) => `${l} ${n}건`).join(', ')) : null,
     h('div', { class: 'row' },
       groups.size > 1 ? h('div', { class: 'chips', role: 'group', 'aria-label': '보는 항목' },
         [['all', '전체'], ...groups].map(([k, l]) => h('button', { type: 'button', class: 'chip', 'aria-pressed': String(S.areaKey === k), onclick: () => { S.areaKey = k; render(); } }, l))) : null,
       h('div', { class: 'field' }, h('label', { for: 'res-filter' }, '상태 거르기'), filterSel)),
     h('div', { class: `results-layout${panel ? ' has-panel' : ''}` }, table, panel));
-}
-
-// 고친 글을 작성 도우미로 보낸다 (작성 도우미가 학번·이름이 맞는 학생의 최종본에 반영할지 물어본다)
-function sendToWriter() {
-  const changed = S.items.filter((it) => it.current.trim() && it.current !== it.original);
-  const ok = changed.filter((it) => SENDABLE.has(it.area) && it.studentId);
-  const skipped = changed.length - ok.length;
-  if (!ok.length) { S.notice = { kind: 'warn', text: changed.length ? '작성 도우미가 받을 수 없는 항목이거나 학번이 없어 보낼 수 없습니다 (개인별 세특은 작성 도우미에 없습니다).' : '고친 글이 없습니다. [적용]이나 [정리]로 글을 고친 뒤 보내세요.' }; render(); return; }
-  const r = writeBatch(window.localStorage, { source: 'sgb-checker', groups: groupsForWriter(ok.map((it) => ({ studentId: it.studentId, name: it.name, area: it.area, subject: it.subject, text: it.current }))) });
-  if (!r.ok) { S.notice = { kind: 'error', text: r.reason }; render(); return; }
-  openTool('sgb-writer', '../textgenerator-v2/#write');
-  S.notice = { kind: 'info', text: `고친 글 ${r.count}명을 작성 도우미로 보냈습니다. 작성 도우미에서 반영할 학생을 확인하세요 (5분 안).${skipped ? ` 보내지 못한 ${skipped}명은 작성 도우미에 없는 항목이거나 학번이 없습니다.` : ''}` };
-  render();
-  announce('작성 도우미로 보냈습니다.');
 }
 
 async function downloadReport() {
@@ -277,8 +255,6 @@ function receiveBatch() {
   try { got = takeBatch(window.localStorage, 'textgenerator-v2'); } catch { return false; }
   if (!got) return false;
   if (got.school) S.school = got.school;
-  const g = Number(String(got.groups[0]?.items[0]?.studentId || '')[0]);
-  if (g >= 1 && g <= 3) S.grade = g;
   const groups = got.groups.map((x) => ({
     sheetName: '작성 도우미', area: x.area, subject: x.subject,
     rows: x.items.map((i) => ({ studentId: i.studentId, name: i.name, subject: x.subject, text: i.text.slice(0, 5000), tooLong: i.text.length > 5000 })),
@@ -286,7 +262,7 @@ function receiveBatch() {
   startCheck(groups);
   if (!S.items.length) return true;
   const n = groups.reduce((a, x) => a + x.rows.length, 0);
-  S.notice = { kind: 'info', text: `작성 도우미에서 ${n}명의 글을 받아 점검했습니다 (${S.school === 'high' ? '고등학교' : '중학교'} ${S.grade}학년 기준). 학교급이나 학년이 다르면 시작 화면에서 바꾸세요.` };
+  S.notice = { kind: 'info', text: `작성 도우미에서 ${n}명의 글을 받아 점검했습니다 (${S.school === 'high' ? '고등학교' : '중학교'} 기준). 학교급이 다르면 설정에서 바꾸세요.` };
   render();
   return true;
 }

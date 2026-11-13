@@ -109,13 +109,6 @@ body { margin: 0; }
 .candidate { gap: var(--sp-2); padding: var(--sp-3); }
 .candidate-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; }
 
-/* ---------- 현황 ---------- */
-.status-table th, .status-table td { vertical-align: top; }
-.status-table td { min-width: 120px; padding: var(--sp-1); }
-.status-table .status-na { text-align: center; vertical-align: middle; }
-.status-cell-text { display: block; }
-.status-col-count { display: block; font-weight: var(--fw-regular, 400); }
-
 /* ---------- NEIS ---------- */
 .neis-pickers .field { min-width: 200px; }
 .neis-layout {
