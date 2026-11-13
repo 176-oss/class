@@ -136,6 +136,30 @@ export function planPaste(rows, drafts, { mode = 'skip', separator = ' ' } = {})
   return out;
 }
 
+/**
+ * 후보 하나를 여러 학생에게: candidates 는 글 배열, assign 은 Map 또는 객체 (기록 id -> 후보 번호).
+ * 반환: { [기록 id]: 글 } — 글이 비었거나 없는 후보 번호는 뺀다.
+ */
+export function assignedDrafts(candidates, assign) {
+  const out = {};
+  const entries = assign instanceof Map ? [...assign.entries()] : Object.entries(assign || {});
+  for (const [id, i] of entries) {
+    const t = String(candidates[Number(i)] ?? '').trim();
+    if (t) out[id] = t;
+  }
+  return out;
+}
+
+/** 후보를 지우면 그 후보에 배정된 학생은 풀고, 뒤 후보 번호는 하나씩 당긴다. 새 Map 을 돌려준다 */
+export function removeCandidate(assign, index) {
+  const next = new Map();
+  for (const [id, i] of assign) {
+    if (i === index) continue;
+    next.set(id, i > index ? i - 1 : i);
+  }
+  return next;
+}
+
 /** 메모가 있고 최종본이 비어 있는 (완료 아님) 기록 id — 맨 위 [메모로 초안 만들기] 대상 */
 export function memoTargets(rows) {
   const filled = (v) => typeof v === 'string' && v.trim() !== '';

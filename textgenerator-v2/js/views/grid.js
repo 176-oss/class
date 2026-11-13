@@ -9,7 +9,7 @@ import { byteLength, byteLevel } from '../core/bytes.js';
 import { generateDrafts, AiError } from '../core/gemini.js';
 import { pickExamples } from '../core/style.js';
 import { createBatch } from '../core/batch.js';
-import { checkCell, tidyText, composeMemo, planPaste, memoTargets, PASTE_MODES } from '../core/grid.js';
+import { checkCell, tidyText, composeMemo, planPaste, memoTargets, PASTE_MODES, assignedDrafts, removeCandidate } from '../core/grid.js';
 
 const G = {
   area: null,
@@ -25,7 +25,13 @@ const G = {
   generated: new Set(), // 이번에 패널에서 만든 기록 id
   short: new Set(), // 메모가 부족해 못 만든 기록 id
   job: null, // { batch, label, ids, kind }
+  method: 'each', // each: 학생마다 만들기 | shared: 후보 몇 개를 만들어 학생에게 나눠 붙이기
+  cands: [], // shared 방식의 후보 글 (최대 6개, 화면 메모리)
+  assign: new Map(), // 기록 id -> 후보 번호
+  candBusy: false,
+  inited: false,
 };
+const MAX_CANDS = 6;
 
 let ctx = null;
 let root = null;
@@ -41,6 +47,11 @@ const noKey = () => !ctx.isFakeAI() && !ctx.hasKey();
 // ---------- 계산 ----------
 function classesForArea() {
   return store.listClasses().filter((c) => store.areasOfClass(c).some((a) => a.area === G.area));
+}
+// 교과세특에서 반이 여럿이면 처음에는 아무 반도 열지 않고, 위에서 반을 체크해 명단을 불러온다
+function defaultHidden() {
+  const list = classesForArea();
+  return G.area === 'subject' && list.length >= 2 ? new Set(list.map((c) => c.id)) : new Set();
 }
 function allAreas() {
   const set = new Set();
@@ -180,6 +191,7 @@ function rowEl(row) {
     tr: null, memo, final: fin, done: doneBox,
     bytes: h('td', { class: 'num' }), status: h('td', {}), issues: h('td', { class: 'grid-issue-cell' }),
   };
+  const compact = G.panel;
   ref.tr = h('tr', { 'data-id': id },
     h('td', { class: 'col-check' }, h('label', { class: 'check-hit' }, sel)),
     h('td', { class: 'num' }, String(student.studentId).slice(3) * 1 || student.studentId),
@@ -187,10 +199,10 @@ function rowEl(row) {
     h('td', {}, memo),
     h('td', {}, fin),
     ref.bytes,
-    ref.status,
+    compact ? null : ref.status,
     ref.issues,
-    h('td', { class: 'col-done' }, h('label', { class: 'check-hit' }, doneBox)),
-    h('td', {}, h('a', {
+    compact ? null : h('td', { class: 'col-done' }, h('label', { class: 'check-hit' }, doneBox)),
+    compact ? null : h('td', {}, h('a', {
       class: 'btn btn-ghost btn-sm', 'aria-label': `${student.name} 자세히 (후보 3개 비교, 검사, NEIS)`,
       href: `#write-detail?class=${encodeURIComponent(cls.id)}&area=${G.area}&student=${student.studentId}`,
     }, '자세히')));
@@ -204,7 +216,7 @@ function renderTable() {
   rows = buildRows();
   const classes = classesForArea();
   if (!classes.length) { clear(els.tableHost, emptyState('users', '이 영역을 쓰는 반이 없습니다.')); return; }
-  if (!rows.length) { clear(els.tableHost, emptyState('users', '표시할 학생이 없습니다. 위에서 반을 켜 주세요.', h('a', { class: 'btn btn-primary', href: '#roster' }, '명단으로 가기'))); return; }
+  if (!rows.length) { clear(els.tableHost, emptyState('users', G.hidden.size ? '위에서 반을 체크하면 그 반의 명단이 나옵니다.' : '표시할 학생이 없습니다.', h('a', { class: 'btn btn-primary', href: '#roster' }, '명단으로 가기'))); return; }
   const selAll = h('input', {
     type: 'checkbox', id: 'grid-select-all', 'aria-label': '보이는 학생 모두 고르기',
     onchange: (e) => { for (const r of rows) { if (e.target.checked) G.selected.add(r.rec.id); else G.selected.delete(r.rec.id); } syncChecks(); onSelection(); },
@@ -222,19 +234,19 @@ function renderTable() {
       });
       body.push(h('tr', { class: 'grid-group' },
         h('td', { class: 'col-check' }, h('label', { class: 'check-hit' }, gbox)),
-        h('th', { colspan: '9', scope: 'colgroup' }, `${row.cls.name} (${KIND_LABELS[row.cls.kind]}${row.cls.subject ? ` · ${row.cls.subject}` : ''}) · ${mine.length}명`)));
+        h('th', { colspan: G.panel ? '6' : '9', scope: 'colgroup' }, `${row.cls.name} (${KIND_LABELS[row.cls.kind]}${row.cls.subject ? ` · ${row.cls.subject}` : ''}) · ${mine.length}명`)));
     }
     body.push(rowEl(row));
   }
   const table = h('table', { class: 'table grid-table' },
     h('caption', { class: 'sr-only' }, `${AREA_LABELS[G.area]} 작성 표 (명렬순)`),
-    h('colgroup', {}, ...['44px', '48px', '84px', '17%', 'auto', '72px', '84px', '19%', '56px', '72px'].map((w) => h('col', { style: { width: w } }))),
+    h('colgroup', {}, ...(G.panel ? ['44px', '48px', '84px', '14%', 'auto', '72px', '96px'] : ['44px', '48px', '84px', '17%', 'auto', '72px', '84px', '19%', '56px', '72px']).map((w) => h('col', { style: { width: w } }))),
     h('thead', {}, h('tr', {},
       h('th', { scope: 'col', class: 'col-check' }, h('label', { class: 'check-hit' }, selAll)),
       h('th', { scope: 'col', class: 'num' }, '번호'), h('th', { scope: 'col' }, '이름'),
       h('th', { scope: 'col' }, '메모'), h('th', { scope: 'col' }, '최종본 (칸에서 바로 쓰기)'),
-      h('th', { scope: 'col', class: 'num' }, '바이트'), h('th', { scope: 'col' }, '상태'),
-      h('th', { scope: 'col' }, '점검'), h('th', { scope: 'col' }, '완료'), h('th', { scope: 'col' }, ''))),
+      h('th', { scope: 'col', class: 'num' }, '바이트'), G.panel ? null : h('th', { scope: 'col' }, '상태'),
+      h('th', { scope: 'col' }, '점검'), G.panel ? null : h('th', { scope: 'col' }, '완료'), G.panel ? null : h('th', { scope: 'col' }, ''))),
     h('tbody', {}, body));
   els.table = table;
   clear(els.tableHost, h('div', { class: 'table-wrap grid-wrap' }, table));
@@ -294,6 +306,7 @@ function applyLayout() {
   els.layout?.classList.toggle('has-panel', G.panel);
   if (!G.panel) clear(els.panel);
   els.panel.hidden = !G.panel;
+  renderTable();
   setTimeout(resizeAll, 0);
 }
 
@@ -393,7 +406,7 @@ function renderPanel() {
   const common = h('textarea', {
     class: 'textarea', id: 'grid-common', rows: '5', value: G.common,
     placeholder: '선택한 학생 모두에게 쓸 특징을 적어 주세요. 예: 학급 회의에서 의견을 조율함. 체육대회 준비를 주도함.',
-    oninput: (e) => { G.common = e.target.value; },
+    oninput: (e) => { G.common = e.target.value; updateMakeButtons(); },
   });
   const picked = pickExamples(store.getStyles(), G.area, G.area === 'subject' ? (sel[0]?.cls.subject || null) : null);
   const canMake = !G.job && !noKey() && sel.length > 0 && (G.common.trim() || G.withOwn);
@@ -414,22 +427,154 @@ function renderPanel() {
         seg({ labelledby: 'gp-len', options: Object.entries(LENGTH_LABELS), value: G.length, onChange: (v) => { G.length = v; } })),
       h('label', { class: 'check-row' }, h('input', { type: 'checkbox', checked: G.withOwn, onchange: (e) => { G.withOwn = e.target.checked; renderPanel(); } }), '학생 메모도 함께 쓰기'),
       picked ? h('label', { class: 'check-row' }, h('input', { type: 'checkbox', checked: G.styleOn, onchange: (e) => { G.styleOn = e.target.checked; renderPanel(); } }), `내 스타일 적용 (${picked.summary})`) : null),
+    ...methodSections(sel, generated, canMake));
+}
+
+// 공통 특징을 쓰는 동안 [초안/후보 만들기] 버튼의 켜짐을 맞춘다 (패널을 다시 그리지 않는다)
+function updateMakeButtons() {
+  const n = selectedRows().length;
+  const base = !G.job && !G.candBusy && !noKey() && n > 0;
+  els.panel?.querySelectorAll('[data-make]').forEach((b) => {
+    b.disabled = !(base && (b.dataset.make === 'shared' ? G.common.trim() && G.cands.length < MAX_CANDS : (G.common.trim() || G.withOwn)));
+  });
+}
+
+function methodSeg() {
+  return h('div', { class: 'field' }, h('span', { class: 'label', id: 'gp-method' }, '초안 만드는 방식'),
+    seg({
+      labelledby: 'gp-method',
+      options: [['shared', '후보를 만들어 학생에게 나눠 붙이기'], ['each', '학생마다 따로 만들기']],
+      value: G.method,
+      onChange: (v) => { G.method = v; renderPanel(); },
+    }));
+}
+
+function pasteSection(count, onPaste, hint) {
+  return h('section', { class: 'stack', 'aria-labelledby': 'gp-5' },
+    h('h3', { class: 'section-title', id: 'gp-5' }, '5 표에 붙여넣기'),
+    h('div', { class: 'field' }, h('label', { class: 'label', for: 'gp-mode' }, '최종본 칸에 이미 글이 있을 때'),
+      h('select', { class: 'select', id: 'gp-mode', value: G.mode, onchange: (e) => { G.mode = e.target.value; } },
+        Object.entries(PASTE_MODES).map(([k, v]) => h('option', { value: k }, v)))),
+    h('button', { type: 'button', class: 'btn btn-primary', disabled: !count || !!G.job || G.candBusy, onclick: onPaste }, icon('send'), `표에 순서대로 붙여넣기${count ? ` (${count}명)` : ''}`),
+    h('p', { class: 'hint' }, hint));
+}
+
+function methodSections(sel, generated, canMake) {
+  if (G.method === 'shared') return sharedSections(sel);
+  return [
     h('section', { class: 'stack', 'aria-labelledby': 'gp-3' },
       h('h3', { class: 'section-title', id: 'gp-3' }, '3 초안 만들기'),
+      methodSeg(),
       noKey() ? h('p', { class: 'hint' }, '설정에서 API 키를 넣으면 만들 수 있습니다. ', h('a', { href: '#settings' }, '설정으로 가기')) : null,
-      h('div', { class: 'row' }, h('button', { type: 'button', class: 'btn btn-primary', disabled: !canMake, onclick: makeSelected }, icon('spark'), G.job ? '만드는 중' : `${sel.length}명 초안 만들기`),
+      h('div', { class: 'row' }, h('button', { type: 'button', class: 'btn btn-primary', 'data-make': 'each', disabled: !canMake, onclick: makeSelected }, icon('spark'), G.job ? '만드는 중' : `${sel.length}명 초안 만들기`),
         ctx.isFakeAI() ? badge('가짜 AI', 'warn') : null),
       G.short.size ? alertBox('info', `메모와 특징이 부족해 초안을 만들지 않은 학생: ${[...G.short].map((id) => store.getStudent(store.state.records.get(id)?.studentId)?.name).filter(Boolean).join(', ')}`) : null),
     h('section', { class: 'stack', 'aria-labelledby': 'gp-4' },
       h('h3', { class: 'section-title', id: 'gp-4' }, `4 초안 수정 (${generated.length}명)`),
       generated.length ? generated.map(draftEditor) : h('p', { class: 'hint' }, '초안을 만들면 여기에 학생 순서대로 나옵니다. 고쳐 쓴 글이 표에 붙습니다.')),
-    h('section', { class: 'stack', 'aria-labelledby': 'gp-5' },
-      h('h3', { class: 'section-title', id: 'gp-5' }, '5 표에 붙여넣기'),
-      h('div', { class: 'field' }, h('label', { class: 'label', for: 'gp-mode' }, '최종본 칸에 이미 글이 있을 때'),
-        h('select', { class: 'select', id: 'gp-mode', value: G.mode, onchange: (e) => { G.mode = e.target.value; } },
-          Object.entries(PASTE_MODES).map(([k, v]) => h('option', { value: k }, v)))),
-      h('button', { type: 'button', class: 'btn btn-primary', disabled: !generated.length || !!G.job, onclick: pasteToTable }, icon('send'), '표에 순서대로 붙여넣기'),
-      h('p', { class: 'hint' }, '표의 명렬 순서대로 각 학생의 최종본 칸에 넣습니다. 완료한 학생은 건드리지 않습니다.')));
+    pasteSection(generated.length, pasteToTable, '표의 명렬 순서대로 각 학생의 최종본 칸에 넣습니다. 완료한 학생은 건드리지 않습니다.'),
+  ];
+}
+
+// 후보를 만들어 학생에게 나눠 붙이기: 비슷한 학생끼리 같은 후보를 쓴다
+function sharedSections(sel) {
+  const assigned = sel.filter((r) => G.assign.has(r.rec.id) && G.cands[G.assign.get(r.rec.id)]?.trim());
+  const canMake = !G.candBusy && !G.job && !noKey() && sel.length > 0 && G.common.trim() && G.cands.length < MAX_CANDS;
+  return [
+    h('section', { class: 'stack', 'aria-labelledby': 'gp-3' },
+      h('h3', { class: 'section-title', id: 'gp-3' }, '3 후보 만들기'),
+      methodSeg(),
+      h('p', { class: 'hint' }, '위의 공통 특징만으로 후보를 만듭니다 (학생 메모는 쓰지 않음). 만든 뒤 후보마다 붙일 학생을 고르세요.'),
+      noKey() ? h('p', { class: 'hint' }, '설정에서 API 키를 넣으면 만들 수 있습니다. ', h('a', { href: '#settings' }, '설정으로 가기')) : null,
+      !G.common.trim() ? h('p', { class: 'hint' }, '공통 특징을 먼저 적어 주세요.') : null,
+      h('div', { class: 'row' },
+        h('button', { type: 'button', class: 'btn btn-primary', 'data-make': 'shared', disabled: !canMake, onclick: makeShared }, icon('spark'), G.candBusy ? '만드는 중' : (G.cands.length ? '후보 3개 더 만들기' : '후보 3개 만들기')),
+        G.cands.length ? h('button', { type: 'button', class: 'btn btn-ghost', disabled: G.candBusy, onclick: () => { G.cands = []; G.assign = new Map(); renderPanel(); } }, '후보 모두 지우기') : null,
+        ctx.isFakeAI() ? badge('가짜 AI', 'warn') : null),
+      G.cands.length >= MAX_CANDS ? h('p', { class: 'hint' }, `후보는 ${MAX_CANDS}개까지 둘 수 있습니다.`) : null),
+    h('section', { class: 'stack', 'aria-labelledby': 'gp-4' },
+      h('h3', { class: 'section-title', id: 'gp-4' }, `4 후보 수정과 학생 배정 (후보 ${G.cands.length}개)`),
+      G.cands.length ? h('p', { class: 'small', role: 'status' }, `배정 ${assigned.length}명 · 미배정 ${sel.length - assigned.length}명`) : null,
+      G.cands.length ? G.cands.map((t, i) => candCard(i, sel)) : h('p', { class: 'hint' }, '후보를 만들면 여기에 나옵니다. 고쳐 쓰고, 이름 칩을 눌러 그 후보를 붙일 학생을 고르세요.')),
+    pasteSection(assigned.length, pasteShared, '표의 명렬 순서대로 배정된 학생의 최종본 칸에 후보 글을 넣습니다. 같은 후보를 여러 학생에게 붙이면 표의 점검에 비슷한 글 경고가 뜨니 학생마다 한 줄씩 고쳐 주세요. 붙인 학생은 선택에서 빠집니다 (다음 무리를 이어서 고르세요).'),
+  ];
+}
+
+function candCard(i, sel) {
+  const meta = h('span', { class: 'small muted grid-draft-meta' });
+  const ta = h('textarea', {
+    class: 'textarea grid-ta', rows: '4', value: G.cands[i], 'aria-label': `후보 ${i + 1}`,
+    oninput: (e) => { autosize(e.target); G.cands[i] = e.target.value; paint(); },
+  });
+  const first = sel[0] ? (store.state.records.get(sel[0].rec.id) || sel[0].rec) : null;
+  function paint() {
+    const text = ta.value;
+    const chk = first ? checkOfText(first, text) : null;
+    const n = [...G.assign.values()].filter((x) => x === i).length;
+    clear(meta, `${byteLength(text)}바이트 · 붙일 학생 ${n}명`, chk && chk.count ? ` · 문제 ${chk.count}건: ${chk.issues.slice(0, 2).map((x) => x.message).join(', ')}` : '');
+    meta.classList.toggle('text-danger', !!(chk && chk.count));
+  }
+  setTimeout(() => { autosize(ta); paint(); }, 0);
+  const chips = sel.map((r) => {
+    const id = r.rec.id;
+    const cur = G.assign.get(id);
+    const on = cur === i;
+    return chip(`${r.student.name}${cur !== undefined && !on ? ` (후보${cur + 1})` : ''}`, on, (flag) => {
+      if (flag) G.assign.set(id, i); else G.assign.delete(id);
+      renderPanel();
+    });
+  });
+  return h('div', { class: 'stack gap-1 grid-draft' },
+    h('div', { class: 'row-between' }, h('strong', {}, `후보 ${i + 1}`),
+      h('div', { class: 'row' },
+        h('button', { type: 'button', class: 'btn btn-ghost btn-sm', onclick: () => { ta.value = tidyText(ta.value); G.cands[i] = ta.value; autosize(ta); paint(); } }, '정리'),
+        h('button', { type: 'button', class: 'btn btn-ghost btn-sm', onclick: () => { G.cands.splice(i, 1); G.assign = removeCandidate(G.assign, i); renderPanel(); } }, '삭제'))),
+    ta, meta,
+    h('div', { class: 'field' }, h('span', { class: 'label' }, '이 후보를 붙일 학생'),
+      h('div', { class: 'row chips', role: 'group', 'aria-label': `후보 ${i + 1}을 붙일 학생` }, chips)),
+    h('div', { class: 'row' },
+      h('button', { type: 'button', class: 'btn btn-secondary btn-sm', onclick: () => { for (const r of sel) if (!G.assign.has(r.rec.id)) G.assign.set(r.rec.id, i); renderPanel(); } }, '배정 안 된 학생 모두'),
+      h('button', { type: 'button', class: 'btn btn-ghost btn-sm', onclick: () => { for (const [id, x] of [...G.assign]) if (x === i) G.assign.delete(id); renderPanel(); } }, '이 후보 배정 풀기')));
+}
+
+async function makeShared() {
+  const sel = selectedRows();
+  if (!sel.length) { toast('표에서 학생을 먼저 고르세요'); return; }
+  if (!G.common.trim()) { toast('공통 특징을 먼저 적어 주세요'); return; }
+  flushEdits();
+  G.candBusy = true;
+  renderPanel();
+  const first = sel[0];
+  const rec = store.state.records.get(first.rec.id) || first.rec;
+  try {
+    const res = await generateDrafts({
+      record: { ...rec, memo: G.common, traits: [...G.traits], length: G.length, achievement: rec.achievement || first.cls.achievement || '' },
+      studentName: '', roster: rosterAll(), settings: store.state.settings, apiKey: store.getApiKey(), count: 3, fake: ctx.isFakeAI(), style: styleFor(rec),
+    });
+    const drafts = (res?.drafts || []).filter((d) => d && d.trim()).map((d) => d.trim());
+    if (res?.insufficient || !drafts.length) toast('특징이 부족해 후보를 만들지 않았습니다. 더 자세히 적어 주세요.');
+    else {
+      G.cands = [...G.cands, ...drafts].slice(0, MAX_CANDS);
+      toast(`후보 ${drafts.length}개를 만들었습니다`);
+    }
+  } catch (e) {
+    if (!(e instanceof AiError)) console.warn('후보 만들기 중 예상 못 한 오류:', e?.name || 'Error');
+    toast(e?.userMessage || '후보를 만들지 못했습니다. 잠시 뒤 다시 시도해 주세요.', { danger: true });
+  } finally {
+    G.candBusy = false;
+    renderPanel();
+  }
+}
+
+function pasteShared() {
+  flushEdits();
+  const sel = selectedRows();
+  const drafts = assignedDrafts(G.cands, G.assign);
+  const target = sel.filter((r) => drafts[r.rec.id]);
+  applyPaste(target, drafts, (patched) => {
+    for (const id of patched) { G.assign.delete(id); G.selected.delete(id); }
+    syncChecks(); renderBar(); renderPanel();
+  });
 }
 
 function draftEditor(r) {
@@ -473,7 +618,13 @@ function pasteToTable() {
   flushEdits();
   const sel = selectedRows().filter((r) => G.generated.has(r.rec.id));
   const drafts = {};
-  const plan = planPaste(sel.map((r) => { const l = store.state.records.get(r.rec.id) || r.rec; drafts[r.rec.id] = l.draft; return { id: l.id, final: l.final, status: l.status }; }), drafts, { mode: G.mode });
+  for (const r of sel) drafts[r.rec.id] = (store.state.records.get(r.rec.id) || r.rec).draft;
+  applyPaste(sel, drafts);
+}
+
+/** 표의 명렬 순서대로 최종본 칸에 붙인다. after(붙은 기록 id 목록) 는 붙인 뒤 화면 정리용 */
+function applyPaste(sel, drafts, after) {
+  const plan = planPaste(sel.map((r) => { const l = store.state.records.get(r.rec.id) || r.rec; return { id: l.id, final: l.final, status: l.status }; }), drafts, { mode: G.mode });
   if (!plan.patches.length) { toast(plan.summary.keptExisting ? '최종본이 이미 있어 붙이지 않았습니다. 위에서 이어쓰기나 덮어쓰기를 고르세요.' : '붙일 글이 없습니다'); return; }
   const before = new Map(plan.patches.map((p) => [p.id, (store.state.records.get(p.id) || {}).final || '']));
   for (const p of plan.patches) { store.updateRecord(p.id, { final: p.final }); refreshRow(p.id, { setText: true }); }
@@ -482,6 +633,7 @@ function pasteToTable() {
   toast(`표에 붙였습니다: ${parts.join(', ')}`, { action: '되돌리기', onAction: () => { for (const [id, f] of before) { store.updateRecord(id, { final: f }); refreshRow(id, { setText: true }); } toast('붙이기를 되돌렸습니다'); } });
   announce(`${plan.patches.length}명의 최종본에 붙였습니다`);
   resizeAll();
+  if (after) after(plan.patches.map((p) => p.id));
 }
 
 // ---------- 전체 ----------
@@ -490,6 +642,7 @@ function pickDefaults(params) {
   const pa = params?.get('area');
   if (pa && areas.includes(pa)) G.area = pa;
   if (!areas.includes(G.area)) G.area = areas[0] || null;
+  if (!G.inited) { G.inited = true; G.hidden = defaultHidden(); G.method = G.area === 'subject' ? 'shared' : 'each'; }
   const pc = params?.get('class');
   if (pc && store.getClass(pc)) {
     // 주소로 반을 지정하면 그 반만 보이게 한다 (같은 영역의 다른 반은 켜서 볼 수 있음)
@@ -526,9 +679,10 @@ function renderAll() {
     h('div', { class: 'write-toolbar' },
       h('div', { class: 'tabs', role: 'tablist', 'aria-label': '영역' }, areas.map((a) => h('button', {
         type: 'button', class: 'tab', role: 'tab', 'aria-selected': a === G.area, tabindex: a === G.area ? '0' : '-1',
-        onclick: () => { flushEdits(); G.area = a; G.selected.clear(); G.generated.clear(); G.hidden.clear(); ctx.setParams('write', { area: a }); renderAll(); },
+        onclick: () => { flushEdits(); G.area = a; G.selected.clear(); G.generated.clear(); G.cands = []; G.assign = new Map(); G.hidden = defaultHidden(); G.method = a === 'subject' ? 'shared' : 'each'; ctx.setParams('write', { area: a }); renderAll(); },
       }, AREA_LABELS[a]))),
-      h('div', { class: 'row chips', role: 'group', 'aria-label': '보이는 반' }, classChips)),
+      h('div', { class: 'field' }, h('span', { class: 'label', id: 'grid-class-label' }, G.area === 'subject' ? '명단을 불러올 반 (체크)' : '보이는 반'),
+        h('div', { class: 'row chips', role: 'group', 'aria-labelledby': 'grid-class-label' }, classChips))),
     els.bar, els.job, els.layout);
   renderTable(); renderBar(); renderJob(); renderPanel(); setSave();
 }

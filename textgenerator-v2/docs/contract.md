@@ -747,3 +747,5 @@ export async function refineDraft({ record, text, request, studentName, roster, 
 - 칸 입력은 기록별로 모아 0.6초 뒤 저장한다. 완료(done) 기록은 칸이 읽기 전용이고, 완료로 표시하려면 최종본이 있어야 한다.
 - `core/grid.js`: `checkCell`(= checkRecord + 맞춤법 `SPELLING_RULES` + 입력 오류 `findInputErrors`; 비슷한 글은 한 줄로 묶음), `tidyText`(NEIS 문자·연속 공백 정리 + 맞춤법), `composeMemo`(공통 특징 + 학생 메모), `planPaste`(skip/append/overwrite, 완료 건너뜀), `memoTargets`.
 - 초안은 학생마다 count 1로 차례로 만든다 (`createBatch`, 설정의 간격). 공통 특징·드러낼 모습·분량은 학생 메모와 합쳐 보낸다. 이름·학번은 지금처럼 AI로 보내지 않는다.
+- 후보 나눠 붙이기(`G.method === 'shared'`, 교과세특 기본): 공통 특징만으로 후보를 만든다 (학생 메모·이름 없이, 한 번에 3개, 최대 6개, 화면 메모리). 배정은 `Map(기록 id -> 후보 번호)`이고 `assignedDrafts`·`removeCandidate`(core/grid.js)가 계산한다. 붙이기 뒤 붙은 학생은 선택과 배정에서 뺀다.
+- 교과세특에서 반이 둘 이상이면 처음에는 모든 반을 숨기고(`defaultHidden`) 반 칩을 체크해 명단을 불러온다. 패널이 열리면 표는 상태·완료·자세히 칸을 빼고 점검은 개수만 보인다.

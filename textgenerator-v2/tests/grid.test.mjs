@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { findSpelling, fixSpelling, findInputErrors, checkCell, tidyText, composeMemo, planPaste, memoTargets } from '../js/core/grid.js';
+import { findSpelling, fixSpelling, findInputErrors, checkCell, tidyText, composeMemo, planPaste, memoTargets, assignedDrafts, removeCandidate } from '../js/core/grid.js';
 
 test('맞춤법: 자주 틀리는 말 찾기와 고치기', () => {
   const t = '발표를 잘 되요. 몇일 동안 금새 끝냈다. 안되요.';
@@ -69,4 +69,18 @@ test('맨 위 버튼 대상: 메모가 있고 최종본이 빈 학생만', () =>
     { id: 'd', memo: '메모', final: '', status: 'done' },
   ];
   assert.deepEqual(memoTargets(rows), ['a']);
+});
+
+test('후보 하나를 여러 학생에게: 배정대로 글을 모으고, 후보를 지우면 번호를 당긴다', () => {
+  const cands = ['후보 A.', '후보 B.', '  ', '후보 D.'];
+  const assign = new Map([['s1', 0], ['s2', 1], ['s3', 0], ['s4', 2], ['s5', 9]]);
+  assert.deepEqual(assignedDrafts(cands, assign), { s1: '후보 A.', s2: '후보 B.', s3: '후보 A.' });
+  assert.deepEqual(assignedDrafts(cands, { s1: 3 }), { s1: '후보 D.' });
+  const next = removeCandidate(new Map([['s1', 0], ['s2', 1], ['s3', 3]]), 1);
+  assert.deepEqual([...next], [['s1', 0], ['s3', 2]]);
+  // 붙이기 계획과 이어짐: 배정된 학생만, 완료는 건너뜀
+  const rows = [{ id: 's1', final: '', status: 'memo' }, { id: 's2', final: '', status: 'done' }, { id: 's3', final: '', status: 'empty' }];
+  const p = planPaste(rows, assignedDrafts(cands, assign));
+  assert.deepEqual(p.patches.map((x) => x.id), ['s1', 's3']);
+  assert.equal(p.summary.done, 1);
 });
