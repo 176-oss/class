@@ -320,7 +320,9 @@ function renderPanelInner() {
       h('div', { class: 'stack gap-1' },
         h('h2', { class: 'card-title panel-title', id: 'panel-title', tabindex: '-1' }, `${student.studentId} ${student.name}`),
         h('p', { class: 'small muted row' }, a.label, els.statusSlot, els.saveText)),
-      h('button', { type: 'button', class: 'icon-btn', 'aria-label': '패널 닫기', onclick: closePanel }, icon('close'))),
+      h('div', { class: 'row' },
+        h('a', { class: 'btn btn-ghost btn-sm', href: `#write?area=${encodeURIComponent(S.area || '')}` }, icon('left'), '표로'),
+        h('button', { type: 'button', class: 'icon-btn', 'aria-label': '패널 닫기', onclick: closePanel }, icon('close')))),
     tabList({
       label: '작성 단계', idPrefix: 'write-step', panelId: stepPanelId, value: S.step,
       items: STEPS, onSelect: (k) => { flushPending(); S.step = k; renderPanel(); },
@@ -990,7 +992,9 @@ function renderAll() {
   els.panel = h('aside', { class: 'panel write-panel', id: 'write-panel' });
   clear(root,
     h('div', { class: 'view-head row-between' },
-      h('h1', { class: 'view-title', tabindex: '-1' }, '작성'),
+      h('div', { class: 'row' },
+        h('a', { class: 'btn btn-secondary', href: `#write?area=${encodeURIComponent(S.area || '')}` }, icon('left'), '표로 돌아가기'),
+        h('h1', { class: 'view-title', tabindex: '-1' }, '작성 (자세히)')),
       h('span', { class: 'small muted save-global' })),
     noKey ? alertBox('info', h('p', {}, 'AI 초안을 만들려면 설정에서 Gemini API 키를 넣어 주세요. 메모 쓰기와 검사는 키 없이도 됩니다. ', h('a', { href: '#settings' }, '설정으로 가기'))) : null,
     h('div', { class: 'write-toolbar' },

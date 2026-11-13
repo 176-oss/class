@@ -141,3 +141,21 @@ test('sectionOfName, splitBySection: 학번의 학년·반으로 나누기', asy
   assert.deepEqual(r.groups, [{ classId: 'a', studentIds: ['10101', '10102'] }, { classId: 'b', studentIds: ['10203'] }, { classId: 'c', studentIds: ['11001'] }]);
   assert.deepEqual(r.unmatched.map((s) => s.studentId), ['10301', '20101']);
 });
+
+test('선택한 반이 있으면 번호와 이름만으로 등록 (붙여넣기·엑셀)', async () => {
+  const { parsePastedRoster, parseRosterRows, classContext } = await import('../js/core/roster-parse.js');
+  const ctx = { grade: 3, classNo: 8 };
+  const r = parsePastedRoster('1 가나다\n2번 라마바\n3. 사아자\n30804\t차카타\n10\t하갸냐', ctx);
+  assert.deepEqual(r.students.map((s) => [s.studentId, s.name]), [['30801', '가나다'], ['30802', '라마바'], ['30803', '사아자'], ['30804', '차카타'], ['30810', '하갸냐']]);
+  assert.equal(r.errors.length, 0);
+  // 반을 모르면 예전처럼 학번 자리 수 오류
+  assert.equal(parsePastedRoster('1 가나다').errors.length, 1);
+  const x = parseRosterRows([['번호', '이름'], ['1', '가나다'], ['2', '라마바']], ctx);
+  assert.deepEqual(x.students.map((s) => s.studentId), ['30801', '30802']);
+  assert.match(parseRosterRows([['번호', '이름'], ['1', '가나다']]).errors[0].message, /반을 고르고/);
+  // 반 알아내기: 학생 학번 > 반 이름
+  assert.deepEqual(classContext({ name: 'x' }, [{ studentId: '30501' }, { studentId: '30502' }]), { grade: 3, classNo: 5 });
+  assert.deepEqual(classContext({ name: '3학년 8반' }, []), { grade: 3, classNo: 8 });
+  assert.deepEqual(classContext({ name: '통합과학 1-3' }, [{ studentId: '10101' }, { studentId: '20201' }]), { grade: 1, classNo: 3 });
+  assert.equal(classContext({ name: '가' }, []), null);
+});

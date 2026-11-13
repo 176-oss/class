@@ -174,7 +174,7 @@ export function renderDetail(it, { go, render }) {
 
   return h('div', { class: 'stack' },
     h('div', { class: 'row' },
-      h('button', { type: 'button', class: 'btn', onclick: () => { mode = 'detail'; go('results'); } }, '목록으로'),
+      h('button', { type: 'button', class: 'btn', onclick: () => { mode = 'detail'; go('results'); } }, '닫기'),
       h('button', { type: 'button', class: 'btn', disabled: idx <= 0, onclick: () => go('detail', { index: idx - 1 }) }, '이전 학생'),
       h('button', { type: 'button', class: 'btn', disabled: idx >= S.items.length - 1, onclick: () => go('detail', { index: idx + 1 }) }, '다음 학생'),
       h('span', { class: 'muted num' }, `${idx + 1} / ${S.items.length}`)),

@@ -41,6 +41,8 @@ export const S = {
   classIssues: new Map(),
   results: new Map(), // key -> { issues, bytes, limit }
   filter: 'all',
+  areaKey: 'all', // 결과 표에서 보는 항목(과목): 'all' 또는 '영역|과목'
+  panel: false, // 결과 표 오른쪽 상세 패널
   current: 0,
   aiConfirmed: false,
   notice: null, // { kind, text }
@@ -117,5 +119,7 @@ export function loadGroups(groups) {
   }
   S.current = 0;
   S.filter = 'all';
+  S.areaKey = 'all';
+  S.panel = false;
   recheck();
 }

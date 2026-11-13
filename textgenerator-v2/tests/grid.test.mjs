@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { findSpelling, fixSpelling, findInputErrors, checkCell, tidyText, composeMemo, planPaste, memoTargets } from '../js/core/grid.js';
+import { findSpelling, fixSpelling, findInputErrors, checkCell, tidyText, composeMemo, planPaste, memoTargets, assignedDrafts, removeCandidate } from '../js/core/grid.js';
 
 test('맞춤법: 자주 틀리는 말 찾기와 고치기', () => {
   const t = '발표를 잘 되요. 몇일 동안 금새 끝냈다. 안되요.';
@@ -61,6 +61,18 @@ test('표에 순서대로 붙여넣기: 비었으면 넣고, 있으면 모드대
   assert.equal(p.patches.length, 0);
 });
 
+test('후보 개수는 고른 학생 수 + 5, 자동 배정은 안 쓴 후보부터 차례로', async () => {
+  const { candidateTarget, autoAssign } = await import('../js/core/grid.js');
+  assert.equal(candidateTarget(0), 5);
+  assert.equal(candidateTarget(12), 17);
+  assert.equal(candidateTarget(100), 40);
+  const m = autoAssign(['a', 'b', 'c'], new Map([['x', 1]]), 4);
+  assert.deepEqual([...m], [['x', 1], ['a', 0], ['b', 2], ['c', 3]]);
+  const w = autoAssign(['a', 'b', 'c'], new Map(), 2);
+  assert.deepEqual([...w], [['a', 0], ['b', 1], ['c', 0]]);
+  assert.deepEqual([...autoAssign(['a'], new Map([['a', 3]]), 5)], [['a', 3]]);
+});
+
 test('맨 위 버튼 대상: 메모가 있고 최종본이 빈 학생만', () => {
   const rows = [
     { id: 'a', memo: '메모', final: '', status: 'memo' },
@@ -69,4 +81,28 @@ test('맨 위 버튼 대상: 메모가 있고 최종본이 빈 학생만', () =>
     { id: 'd', memo: '메모', final: '', status: 'done' },
   ];
   assert.deepEqual(memoTargets(rows), ['a']);
+});
+
+test('후보 하나를 여러 학생에게: 배정대로 글을 모으고, 후보를 지우면 번호를 당긴다', () => {
+  const cands = ['후보 A.', '후보 B.', '  ', '후보 D.'];
+  const assign = new Map([['s1', 0], ['s2', 1], ['s3', 0], ['s4', 2], ['s5', 9]]);
+  assert.deepEqual(assignedDrafts(cands, assign), { s1: '후보 A.', s2: '후보 B.', s3: '후보 A.' });
+  assert.deepEqual(assignedDrafts(cands, { s1: 3 }), { s1: '후보 D.' });
+  const next = removeCandidate(new Map([['s1', 0], ['s2', 1], ['s3', 3]]), 1);
+  assert.deepEqual([...next], [['s1', 0], ['s3', 2]]);
+  // 붙이기 계획과 이어짐: 배정된 학생만, 완료는 건너뜀
+  const rows = [{ id: 's1', final: '', status: 'memo' }, { id: 's2', final: '', status: 'done' }, { id: 's3', final: '', status: 'empty' }];
+  const p = planPaste(rows, assignedDrafts(cands, assign));
+  assert.deepEqual(p.patches.map((x) => x.id), ['s1', 's3']);
+  assert.equal(p.summary.done, 1);
+});
+
+test('성취기준 나누기: 줄마다 하나, 한 줄에 여러 개면 코드 앞에서 나눔, 중복 제거', async () => {
+  const { parseStandards, standardsText } = await import('../js/core/grid.js');
+  const list = parseStandards('[10통과01-01] 우주의 기원을 설명한다.\n[10통과01-02] 원소의 생성을 설명한다. [10통과01-03] 별을 이해한다.\n\n[10통과01-01] 우주의 기원을 설명한다.\n자유롭게 쓴 줄');
+  assert.deepEqual(list.map((x) => x.code), ['10통과01-01', '10통과01-02', '10통과01-03', '']);
+  assert.equal(list[0].text, '우주의 기원을 설명한다.');
+  assert.equal(list[3].line, '자유롭게 쓴 줄');
+  assert.equal(standardsText(new Set([list[0].line, list[2].line])), '[10통과01-01] 우주의 기원을 설명한다.\n[10통과01-03] 별을 이해한다.');
+  assert.deepEqual(parseStandards(''), []);
 });

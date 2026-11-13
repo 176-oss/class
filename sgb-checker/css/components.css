@@ -96,3 +96,24 @@ dialog::backdrop { background: var(--color-overlay); }
 @media (prefers-reduced-motion: no-preference) { .btn, .tab { transition: background var(--dur-fast); } }
 @media (max-width: 480px) { main { padding: var(--sp-4) var(--sp-3) var(--sp-10); } .card { padding: var(--sp-4); } }
 .actions { margin-top: var(--sp-4); justify-content: flex-end; }
+
+/* 파일 끌어다 놓기 */
+.dropzone.is-drop { outline: 2px dashed var(--color-primary); outline-offset: 4px; background: var(--color-accent-soft, var(--color-surface-sunken)); }
+
+/* 결과: 작성 도우미처럼 표 + 오른쪽 상세 패널 */
+.results-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-4); align-items: start; }
+@media (min-width: 1100px) {
+  .results-layout.has-panel { grid-template-columns: minmax(0, 1fr) minmax(420px, 520px); }
+  .results-layout .panel { position: sticky; top: var(--sp-4); max-height: calc(100vh - var(--appbar-h, 56px) - var(--sp-6)); overflow-y: auto; }
+}
+.panel { background: var(--color-surface); border: var(--bw) solid var(--color-border); border-radius: var(--r-lg); padding: var(--sp-4); }
+.panel .grid2 { grid-template-columns: minmax(0, 1fr); }
+.results-table { table-layout: fixed; min-width: 760px; }
+.results-table td, .results-table th { vertical-align: top; }
+.cell-text { white-space: pre-wrap; overflow-wrap: anywhere; word-break: keep-all; line-height: 1.6; }
+.cell-issues { margin: var(--sp-1) 0 0; padding-left: var(--sp-4); font-size: var(--fs-sm); }
+.has-panel .cell-issues { display: none; }
+.results-table tr.is-selected > * { background: var(--color-accent-soft, var(--color-surface-sunken)); }
+.chips { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+.chip { min-height: var(--touch-min); padding: 0 var(--sp-3); border: var(--bw) solid var(--color-border-strong); border-radius: var(--r-full); background: var(--color-surface); color: var(--color-text); font: inherit; cursor: pointer; }
+.chip[aria-pressed="true"] { background: var(--color-primary); border-color: var(--color-primary); color: var(--color-on-primary); }

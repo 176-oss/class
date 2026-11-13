@@ -24,7 +24,7 @@ export const AREA_LABELS = {
 };
 
 export const AREAS_BY_KIND = {
-  homeroom: ['autonomy', 'career', 'behavior', 'club'],
+  homeroom: ['autonomy', 'career', 'behavior'], // 동아리는 동아리 반(club)에서 쓴다
   subject: ['subject'],
   club: ['club'],
 };

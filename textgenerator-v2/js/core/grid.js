@@ -136,6 +136,78 @@ export function planPaste(rows, drafts, { mode = 'skip', separator = ' ' } = {})
   return out;
 }
 
+/**
+ * 후보 하나를 여러 학생에게: candidates 는 글 배열, assign 은 Map 또는 객체 (기록 id -> 후보 번호).
+ * 반환: { [기록 id]: 글 } — 글이 비었거나 없는 후보 번호는 뺀다.
+ */
+export function assignedDrafts(candidates, assign) {
+  const out = {};
+  const entries = assign instanceof Map ? [...assign.entries()] : Object.entries(assign || {});
+  for (const [id, i] of entries) {
+    const t = String(candidates[Number(i)] ?? '').trim();
+    if (t) out[id] = t;
+  }
+  return out;
+}
+
+export const CAND_EXTRA = 5;
+export const CAND_MAX = 40;
+/** 후보 목표 개수: 고른 학생 수 + 5 (학생마다 다른 후보를 붙이고도 5개가 남도록). 최대 40개 */
+export function candidateTarget(selectedCount) {
+  return Math.min(CAND_MAX, Math.max(0, Number(selectedCount) || 0) + CAND_EXTRA);
+}
+
+/**
+ * 아직 배정이 없는 학생에게 후보를 차례로 하나씩 배정한다 (안 쓴 후보 번호부터, 후보가 모자라면 처음부터 돌려 씀).
+ * ids: 학생 기록 id (표 순서), assign: Map. 새 Map 을 돌려준다.
+ */
+export function autoAssign(ids, assign, candCount) {
+  const next = new Map(assign);
+  if (!candCount) return next;
+  const used = new Set(next.values());
+  const free = [];
+  for (let i = 0; i < candCount; i += 1) if (!used.has(i)) free.push(i);
+  let k = 0;
+  for (const id of ids) {
+    if (next.has(id)) continue;
+    next.set(id, free.length ? free.shift() : k % candCount);
+    k += 1;
+  }
+  return next;
+}
+
+/** 후보를 지우면 그 후보에 배정된 학생은 풀고, 뒤 후보 번호는 하나씩 당긴다. 새 Map 을 돌려준다 */
+export function removeCandidate(assign, index) {
+  const next = new Map();
+  for (const [id, i] of assign) {
+    if (i === index) continue;
+    next.set(id, i > index ? i - 1 : i);
+  }
+  return next;
+}
+
+/**
+ * 반에 올려 둔 성취기준 글을 항목으로: 줄마다 하나, 한 줄에 '[코드] 내용'이 여러 개면 코드 앞에서 나눈다.
+ * 반환: [{ code, text, line }] — line 은 줄 전체 (체크 상태를 이 글자로 기억한다). 같은 줄은 한 번만.
+ */
+export function parseStandards(text) {
+  const out = [];
+  const seen = new Set();
+  for (const raw of String(text ?? '').split(/\r\n|\r|\n/)) {
+    for (const part of raw.trim().split(/\s+(?=\[[^\]]{2,24}\]\s*\S)/)) {
+      const line = part.trim();
+      if (!line || seen.has(line)) continue;
+      seen.add(line);
+      const m = line.match(/^\[([^\]]+)\]\s*(.*)$/);
+      out.push({ code: m ? m[1] : '', text: m ? m[2] : line, line });
+    }
+  }
+  return out;
+}
+
+/** 체크한 항목들의 글 (AI에 보낼 성취기준) */
+export const standardsText = (lines) => [...lines].map((l) => String(l).trim()).filter(Boolean).join('\n');
+
 /** 메모가 있고 최종본이 비어 있는 (완료 아님) 기록 id — 맨 위 [메모로 초안 만들기] 대상 */
 export function memoTargets(rows) {
   const filled = (v) => typeof v === 'string' && v.trim() !== '';

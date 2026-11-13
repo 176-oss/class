@@ -189,8 +189,12 @@ test('excelRows: 머리글, 반 이름 합침, 학번 순', () => {
   const records = [rec('30501', 'club', { final: '가나', status: 'done' })];
   const rows = excelRows({ classes, students, records, area: 'club' });
   assert.deepEqual(rows[0], ['학번', '이름', '반', '과목', '최종본', '바이트', '상태']);
-  assert.deepEqual(rows[1], ['30501', '김가온', '3-5 담임, 로봇반', '', '가나', 6, '완료']);
-  assert.deepEqual(rows[2], ['30502', '이도윤', '3-5 담임', '', '', 0, '미작성']);
+  // 동아리 영역은 동아리 반 학생만 나온다 (담임 반은 동아리를 쓰지 않음)
+  assert.deepEqual(rows[1], ['30501', '김가온', '로봇반', '', '가나', 6, '완료']);
+  assert.equal(rows.length, 2);
+  const auto = excelRows({ classes, students, records, area: 'autonomy' });
+  assert.deepEqual(auto[1], ['30501', '김가온', '3-5 담임', '', '', 0, '미작성']);
+  assert.deepEqual(auto[2], ['30502', '이도윤', '3-5 담임', '', '', 0, '미작성']);
   const sub = excelRows({ classes, students, records: [{ ...newRecord('30501', 'subject', '통합과학'), final: 'A' }], area: 'subject' });
   assert.deepEqual(sub[1], ['30501', '김가온', '과학', '통합과학', 'A', 1, '미작성']);
 });
