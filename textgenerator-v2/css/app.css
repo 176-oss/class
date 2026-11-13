@@ -154,15 +154,14 @@ body { margin: 0; }
 
 /* 동기화 */
 .appbar-sync { order: 2; display: flex; align-items: center; gap: var(--sp-2); flex: none; margin-left: auto; }
-.sync-status { font-size: var(--fs-sm); color: var(--color-on-primary); white-space: nowrap; }
+.sync-status { font-size: var(--fs-sm); color: var(--color-text-muted); white-space: nowrap; }
 .sync-status-text.is-warn {
   display: inline-flex; align-items: center; min-height: var(--touch-min);
   padding: 0 var(--sp-2); border-radius: var(--r-sm);
   background: var(--color-warn-bg); color: var(--color-warn-text); font-weight: var(--fw-semibold);
 }
 a.sync-status-text { text-decoration: underline; }
-.appbar .sync-save { min-height: var(--touch-min); min-width: var(--touch-min); background: var(--color-surface); color: var(--color-primary); border-color: var(--color-surface); }
-.appbar .sync-save:hover:not(:disabled) { background: var(--color-accent-soft); }
+.appbar .sync-save { min-height: var(--touch-min); min-width: var(--touch-min); }
 .drive-backup-list { list-style: none; margin: 0; padding: 0; gap: var(--sp-2); }
 @media (max-width: 640px) {
   .appbar-sync { order: 0; }
@@ -223,10 +222,10 @@ a.sync-status-text { text-decoration: underline; }
 .switch { display: flex; gap: var(--sp-1); font-size: var(--fs-sm); flex: none; }
 .switch a, .switch span {
   display: inline-flex; align-items: center; min-height: var(--touch-min); padding: 0 var(--sp-3);
-  border-radius: var(--r-md); text-decoration: none; color: var(--color-on-primary);
+  border-radius: var(--r-md); text-decoration: none; color: var(--color-text-muted);
 }
-.switch a:hover { background: rgba(255, 255, 255, 0.14); }
-.switch [aria-current] { background: var(--color-primary-hover); font-weight: var(--fw-semibold); }
+.switch a:hover { background: var(--color-surface-sunken); color: var(--color-text); }
+.switch [aria-current] { background: var(--color-surface-sunken); color: var(--color-text); }
 
 .grid-std { align-items: flex-start; gap: var(--sp-2); }
 .grid-std span { overflow-wrap: anywhere; line-height: 1.5; }

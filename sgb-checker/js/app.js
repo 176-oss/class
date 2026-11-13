@@ -50,7 +50,7 @@ function startView() {
   const subjectInput = h('input', { type: 'text', id: 'pick-subject', maxlength: 40, value: pasteMeta?.subject || '', placeholder: '세특일 때 과목 이름 (예: 공통국어1)' });
   const paste = h('textarea', { id: 'paste', 'aria-describedby': 'paste-help', value: pasteText, oninput: (e) => { pasteText = e.target.value; } });
   const file = h('input', { type: 'file', id: 'file', accept: '.xlsx,.xls,.csv', onchange: (e) => onFile(e.target.files?.[0], e.target) });
-  const fileField = h('div', { class: 'field' }, h('label', { for: 'file' }, '엑셀 올리기 (.xlsx, .xls, .csv, 5MB까지) - 파일을 이 칸에 끌어다 놓아도 됩니다'), file);
+  const fileField = h('div', { class: 'field' }, h('label', { for: 'file' }, '엑셀 올리기 (끌어다 놓기 가능, 5MB까지)'), file);
   enableDrop(fileField, (f) => onFile(f, null), { accept: ['.xlsx', '.xls', '.csv'], onReject: () => { S.notice = { kind: 'error', text: '엑셀(.xlsx, .xls) 또는 CSV 파일을 놓아 주세요.' }; render(); } });
 
   return h('div', null,
@@ -79,7 +79,7 @@ function startView() {
       pending ? pendingView() : null,
       h('div', { class: 'field' }, h('label', { for: 'paste' }, '또는 붙여넣기'),
         h('span', { id: 'paste-help', class: 'muted' }, '학생 한 명의 글을 붙여넣거나, 엑셀에서 머리글(학번, 이름, 내용)까지 표째로 복사해 붙여넣으세요.'), paste),
-      h('div', null, h('button', { type: 'button', class: 'btn btn-primary', onclick: onPaste }, '붙여넣은 글 점검하기'))),
+      h('div', null, h('button', { type: 'button', class: 'btn btn-primary', onclick: onPaste }, '점검하기'))),
   );
 }
 
@@ -196,7 +196,7 @@ function resultsView() {
 
   const table = h('div', { class: 'table-wrap' }, h('table', { class: 'results-table' },
     h('caption', { class: 'sr-only' }, '학생별 점검 결과 (명렬순)'),
-    h('colgroup', null, ...(S.panel ? ['64px', '84px', 'auto', '76px', '64px'] : ['64px', '84px', 'auto', '84px', '64px', '22%', '72px']).map((w) => h('col', { style: { width: w } }))),
+    h('colgroup', null, ...(S.panel ? ['64px', '76px', 'auto', '64px', '68px'] : ['64px', '76px', 'auto', '80px', '64px', '200px', '68px']).map((w) => h('col', { style: { width: w } }))),
     h('thead', null, h('tr', null, (S.panel ? ['학번', '이름', '글', '상태', ''] : ['학번', '이름', '글', '바이트', '상태', '지적', '']).map((t) => h('th', { scope: 'col' }, t)))),
     h('tbody', null, rows.length ? rows.map(({ it, idx }) => {
       const st = statusOf(it);
@@ -222,7 +222,7 @@ function resultsView() {
   return h('div', null,
     h('div', { class: 'row' }, h('h2', '결과'),
       h('button', { type: 'button', class: 'btn btn-primary', onclick: downloadReport }, '보고서 내려받기'),
-      h('button', { type: 'button', class: 'btn', onclick: sendToWriter, disabled: !changed, title: changed ? '' : '점검기에서 고친 글이 있어야 보낼 수 있습니다' }, `고친 글을 작성 도우미로 보내기${changed ? ` (${changed}명)` : ''}`)),
+      h('button', { type: 'button', class: 'btn', onclick: sendToWriter, disabled: !changed, title: changed ? '' : '점검기에서 고친 글이 있어야 보낼 수 있습니다' }, `작성 도우미로 보내기${changed ? ` (${changed}명)` : ''}`)),
     notice(),
     h('section', { class: 'card', 'aria-labelledby': 'sum' },
       h('h3', { id: 'sum' }, `반 전체 요약 (${S.items.length}명)`),

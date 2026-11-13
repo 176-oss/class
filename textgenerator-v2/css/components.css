@@ -64,7 +64,7 @@ a:hover { color: var(--color-primary-hover); }
   width: calc(20 * var(--u)); height: calc(20 * var(--u));
   flex: none; display: inline-block; vertical-align: middle;
   stroke: currentColor; fill: none;
-  stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round;
+  stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round;
 }
 .icon-sm { width: calc(16 * var(--u)); height: calc(16 * var(--u)); }
 
@@ -74,13 +74,12 @@ a:hover { color: var(--color-primary-hover); }
   min-height: var(--appbar-h);
   display: flex; align-items: center; gap: var(--sp-4);
   padding: 0 var(--sp-4);
-  background: var(--color-primary);
-  color: var(--color-on-primary);
+  background: var(--color-surface);
+  color: var(--color-text);
+  border-bottom: var(--bw) solid var(--color-border);
 }
 .appbar-title { font-size: var(--fs-lg); font-weight: var(--fw-semibold); white-space: nowrap; margin: 0; }
-.appbar :focus-visible { outline-color: var(--color-focus-on-dark); }
-.appbar .icon-btn { color: var(--color-on-primary); }
-.appbar .icon-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.14); }
+.appbar .icon-btn:hover:not(:disabled) { background: var(--color-surface-sunken); }
 
 /* 화면 탭: 넓은 화면은 한 줄, 좁으면 가로 스크롤 */
 .navtabs {
@@ -99,16 +98,15 @@ a:hover { color: var(--color-primary-hover); }
   min-height: var(--touch-min);
   padding: 0 var(--sp-3);
   border-bottom: 3px solid transparent;
-  color: var(--color-on-primary-muted);
+  color: var(--color-text-muted);
   font-weight: var(--fw-medium);
   white-space: nowrap; text-decoration: none;
   transition: background-color var(--dur-fast), border-color var(--dur-fast);
 }
-.navtab:hover { color: var(--color-on-primary); background: rgba(255, 255, 255, 0.10); }
+.navtab:hover { color: var(--color-text); background: var(--color-surface-sunken); }
 .navtab[aria-current="page"] {
-  color: var(--color-on-primary);
-  font-weight: var(--fw-semibold);
-  border-bottom-color: var(--color-on-primary);
+  color: var(--color-text);
+  border-bottom-color: var(--color-primary);
 }
 .navtab:focus-visible { outline-offset: calc(-1 * var(--focus-ring)); }
 @media (max-width: 640px) {
@@ -205,7 +203,7 @@ input[type="checkbox"], input[type="radio"] {
   display: inline-flex; align-items: center; gap: var(--sp-2);
   min-height: var(--touch-min);
   padding: 0 var(--sp-4);
-  border: var(--bw) solid var(--color-border-strong); border-radius: var(--r-full);
+  border: var(--bw) solid var(--color-border-strong); border-radius: var(--r-md);
   background: var(--color-surface); color: var(--color-text);
   font-size: var(--fs-sm); font-weight: var(--fw-medium);
   white-space: nowrap;
@@ -250,7 +248,7 @@ input[type="checkbox"], input[type="radio"] {
 }
 .seg-item:hover:not(:disabled):not([aria-checked="true"]) { background: var(--color-surface); color: var(--color-text); }
 .seg-item[aria-checked="true"] {
-  background: var(--color-primary); color: var(--color-on-primary);
+  background: var(--color-surface); color: var(--color-primary);
   border-color: var(--color-primary);
   font-weight: var(--fw-semibold);
   box-shadow: var(--shadow-1);
@@ -373,7 +371,7 @@ input[type="checkbox"], input[type="radio"] {
   display: inline-flex; align-items: center; gap: var(--sp-1);
   min-height: calc(24 * var(--u));
   padding: 0 var(--sp-2);
-  border: var(--bw) solid var(--color-border-strong); border-radius: var(--r-full);
+  border: var(--bw) solid var(--color-border-strong); border-radius: var(--r-sm);
   background: var(--color-surface); color: var(--color-text-muted);
   font-size: var(--fs-xs); font-weight: var(--fw-semibold); line-height: 1.2;
   white-space: nowrap; vertical-align: middle;

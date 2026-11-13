@@ -224,7 +224,7 @@ function renderTable() {
   rows = buildRows();
   const classes = classesForArea();
   if (!classes.length) { clear(els.tableHost, emptyState('users', '이 영역을 쓰는 반이 없습니다.')); return; }
-  if (!rows.length) { clear(els.tableHost, emptyState('users', G.onlySelected ? '체크한 학생이 없습니다. "체크한 학생만 보기"를 끄고 학생을 체크하세요.' : G.hidden.size ? '위에서 반을 체크하면 그 반의 명단이 나옵니다.' : '표시할 학생이 없습니다.', h('a', { class: 'btn btn-primary', href: '#roster' }, '명단으로 가기'))); return; }
+  if (!rows.length) { clear(els.tableHost, emptyState('users', G.onlySelected ? '체크한 학생이 없습니다. "체크한 학생만"를 끄고 학생을 체크하세요.' : G.hidden.size ? '위에서 반을 체크하면 그 반의 명단이 나옵니다.' : '표시할 학생이 없습니다.', h('a', { class: 'btn btn-primary', href: '#roster' }, '명단으로 가기'))); return; }
   const selAll = h('input', {
     type: 'checkbox', id: 'grid-select-all', 'aria-label': '보이는 학생 모두 고르기',
     onchange: (e) => { for (const r of rows) { if (e.target.checked) G.selected.add(r.rec.id); else G.selected.delete(r.rec.id); } syncChecks(); onSelection(); },
@@ -242,7 +242,7 @@ function renderTable() {
       });
       body.push(h('tr', { class: 'grid-group' },
         h('td', { class: 'col-check' }, h('label', { class: 'check-hit' }, gbox)),
-        h('th', { colspan: G.panel ? '6' : '10', scope: 'colgroup' }, `${row.cls.name} (${KIND_LABELS[row.cls.kind]}${row.cls.subject ? ` · ${row.cls.subject}` : ''}) · ${mine.length}명`)));
+        h('th', { colspan: G.panel ? '6' : (G.area === 'subject' ? '10' : '9'), /* 체크 칸 뺀 열 수, 세특은 성취기준 열 하나 더 */ scope: 'colgroup' }, `${row.cls.name} (${KIND_LABELS[row.cls.kind]}${row.cls.subject ? ` · ${row.cls.subject}` : ''}) · ${mine.length}명`)));
     }
     body.push(rowEl(row));
   }
@@ -251,11 +251,11 @@ function renderTable() {
   const subj = G.area === 'subject' && !G.panel;
   const table = h('table', { class: 'table grid-table' },
     h('caption', { class: 'sr-only' }, `${AREA_LABELS[G.area]} 작성 표 (명렬순)`),
-    h('colgroup', {}, ...(G.panel ? ['44px', noW, '84px', '14%', 'auto', '72px', '96px'] : ['44px', noW, '84px', '17%', 'auto', '72px', '84px', '19%', ...(subj ? ['96px'] : []), '56px', '72px']).map((w) => h('col', { style: { width: w } }))),
+    h('colgroup', {}, ...(G.panel ? ['44px', noW, '76px', '14%', 'auto', '64px', '96px'] : ['44px', noW, '76px', '16%', 'auto', '64px', '72px', '152px', ...(subj ? ['96px'] : []), '52px', '68px']).map((w) => h('col', { style: { width: w } }))),
     h('thead', {}, h('tr', {},
       h('th', { scope: 'col', class: 'col-check' }, h('label', { class: 'check-hit' }, selAll)),
       h('th', { scope: 'col', class: 'num' }, wide ? '반 번호' : '번호'), h('th', { scope: 'col' }, '이름'),
-      h('th', { scope: 'col' }, '메모'), h('th', { scope: 'col' }, '최종본 (칸에서 바로 쓰기)'),
+      h('th', { scope: 'col' }, '메모'), h('th', { scope: 'col' }, '최종본'),
       h('th', { scope: 'col', class: 'num' }, '바이트'), G.panel ? null : h('th', { scope: 'col' }, '상태'),
       h('th', { scope: 'col' }, '점검'), subj ? h('th', { scope: 'col' }, '성취기준') : null, G.panel ? null : h('th', { scope: 'col' }, '완료'), G.panel ? null : h('th', { scope: 'col' }, ''))),
     h('tbody', {}, body));
@@ -408,7 +408,7 @@ function renderBar() {
       h('button', {
         type: 'button', class: 'btn btn-primary', disabled: !!G.job || noKey() || !memoCount,
         'aria-describedby': 'grid-memo-hint', onclick: runMemoBatch,
-      }, icon('spark'), '메모로 초안 한번에 만들기'),
+      }, icon('spark'), '메모로 초안 만들기'),
       h('span', { class: 'small muted', id: 'grid-memo-hint' },
         noKey() ? '설정에서 API 키를 넣으면 쓸 수 있습니다.'
           : memoCount ? `${n ? '고른 학생 중 ' : ''}메모가 있고 최종본이 빈 ${memoCount}명의 초안을 최종본 칸에 만듭니다.`
@@ -829,7 +829,7 @@ function renderAll() {
     for (const id of [...G.selected]) { /* 숨긴 반의 선택은 그대로 둔다 */ void id; }
     renderTable(); renderBoard(); renderBar(); if (G.panel) renderPanel();
   }));
-  const onlyChip = chip('체크한 학생만 보기', G.onlySelected, (on) => { G.onlySelected = on; renderTable(); renderBar(); if (G.panel) renderPanel(); });
+  const onlyChip = chip('체크한 학생만', G.onlySelected, (on) => { G.onlySelected = on; renderTable(); renderBar(); if (G.panel) renderPanel(); });
   clear(root,
     h('div', { class: 'view-head row-between' }, h('h1', { class: 'view-title', tabindex: '-1' }, '작성'), els.save),
     noKey() ? alertBox('info', h('p', {}, 'AI 초안을 만들려면 설정에서 Gemini API 키를 넣어 주세요. 표에서 직접 쓰기와 점검은 키 없이도 됩니다. ', h('a', { href: '#settings' }, '설정으로 가기'))) : null,
