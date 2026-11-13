@@ -230,3 +230,9 @@ a.sync-status-text { text-decoration: underline; }
 
 .grid-std { align-items: flex-start; gap: var(--sp-2); }
 .grid-std span { overflow-wrap: anywhere; line-height: 1.5; }
+
+/* 칩 판: 반 전체를 번호·이름 칩 격자로 */
+.grid-board { padding: var(--sp-3) var(--sp-4); }
+.board-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(6.5rem, 1fr)); gap: var(--sp-2); }
+.board-chip { justify-content: flex-start; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.board-chip.is-written { text-decoration: underline; text-underline-offset: 3px; }

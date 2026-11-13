@@ -4,7 +4,7 @@
 import { h, clear, icon, debounce } from '../dom.js';
 import { toast, announce, chip, seg, badge, alertBox, emptyState, field, progressBar, openTool, openDialog } from '../ui.js';
 import * as store from '../store.js';
-import { AREA_LABELS, STATUS_LABELS, LENGTH_LABELS, TRAITS_BY_AREA, KIND_LABELS, newCandidate, deriveStatus } from '../core/model.js';
+import { AREA_LABELS, STATUS_LABELS, LENGTH_LABELS, TRAITS_BY_AREA, KIND_LABELS, newCandidate, deriveStatus, recordKey } from '../core/model.js';
 import { byteLength, byteLevel } from '../core/bytes.js';
 import { generateDrafts, AiError } from '../core/gemini.js';
 import { pickExamples } from '../core/style.js';
@@ -267,6 +267,7 @@ function renderTable() {
 }
 
 function syncChecks() {
+  syncBoard();
   if (!els.tableHost) return;
   const ids = rows.map((r) => r.rec.id);
   const n = ids.filter((id) => G.selected.has(id)).length;
@@ -279,6 +280,49 @@ function syncChecks() {
     const mine = rows.filter((r) => r.cls.id === gb.dataset.group);
     const c = mine.filter((r) => G.selected.has(r.rec.id)).length;
     gb.checked = mine.length > 0 && c === mine.length; gb.indeterminate = c > 0 && c < mine.length;
+  });
+}
+
+// ---------- 칩 판: 반마다 번호·이름 칩을 한눈에 보고 눌러서 고른다 (교과·동아리 반) ----------
+const boardIds = (cls) => store.studentsOf(cls).map((st) => ({ st, id: recordKey(st.studentId, G.area, G.area === 'subject' ? cls.subject : null) }));
+
+function renderBoard() {
+  if (!els.board) return;
+  const kinds = G.area === 'subject' || G.area === 'club';
+  const list = kinds ? classesForArea().filter((c) => !G.hidden.has(c.id)) : [];
+  if (!list.length) { clear(els.board); els.board.hidden = true; return; }
+  els.board.hidden = false;
+  clear(els.board,
+    h('h2', { class: 'section-title' }, '학생 고르기'),
+    h('p', { class: 'small muted' }, '이름을 눌러 고르고 다시 누르면 풉니다. 밑줄이 있는 학생은 최종본이 이미 있습니다.'),
+    list.map((cls) => {
+      const members = boardIds(cls);
+      return h('section', { class: 'stack gap-1 board-class', 'aria-label': `${cls.name} 학생 고르기` },
+        h('div', { class: 'row' },
+          h('strong', {}, `${cls.name}${cls.subject ? ` (${cls.subject})` : ''}`),
+          h('span', { class: 'small muted num', 'data-board-count': cls.id }),
+          h('button', { type: 'button', class: 'btn btn-ghost btn-sm', onclick: () => { members.forEach((m) => G.selected.add(m.id)); onSelection(); } }, '반 전체'),
+          h('button', { type: 'button', class: 'btn btn-ghost btn-sm', onclick: () => { members.forEach((m) => G.selected.delete(m.id)); onSelection(); } }, '반 해제')),
+        h('div', { class: 'board-grid', role: 'group', 'aria-label': `${cls.name} 학생` }, members.map(({ st, id }) => h('button', {
+          type: 'button', class: 'chip board-chip', 'data-board-id': id, 'data-cls': cls.id, 'aria-pressed': String(G.selected.has(id)),
+          title: `${st.studentId} ${st.name}`,
+          onclick: () => { if (G.selected.has(id)) G.selected.delete(id); else G.selected.add(id); onSelection(); },
+        }, `${Number(String(st.studentId).slice(3)) || st.studentId} ${st.name}`))));
+    }));
+  syncBoard();
+}
+
+function syncBoard() {
+  if (!els.board || els.board.hidden) return;
+  els.board.querySelectorAll('[data-board-id]').forEach((b) => {
+    const id = b.dataset.boardId;
+    b.setAttribute('aria-pressed', String(G.selected.has(id)));
+    const fin = (store.state.records.get(id)?.final || '').trim();
+    b.classList.toggle('is-written', !!fin);
+  });
+  els.board.querySelectorAll('[data-board-count]').forEach((el) => {
+    const chips = [...els.board.querySelectorAll(`[data-cls="${el.dataset.boardCount}"]`)];
+    el.textContent = `${chips.filter((b) => G.selected.has(b.dataset.boardId)).length}/${chips.length}명 선택`;
   });
 }
 
@@ -753,7 +797,7 @@ function pickDefaults(params) {
   const pa = params?.get('area');
   if (pa && areas.includes(pa)) G.area = pa;
   if (!areas.includes(G.area)) G.area = areas[0] || null;
-  if (!G.inited) { G.inited = true; G.hidden = defaultHidden(); G.method = G.area === 'subject' ? 'shared' : 'each'; }
+  if (!G.inited) { G.inited = true; G.hidden = defaultHidden(); G.method = G.area === 'subject' ? 'shared' : 'each'; G.onlySelected = G.area === 'subject'; }
   const pc = params?.get('class');
   if (pc && store.getClass(pc)) {
     // 주소로 반을 지정하면 그 반만 보이게 한다 (같은 영역의 다른 반은 켜서 볼 수 있음)
@@ -776,13 +820,14 @@ function renderAll() {
   els.save = h('span', { class: 'small muted save-state' });
   els.bar = h('div', { class: 'stack gap-1' });
   els.job = h('div', { class: 'stack gap-1 grid-jobbox', hidden: true });
+  els.board = h('section', { class: 'card stack grid-board', hidden: true });
   els.tableHost = h('div', { class: 'write-table-host' });
   els.panel = h('aside', { class: 'panel write-panel', 'aria-label': '일괄 작성 패널', hidden: !G.panel });
   els.layout = h('div', { class: ['write-layout', G.panel && 'has-panel'] }, els.tableHost, els.panel);
   const classChips = classesForArea().map((c) => chip(`${c.name}${c.subject ? ` (${c.subject})` : ''}`, !G.hidden.has(c.id), (on) => {
     if (on) G.hidden.delete(c.id); else G.hidden.add(c.id);
     for (const id of [...G.selected]) { /* 숨긴 반의 선택은 그대로 둔다 */ void id; }
-    renderTable(); renderBar(); if (G.panel) renderPanel();
+    renderTable(); renderBoard(); renderBar(); if (G.panel) renderPanel();
   }));
   const onlyChip = chip('체크한 학생만 보기', G.onlySelected, (on) => { G.onlySelected = on; renderTable(); renderBar(); if (G.panel) renderPanel(); });
   clear(root,
@@ -791,13 +836,13 @@ function renderAll() {
     h('div', { class: 'write-toolbar' },
       h('div', { class: 'tabs', role: 'tablist', 'aria-label': '영역' }, areas.map((a) => h('button', {
         type: 'button', class: 'tab', role: 'tab', 'aria-selected': a === G.area, tabindex: a === G.area ? '0' : '-1',
-        onclick: () => { flushEdits(); G.area = a; G.selected.clear(); G.generated.clear(); G.cands = []; G.assign = new Map(); G.hidden = defaultHidden(); G.method = a === 'subject' ? 'shared' : 'each'; G.stds.clear(); G.onlySelected = false; ctx.setParams('write', { area: a }); renderAll(); },
+        onclick: () => { flushEdits(); G.area = a; G.selected.clear(); G.generated.clear(); G.cands = []; G.assign = new Map(); G.hidden = defaultHidden(); G.method = a === 'subject' ? 'shared' : 'each'; G.stds.clear(); G.onlySelected = a === 'subject'; ctx.setParams('write', { area: a }); renderAll(); },
       }, AREA_LABELS[a]))),
       h('button', { type: 'button', class: 'btn btn-secondary', onclick: sendToChecker }, icon('send'), '점검기로 보내기'),
       h('div', { class: 'field' }, h('span', { class: 'label', id: 'grid-class-label' }, G.area === 'subject' ? '명단을 불러올 반 (체크)' : '보이는 반'),
         h('div', { class: 'row chips', role: 'group', 'aria-labelledby': 'grid-class-label' }, classChips, onlyChip))),
-    els.bar, els.job, els.layout);
-  renderTable(); renderBar(); renderJob(); renderPanel(); setSave();
+    els.bar, els.job, els.board, els.layout);
+  renderTable(); renderBoard(); renderBar(); renderJob(); renderPanel(); setSave();
 }
 
 const typing = () => !!root && root.contains(document.activeElement) && document.activeElement.matches('textarea,input:not([type="checkbox"])');
