@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { fakeStorage } from './helpers.mjs';
-import { writeBatch, takeBatch, groupsForWriter, validBatch, BATCH_KEY } from '../shared/handoff-batch.js';
+import { writeBatch, takeBatch, validBatch, BATCH_KEY } from '../shared/handoff-batch.js';
 
 const NOW = 1_800_000_000_000;
 const groups = [{ area: 'club', subject: '', items: [{ studentId: '10101', name: '가', text: '글함.' }] }];
@@ -21,11 +21,9 @@ test('점검기 -> 작성기: 고친 글 묶음을 쓰고, 작성기가 읽으�
   assert.equal(t.getItem(BATCH_KEY), null);
 });
 
-test('이상한 묶음은 버림, 행 묶기는 영역·과목별', () => {
+test('이상한 묶음은 버림', () => {
   assert.equal(validBatch({ v: 1, source: 'x', groups, at: NOW }, NOW), null);
   assert.equal(validBatch({ v: 2, source: 'sgb-checker', groups, at: NOW }, NOW), null);
-  const g = groupsForWriter([{ studentId: '1', area: 'subject', subject: '국어', text: 'a' }, { studentId: '2', area: 'subject', subject: '국어', text: '' }, { studentId: '3', area: 'career', text: 'c' }]);
-  assert.deepEqual(g.map((x) => [x.area, x.subject, x.items.length]), [['subject', '국어', 1], ['career', '', 1]]);
 });
 
 test('작성기 쪽 복사본과 규칙 상수가 같다', () => {

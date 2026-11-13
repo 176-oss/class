@@ -116,9 +116,8 @@ function aiSection(save, render) {
   const done = (msg) => { keyFormOpen = false; keyNote = msg; render(); announce(msg); };
   const bad = 'API 키 모양이 아닙니다. 공백 없이 30~100자로 된 키를 붙여넣으세요.';
   return h('section', { class: 'card stack', 'aria-labelledby': 'st-ai' },
-    h('h3', { id: 'st-ai' }, 'AI 점검 (맞춤법, 영역 적합성, 나열식, 수정 문구)'),
-    h('p', { class: 'alert alert-warn' }, '학교 개인정보 지침을 확인한 뒤 켜세요. 학번과 이름은 보내지 않고, 글 안의 명단 이름은 \'학생\'으로 가려서 보냅니다. 꺼져 있어도 규칙 점검은 모두 됩니다.'),
-    h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: settings.aiOn, onchange: (e) => { settings.aiOn = e.target.checked; save(settings.aiOn ? 'AI 점검을 켰습니다.' : 'AI 점검을 껐습니다.'); } }), 'AI 점검 쓰기'),
+    h('h3', { id: 'st-ai' }, 'AI 점검 키와 모델'),
+    h('p', { class: 'muted' }, `AI 점검을 쓸지는 시작 화면에서 고릅니다 (지금 ${settings.aiOn ? '켜짐' : '꺼짐'}). 꺼져 있어도 규칙 점검은 모두 됩니다.`),
     h('div', { class: 'stack', role: 'group', 'aria-labelledby': 'key-h' },
       h('h4', { id: 'key-h' }, 'Gemini API 키 (작성 도우미와 함께 씀)'),
       keyNote ? h('p', { class: 'alert', role: 'status' }, keyNote) : null,

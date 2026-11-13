@@ -66,15 +66,3 @@ export function takeBatch(storage, want, now = Date.now()) {
   drop();
   return v;
 }
-
-/** 점검기 결과를 보낼 묶음으로: items [{ studentId, name, area, subject, text }] -> groups */
-export function groupsForWriter(items) {
-  const map = new Map();
-  for (const r of items) {
-    if (!String(r.text || '').trim()) continue;
-    const key = `${r.area}|${r.subject || ''}`;
-    if (!map.has(key)) map.set(key, { area: r.area, subject: r.area === 'subject' ? r.subject || '' : '', items: [] });
-    map.get(key).items.push({ studentId: r.studentId || '', name: r.name || '', text: r.text });
-  }
-  return [...map.values()];
-}
