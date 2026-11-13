@@ -150,6 +150,32 @@ export function assignedDrafts(candidates, assign) {
   return out;
 }
 
+export const CAND_EXTRA = 5;
+export const CAND_MAX = 40;
+/** 후보 목표 개수: 고른 학생 수 + 5 (학생마다 다른 후보를 붙이고도 5개가 남도록). 최대 40개 */
+export function candidateTarget(selectedCount) {
+  return Math.min(CAND_MAX, Math.max(0, Number(selectedCount) || 0) + CAND_EXTRA);
+}
+
+/**
+ * 아직 배정이 없는 학생에게 후보를 차례로 하나씩 배정한다 (안 쓴 후보 번호부터, 후보가 모자라면 처음부터 돌려 씀).
+ * ids: 학생 기록 id (표 순서), assign: Map. 새 Map 을 돌려준다.
+ */
+export function autoAssign(ids, assign, candCount) {
+  const next = new Map(assign);
+  if (!candCount) return next;
+  const used = new Set(next.values());
+  const free = [];
+  for (let i = 0; i < candCount; i += 1) if (!used.has(i)) free.push(i);
+  let k = 0;
+  for (const id of ids) {
+    if (next.has(id)) continue;
+    next.set(id, free.length ? free.shift() : k % candCount);
+    k += 1;
+  }
+  return next;
+}
+
 /** 후보를 지우면 그 후보에 배정된 학생은 풀고, 뒤 후보 번호는 하나씩 당긴다. 새 Map 을 돌려준다 */
 export function removeCandidate(assign, index) {
   const next = new Map();

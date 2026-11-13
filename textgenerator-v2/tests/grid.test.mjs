@@ -61,6 +61,18 @@ test('표에 순서대로 붙여넣기: 비었으면 넣고, 있으면 모드대
   assert.equal(p.patches.length, 0);
 });
 
+test('후보 개수는 고른 학생 수 + 5, 자동 배정은 안 쓴 후보부터 차례로', async () => {
+  const { candidateTarget, autoAssign } = await import('../js/core/grid.js');
+  assert.equal(candidateTarget(0), 5);
+  assert.equal(candidateTarget(12), 17);
+  assert.equal(candidateTarget(100), 40);
+  const m = autoAssign(['a', 'b', 'c'], new Map([['x', 1]]), 4);
+  assert.deepEqual([...m], [['x', 1], ['a', 0], ['b', 2], ['c', 3]]);
+  const w = autoAssign(['a', 'b', 'c'], new Map(), 2);
+  assert.deepEqual([...w], [['a', 0], ['b', 1], ['c', 0]]);
+  assert.deepEqual([...autoAssign(['a'], new Map([['a', 3]]), 5)], [['a', 3]]);
+});
+
 test('맨 위 버튼 대상: 메모가 있고 최종본이 빈 학생만', () => {
   const rows = [
     { id: 'a', memo: '메모', final: '', status: 'memo' },

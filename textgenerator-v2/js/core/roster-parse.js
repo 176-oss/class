@@ -68,6 +68,8 @@ export function findHeader(rows) {
     });
     const split = cols.grade >= 0 && ((cols.classNo >= 0 && cols.no >= 0) || cols.classNoNo >= 0);
     if (cols.name >= 0 && (cols.id >= 0 || split)) return { row: r, ...cols };
+    // 번호와 이름만 있는 표: 선택한 반의 학년·반을 붙여야 학번이 된다
+    if (cols.name >= 0 && cols.no >= 0 && cols.id < 0 && cols.grade < 0 && cols.classNo < 0) return { row: r, ...cols, noOnly: true };
   }
   return null;
 }
@@ -89,15 +91,18 @@ function cleanName(v) {
  * 2차원 배열(엑셀 시트)에서 명단 읽기.
  * 행 번호는 엑셀 기준(1부터).
  */
-export function parseRosterRows(rows) {
+export function parseRosterRows(rows, context = null) {
   const list = Array.isArray(rows) ? rows : [];
   const header = findHeader(list);
+  if (header && header.noOnly && !validContext(context)) {
+    return { students: [], errors: [{ row: header.row + 1, message: '번호와 이름만 있는 표입니다. 위에서 반을 고르고 학년·반을 확인한 뒤 올려 주세요.' }] };
+  }
   const students = [];
   const errors = [];
   const seen = new Map(); // studentId -> { name, row }
 
   const cols = header || { row: -1, name: 1, id: 0, grade: -1, classNo: -1, no: -1, classNoNo: -1 };
-  const useSplit = header && header.id < 0;
+  const useSplit = header && header.id < 0 && !header.noOnly;
 
   for (let r = cols.row + 1; r < list.length; r += 1) {
     const row = Array.isArray(list[r]) ? list[r] : [];
@@ -106,7 +111,11 @@ export function parseRosterRows(rows) {
 
     const name = cleanName(row[cols.name]);
     let rawId;
-    if (useSplit) {
+    if (header && header.noOnly) {
+      const n = digitsOf(row[cols.no]);
+      if (!n && !name) continue;
+      rawId = n ? idFromContext(context, n) : '';
+    } else if (useSplit) {
       const g = digitsOf(row[cols.grade]);
       let c = digitsOf(row[cols.classNo]);
       let n = digitsOf(row[cols.no]);
@@ -155,15 +164,45 @@ export function parseRosterRows(rows) {
   return { students, errors };
 }
 
-/** 붙여 넣은 글에서 명단 읽기. 줄마다 탭, 쉼표, 공백 순서로 나눔 */
-export function parsePastedRoster(text) {
+const validContext = (c) => !!c && Number(c.grade) >= 1 && Number(c.grade) <= 6 && Number(c.classNo) >= 1 && Number(c.classNo) <= 99;
+function idFromContext(c, no) {
+  return `${Number(c.grade)}${pad2(String(Number(c.classNo)))}${pad2(String(Number(no)))}`;
+}
+
+/**
+ * 선택한 반의 학년·반 알아내기. 반 학생들의 학번 앞 3자리가 모두 같으면 그것, 아니면 반 이름의
+ * '3학년 8반' 또는 끝의 '3-8'. 알 수 없으면 null (화면에서 직접 적게 함)
+ */
+export function classContext(cls, students = []) {
+  const prefixes = new Set(students.map((s) => String(s.studentId).slice(0, 3)).filter((p) => /^\d{3}$/.test(p)));
+  if (prefixes.size === 1) {
+    const p = [...prefixes][0];
+    return { grade: Number(p[0]), classNo: Number(p.slice(1)) };
+  }
+  const name = String(cls?.name ?? '');
+  let m = name.match(/([1-6])\s*학년\s*(\d{1,2})\s*반/);
+  if (m) return { grade: Number(m[1]), classNo: Number(m[2]) };
+  m = name.match(/(?:^|\s)([1-6])-(\d{1,2})$/);
+  if (m) return { grade: Number(m[1]), classNo: Number(m[2]) };
+  return null;
+}
+
+/** '1 김가나', '1번 김가나', '1. 김가나' 처럼 번호가 1~2자리면 선택한 반의 학번으로 바꾼다 */
+function shortLine(cells, context) {
+  if (!validContext(context) || cells.length < 2) return cells;
+  const m = String(cells[0]).replace(/\s+/g, '').match(/^(\d{1,2})(?:번|\.|\))?$/);
+  if (!m || Number(m[1]) < 1) return cells;
+  return [idFromContext(context, m[1]), ...cells.slice(1)];
+}
+
+/** 붙여 넣은 글에서 명단 읽기. 줄마다 탭, 쉼표, 공백 순서로 나눔. context 가 있으면 '번호 이름'만 있는 줄도 읽는다 */
+export function parsePastedRoster(text, context = null) {
   const lines = String(text ?? '').split(/\r\n|\r|\n/);
   const rows = lines.map((line) => {
     const t = line.trim();
     if (!t) return [];
-    if (line.includes('\t')) return line.split('\t').map((s) => s.trim());
-    if (t.includes(',')) return t.split(',').map((s) => s.trim());
-    return t.split(/\s+/);
+    const cells = line.includes('\t') ? line.split('\t').map((x) => x.trim()) : t.includes(',') ? t.split(',').map((x) => x.trim()) : t.split(/\s+/);
+    return shortLine(cells, context);
   });
   return parseRosterRows(rows);
 }

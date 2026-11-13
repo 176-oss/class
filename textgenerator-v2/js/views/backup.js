@@ -1,6 +1,6 @@
 // 백업: 백업 파일 내보내기·가져오기(미리보기, 되돌리기 지점), 드라이브 자동 백업 되돌리기, 영역별 엑셀 내보내기
 import { h, clear, icon } from '../dom.js';
-import { toast, confirmDialog, alertBox, viewHeader, downloadJSON, readFileText, stamp, formatDateTime, field } from '../ui.js';
+import { toast, confirmDialog, alertBox, viewHeader, downloadJSON, readFileText, stamp, formatDateTime, field, enableDrop } from '../ui.js';
 import * as store from '../store.js';
 import { AREAS, AREA_LABELS } from '../core/model.js';
 import { makeBackup, validateBackup, previewImport, mergeBackup, excelRows } from '../core/backup-format.js';
@@ -90,10 +90,14 @@ async function doImport() {
 function importCard() {
   const fileInput = h('input', {
     type: 'file', accept: '.json,application/json', hidden: true,
-    onchange: async () => {
+    onchange: () => {
       const file = fileInput.files?.[0];
       fileInput.value = '';
-      if (!file) return;
+      if (file) loadBackupFile(file);
+    },
+  });
+  async function loadBackupFile(file) {
+    {
       incoming = null;
       try {
         const text = await readFileText(file);
@@ -108,11 +112,11 @@ function importCard() {
       }
       render();
       root?.querySelector('#bk-import-title')?.focus();
-    },
-  });
-  return h('section', { class: 'card stack', 'aria-labelledby': 'bk-import-title' },
+    }
+  }
+  const importSection = h('section', { class: 'card stack', 'aria-labelledby': 'bk-import-title' },
     h('h2', { class: 'card-title', id: 'bk-import-title', tabindex: '-1' }, '백업 파일 가져오기'),
-    h('p', { class: 'small' }, '파일을 고르면 먼저 무엇이 바뀌는지 보여 줍니다. 학생과 반은 합치고, 기록은 파일 것으로 바꾸되 완료 기록은 그대로 둡니다.'),
+    h('p', { class: 'small' }, '파일을 고르거나 이 칸에 끌어다 놓으면 먼저 무엇이 바뀌는지 보여 줍니다. 학생과 반은 합치고, 기록은 파일 것으로 바꾸되 완료 기록은 그대로 둡니다.'),
     h('div', { class: 'row' },
       h('button', { type: 'button', class: 'btn btn-secondary', onclick: () => fileInput.click() }, icon('upload'), '백업 파일 고르기'),
       fileInput),
@@ -123,6 +127,8 @@ function importCard() {
       h('div', { class: 'row' },
         h('button', { type: 'button', class: 'btn btn-primary', onclick: doImport }, '가져오기'),
         h('button', { type: 'button', class: 'btn btn-ghost', onclick: () => { incoming = null; render(); } }, '취소'))) : null);
+  enableDrop(importSection, loadBackupFile, { accept: ['.json'] });
+  return importSection;
 }
 
 function restoreCard() {
@@ -266,10 +272,14 @@ const SUM_LABELS = [['filled', '새로 채움'], ['appended', '이어씀'], ['ov
 function fillCard() {
   const fileInput = h('input', {
     type: 'file', accept: '.xlsx,.xls', hidden: true,
-    onchange: async () => {
+    onchange: () => {
       const file = fileInput.files?.[0];
       fileInput.value = '';
-      if (!file) return;
+      if (file) fillFile(file);
+    },
+  });
+  async function fillFile(file) {
+    {
       const d = store.snapshotData();
       const limits = d.settings?.limits || {};
       try {
@@ -288,8 +298,8 @@ function fillCard() {
       }
       render();
       root?.querySelector('#bk-fill-title')?.focus();
-    },
-  });
+    }
+  }
   const modeSel = h('select', { class: 'select', id: 'bk-fill-mode', value: fillMode, onchange: (e) => { fillMode = e.target.value; } },
     Object.entries(FILL_MODES).map(([k, v]) => h('option', { value: k }, v)));
   const notDone = h('input', { type: 'checkbox', id: 'bk-fill-notdone', checked: fillNotDone, onchange: (e) => { fillNotDone = e.target.checked; } });
@@ -306,7 +316,7 @@ function fillCard() {
         fillResult.issues.slice(0, 10).map((i) => h('li', {}, `${i.sheet} ${i.row}행: ${i.message}`)),
         fillResult.issues.length > 10 ? h('li', {}, `그 밖에 ${fillResult.issues.length - 10}건`) : null) : null);
   }
-  return h('section', { class: 'card stack', 'aria-labelledby': 'bk-fill-title' },
+  const fillSection = h('section', { class: 'card stack', 'aria-labelledby': 'bk-fill-title' },
     h('h2', { class: 'card-title', id: 'bk-fill-title', tabindex: '-1' }, '나이스 엑셀 양식에 채우기'),
     h('p', { class: 'small' }, '나이스에서 내려받은 특기사항 엑셀(자율, 진로, 동아리, 행동특성, 교과세특)을 고르면, 학년·반·번호와 이름이 맞는 학생의 최종본을 본문 칸에 넣어 새 파일로 받습니다. 원본 파일은 바뀌지 않고 다른 칸은 그대로입니다. 글꼴·색 같은 꾸밈은 새 파일에 남지 않을 수 있습니다.'),
     hasXlsx() ? null : alertBox('warn', XLSX_MISSING_TEXT),
@@ -315,8 +325,11 @@ function fillCard() {
       h('label', { class: 'row', for: 'bk-fill-notdone' }, notDone, '완료로 표시하지 않은 글도 넣기')),
     h('div', { class: 'row' },
       h('button', { type: 'button', class: 'btn btn-secondary', onclick: () => fileInput.click() }, icon('upload'), '나이스 엑셀 고르기'),
+      h('span', { class: 'hint' }, '이 칸에 파일을 끌어다 놓아도 됩니다'),
       fileInput),
     result);
+  enableDrop(fillSection, fillFile, { accept: ['.xlsx', '.xls'] });
+  return fillSection;
 }
 
 function render() {

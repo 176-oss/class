@@ -1,9 +1,9 @@
 // 명단: 반 만들기·고치기·지우기, 명단 등록(엑셀 양식, NEIS 출석부, 붙여넣기), 학생 빼기
 import { h, clear, icon, focusEl, uid } from '../dom.js';
-import { toast, confirmDialog, openDialog, seg, badge, alertBox, emptyState, viewHeader, field } from '../ui.js';
+import { toast, confirmDialog, openDialog, seg, badge, alertBox, emptyState, viewHeader, field, enableDrop } from '../ui.js';
 import * as store from '../store.js';
 import { KIND_LABELS, AREAS_BY_KIND, AREA_LABELS } from '../core/model.js';
-import { parseRosterRows, parsePastedRoster, parseClassNumbers, sectionOfName, splitBySection, TEMPLATE_ROWS } from '../core/roster-parse.js';
+import { parseRosterRows, parsePastedRoster, parseClassNumbers, sectionOfName, splitBySection, classContext, TEMPLATE_ROWS } from '../core/roster-parse.js';
 import { hasXlsx, readSheetFile, downloadSheet, XLSX_MISSING_TEXT } from '../xlsx-io.js';
 
 let selectedId = null;
@@ -264,25 +264,32 @@ async function importParsed(cls, result, { split = null } = {}) {
 }
 
 function registerSection(cls) {
+  // 선택한 반의 학년·반을 알면 '번호 이름'만 써도 등록된다. 모르면 직접 적는다
+  const known = classContext(cls, store.studentsOf(cls));
+  const gradeIn = h('input', { type: 'number', class: 'input', id: 'roster-ctx-grade', min: '1', max: '6', value: known ? String(known.grade) : '', 'aria-label': '학년', style: { width: '5rem' } });
+  const classIn = h('input', { type: 'number', class: 'input', id: 'roster-ctx-class', min: '1', max: '99', value: known ? String(known.classNo) : '', 'aria-label': '반', style: { width: '5rem' } });
+  const context = () => ({ grade: Number(gradeIn.value), classNo: Number(classIn.value) });
+  async function loadFile(file) {
+    try {
+      const rows = await readSheetFile(file);
+      await importParsed(cls, parseRosterRows(rows, context()), { split: splitOn() });
+    } catch (e) {
+      console.error(e);
+      showResult(alertBox('danger', e.name === 'XlsxMissingError' ? e.message : `파일을 읽지 못했습니다. 엑셀(.xlsx) 또는 CSV 파일인지 확인해 주세요. (${e.message || '알 수 없는 오류'})`, { role: 'alert' }));
+    }
+  }
   const fileInput = h('input', {
     type: 'file', accept: '.xlsx,.xls,.csv', hidden: true, id: 'roster-file',
-    onchange: async () => {
+    onchange: () => {
       const file = fileInput.files?.[0];
       fileInput.value = '';
-      if (!file) return;
-      try {
-        const rows = await readSheetFile(file);
-        await importParsed(cls, parseRosterRows(rows), { split: splitOn() });
-      } catch (e) {
-        console.error(e);
-        showResult(alertBox('danger', e.name === 'XlsxMissingError' ? e.message : `파일을 읽지 못했습니다. 엑셀(.xlsx) 또는 CSV 파일인지 확인해 주세요. (${e.message || '알 수 없는 오류'})`, { role: 'alert' }));
-      }
+      if (file) loadFile(file);
     },
   });
   const pasteId = uid('paste');
   const pasteArea = h('textarea', {
     class: 'textarea', id: pasteId, rows: '6', value: pasteText,
-    placeholder: '30501\t김가온\n30502\t이나래\n(엑셀에서 학번과 이름 두 열을 복사해 붙여넣기)',
+    placeholder: '30501\t김가온\n30502\t이나래\n(엑셀에서 학번과 이름 두 열을 복사해 붙여넣기)\n\n학년·반을 아래에 적어 두면 번호와 이름만 써도 됩니다:\n1 김가온\n2 이나래',
     oninput: () => { pasteText = pasteArea.value; },
   });
   const xlsxNote = hasXlsx() ? null : alertBox('warn', XLSX_MISSING_TEXT);
@@ -293,13 +300,13 @@ function registerSection(cls) {
       h('input', { type: 'checkbox', id: 'roster-split', checked: splitMode, onchange: (e) => { splitMode = e.target.checked; } }),
       h('span', {}, `${cls.subject} 반 ${siblings.length}개에 학번의 반 번호대로 나눠 넣기`)),
     h('p', { class: 'hint' }, `예: 학번 10305는 '${cls.subject} 1-3' 반에 들어갑니다. 한 학년 전체 명단(NEIS 출석부 등)을 한 번에 올릴 때 씁니다.`)) : null;
-  return h('section', { class: 'stack', 'aria-labelledby': 'register-title' },
+  const section = h('section', { class: 'stack', 'aria-labelledby': 'register-title' },
     h('h3', { id: 'register-title', class: 'section-title' }, '명단 등록'),
     xlsxNote,
     splitRow,
     h('div', { class: 'grid-2' },
       h('div', { class: 'stack' },
-        h('p', { class: 'small' }, '엑셀로 등록: 양식에 학번과 이름을 채워 올리거나, NEIS 출석부 엑셀을 그대로 올립니다. 머리글(학번, 이름 또는 학년·반·번호, 성명)은 자동으로 찾습니다.'),
+        h('p', { class: 'small' }, '엑셀로 등록: 양식에 학번과 이름을 채워 올리거나, NEIS 출석부 엑셀을 그대로 올립니다. 머리글(학번, 이름 또는 학년·반·번호, 성명)은 자동으로 찾습니다. 번호와 이름 두 열만 있는 표도 선택한 반 기준으로 읽습니다. 파일을 이 칸에 끌어다 놓아도 됩니다.'),
         h('div', { class: 'row' },
           h('button', {
             type: 'button', class: 'btn btn-secondary',
@@ -314,15 +321,21 @@ function registerSection(cls) {
           }, icon('upload'), '엑셀 파일 올리기'),
           fileInput)),
       h('div', { class: 'stack' },
-        field('붙여넣기로 등록', pasteArea, '한 줄에 한 명. 학번과 이름 사이는 탭, 쉼표, 띄어쓰기 모두 됩니다.'),
+        field('붙여넣기로 등록', pasteArea, '한 줄에 한 명. 학번과 이름 사이는 탭, 쉼표, 띄어쓰기 모두 됩니다. 번호와 이름만(예: 1 김가온) 써도 됩니다.'),
+        h('div', { class: 'row align-end' },
+          h('label', { class: 'label', for: 'roster-ctx-grade' }, '번호만 쓸 때 학년'), gradeIn,
+          h('label', { class: 'label', for: 'roster-ctx-class' }, '반'), classIn,
+          h('span', { class: 'hint' }, known ? `선택한 '${cls.name}' 기준으로 채웠습니다` : '학번을 쓰지 않을 때만 적습니다')),
         h('div', { class: 'row' }, h('button', {
           type: 'button', class: 'btn btn-primary',
           onclick: () => {
             if (!pasteArea.value.trim()) { toast('붙여넣은 명단이 없습니다'); pasteArea.focus(); return; }
-            importParsed(cls, parsePastedRoster(pasteArea.value), { split: splitOn() });
+            importParsed(cls, parsePastedRoster(pasteArea.value, context()), { split: splitOn() });
           },
         }, '붙여넣은 명단 등록하기')))),
     h('div', { id: 'roster-result', class: 'stack', ref: (el) => { resultEl = el; } }));
+  enableDrop(section, loadFile, { accept: ['.xlsx', '.xls', '.csv'] });
+  return section;
 }
 
 function studentTable(cls) {

@@ -15,6 +15,7 @@ import { statusView } from './views/status.js';
 import { neisView } from './views/neis.js';
 import { backupView } from './views/backup.js';
 import { settingsView } from './views/settings.js';
+import { watchChecker } from './handoff-ui.js';
 
 const ROUTES = [
   { name: 'roster', label: '명단', icon: 'users', view: rosterView },
@@ -353,6 +354,7 @@ async function start() {
   window.addEventListener('hashchange', route);
   route();
 
+  watchChecker();
   startBridge();
   onDoneList(handleDoneList);
   requestDone();

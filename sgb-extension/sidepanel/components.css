@@ -499,3 +499,6 @@ input[type="date"].input::-webkit-date-and-time-value { min-width: 0; text-align
 @media (min-width: 720px) {
   .main { max-width: calc(640 * var(--u)); width: 100%; margin: 0 auto; }
 }
+
+/* 파일을 끌어다 놓을 때 */
+#sgb-root.is-drop { outline: 2px dashed var(--color-primary); outline-offset: -4px; }

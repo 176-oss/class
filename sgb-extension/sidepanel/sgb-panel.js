@@ -417,7 +417,7 @@ function dataCard() {
        <ul class="list">${d.sources.map(sourceRow).join('')}</ul>
        <div class="small muted">체크한 파일의 글만 나이스에 입력합니다. 같은 학생이 두 파일에 있으면 '직접 확인'으로 나오니 한쪽만 체크하세요.</div>
        <ul class="warn-list small">${groupSummary(act).map((g) => `<li>${esc(g)}</li>`).join('')}</ul>`
-    : '<div class="muted small">불러온 글이 없습니다. 웹앱에서 상태가 &quot;완료&quot;인 글만 가져옵니다. [파일 불러오기]는 웹앱의 NEIS 입력 파일(JSON)과 엑셀(.xlsx)을 읽으며, 여러 파일을 한꺼번에 고를 수 있습니다.</div>';
+    : '<div class="muted small">불러온 글이 없습니다. 웹앱에서 상태가 &quot;완료&quot;인 글만 가져옵니다. [파일 불러오기]는 웹앱의 NEIS 입력 파일(JSON)과 엑셀(.xlsx)을 읽으며, 여러 파일을 한꺼번에 고르거나 이 패널에 끌어다 놓을 수 있습니다.</div>';
   const drive = hasClientId()
     ? `<button class="btn btn-secondary btn-sm" data-act="drive">${S.drive.connected ? '드라이브에서 다시 받기' : '구글 드라이브에서 받기'}</button>` : '';
   return `<section class="card stack-sm"><div class="section-title">생기부 글</div>${summary}
@@ -520,6 +520,16 @@ export async function mount(el) {
   root = el;
   root.addEventListener('click', onClick);
   document.getElementById('sgbFile').addEventListener('change', (e) => { const fs = Array.from(e.target.files || []); e.target.value = ''; (async () => { for (const f of fs) await importFile(f); })(); });
+  // 파일을 패널에 끌어다 놓아도 불러온다 (여러 개 가능)
+  const hasFiles = (e) => Array.from(e.dataTransfer?.types || []).includes('Files');
+  root.addEventListener('dragover', (e) => { if (hasFiles(e)) { e.preventDefault(); root.classList.add('is-drop'); } });
+  root.addEventListener('dragleave', (e) => { if (!root.contains(e.relatedTarget)) root.classList.remove('is-drop'); });
+  root.addEventListener('drop', async (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    root.classList.remove('is-drop');
+    for (const f of Array.from(e.dataTransfer.files)) await importFile(f);
+  });
   await loadState();
   render();
   await detect();

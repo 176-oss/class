@@ -2,14 +2,15 @@
 // 학생을 체크하면 오른쪽 패널에서 '특징 -> 초안 -> 수정 -> 표에 순서대로 붙여넣기'를 한다.
 // 맨 위 버튼 하나는 메모를 적어 둔 학생의 초안을 한꺼번에 만든다.
 import { h, clear, icon, debounce } from '../dom.js';
-import { toast, announce, chip, seg, badge, alertBox, emptyState, field, progressBar } from '../ui.js';
+import { toast, announce, chip, seg, badge, alertBox, emptyState, field, progressBar, openTool } from '../ui.js';
 import * as store from '../store.js';
 import { AREA_LABELS, STATUS_LABELS, LENGTH_LABELS, TRAITS_BY_AREA, KIND_LABELS, newCandidate, deriveStatus } from '../core/model.js';
 import { byteLength, byteLevel } from '../core/bytes.js';
 import { generateDrafts, AiError } from '../core/gemini.js';
 import { pickExamples } from '../core/style.js';
 import { createBatch } from '../core/batch.js';
-import { checkCell, tidyText, composeMemo, planPaste, memoTargets, PASTE_MODES, assignedDrafts, removeCandidate } from '../core/grid.js';
+import { writeBatch, groupsForCheck } from '../core/handoff.js';
+import { checkCell, tidyText, composeMemo, planPaste, memoTargets, PASTE_MODES, assignedDrafts, removeCandidate, candidateTarget, autoAssign } from '../core/grid.js';
 
 const G = {
   area: null,
@@ -31,7 +32,6 @@ const G = {
   candBusy: false,
   inited: false,
 };
-const MAX_CANDS = 6;
 
 let ctx = null;
 let root = null;
@@ -280,6 +280,23 @@ function onSelection() {
 }
 
 // ---------- 위쪽 ----------
+// 점검기로 보내기: 고른 학생(없으면 표의 모든 학생)의 최종본을 점검기에 넘기고 점검기를 연다
+function sendToChecker() {
+  flushEdits();
+  const src = selectedRows().length ? selectedRows() : rows;
+  const items = src.map((r) => ({
+    studentId: r.student.studentId, name: r.student.name, area: G.area, subject: G.area === 'subject' ? r.cls.subject || '' : '',
+    text: liveRec(r.rec).final || '',
+  }));
+  const groups = groupsForCheck(items);
+  if (!groups.length) { toast('보낼 최종본이 없습니다. 최종본을 쓴 학생이 있어야 점검할 수 있습니다.'); return; }
+  const school = store.state.settings?.schoolLevel === 'middle' ? 'mid' : 'high';
+  const r = writeBatch(window.localStorage, { source: 'textgenerator-v2', school, groups });
+  if (!r.ok) { toast(r.reason, { danger: true }); return; }
+  openTool('sgb-checker', '../sgb-checker/');
+  toast(`최종본 ${r.count}명을 점검기로 보냈습니다. 5분 안에 열려야 넘어갑니다.`);
+}
+
 function renderBar() {
   if (!els.bar) return;
   const n = selectedRows().length;
@@ -353,9 +370,11 @@ function finishJob() {
   if (!j) return;
   const made = j.total - j.short - j.failed.length;
   G.job = null;
+  G.candBusy = false;
   renderBar(); renderJob();
   if (G.panel) renderPanel();
-  toast(`${j.label}: ${made}명 만들었습니다${j.short ? `, 메모 부족 ${j.short}명` : ''}${j.failed.length ? `, 실패 ${j.failed.length}명` : ''}`, j.after ? j.after : undefined);
+  const body = j.summary ? j.summary() : `${made}명 만들었습니다`;
+  toast(`${j.label}: ${body}${j.short ? (j.summary ? `, 건너뜀 ${j.short}번` : `, 메모 부족 ${j.short}명`) : ''}${j.failed.length ? `, 실패 ${j.failed.length}${j.summary ? '번' : '명'}` : ''}`, j.after ? j.after : undefined);
 }
 function renderJob() {
   if (!els.job) return;
@@ -435,7 +454,7 @@ function updateMakeButtons() {
   const n = selectedRows().length;
   const base = !G.job && !G.candBusy && !noKey() && n > 0;
   els.panel?.querySelectorAll('[data-make]').forEach((b) => {
-    b.disabled = !(base && (b.dataset.make === 'shared' ? G.common.trim() && G.cands.length < MAX_CANDS : (G.common.trim() || G.withOwn)));
+    b.disabled = !(base && (b.dataset.make === 'shared' ? G.common.trim() && G.cands.length < candidateTarget(n) : (G.common.trim() || G.withOwn)));
   });
 }
 
@@ -479,22 +498,26 @@ function methodSections(sel, generated, canMake) {
 // 후보를 만들어 학생에게 나눠 붙이기: 비슷한 학생끼리 같은 후보를 쓴다
 function sharedSections(sel) {
   const assigned = sel.filter((r) => G.assign.has(r.rec.id) && G.cands[G.assign.get(r.rec.id)]?.trim());
-  const canMake = !G.candBusy && !G.job && !noKey() && sel.length > 0 && G.common.trim() && G.cands.length < MAX_CANDS;
+  const target = candidateTarget(sel.length);
+  const remain = Math.max(0, target - G.cands.length);
+  const canMake = !G.candBusy && !G.job && !noKey() && sel.length > 0 && G.common.trim() && remain > 0;
   return [
     h('section', { class: 'stack', 'aria-labelledby': 'gp-3' },
       h('h3', { class: 'section-title', id: 'gp-3' }, '3 후보 만들기'),
       methodSeg(),
-      h('p', { class: 'hint' }, '위의 공통 특징만으로 후보를 만듭니다 (학생 메모는 쓰지 않음). 만든 뒤 후보마다 붙일 학생을 고르세요.'),
+      h('p', { class: 'hint' }, `위의 공통 특징만으로 후보를 만듭니다 (학생 메모는 쓰지 않음). 고른 학생 ${sel.length}명에 5개를 더해 ${target}개까지 만들고, 만든 뒤 후보마다 붙일 학생을 고르세요.`),
       noKey() ? h('p', { class: 'hint' }, '설정에서 API 키를 넣으면 만들 수 있습니다. ', h('a', { href: '#settings' }, '설정으로 가기')) : null,
       !G.common.trim() ? h('p', { class: 'hint' }, '공통 특징을 먼저 적어 주세요.') : null,
       h('div', { class: 'row' },
-        h('button', { type: 'button', class: 'btn btn-primary', 'data-make': 'shared', disabled: !canMake, onclick: makeShared }, icon('spark'), G.candBusy ? '만드는 중' : (G.cands.length ? '후보 3개 더 만들기' : '후보 3개 만들기')),
+        h('button', { type: 'button', class: 'btn btn-primary', 'data-make': 'shared', disabled: !canMake, onclick: makeShared }, icon('spark'), G.candBusy ? '만드는 중' : (G.cands.length ? `후보 ${remain}개 더 만들기` : `후보 ${target}개 만들기`)),
         G.cands.length ? h('button', { type: 'button', class: 'btn btn-ghost', disabled: G.candBusy, onclick: () => { G.cands = []; G.assign = new Map(); renderPanel(); } }, '후보 모두 지우기') : null,
         ctx.isFakeAI() ? badge('가짜 AI', 'warn') : null),
-      G.cands.length >= MAX_CANDS ? h('p', { class: 'hint' }, `후보는 ${MAX_CANDS}개까지 둘 수 있습니다.`) : null),
+      G.cands.length >= target ? h('p', { class: 'hint' }, `후보가 ${G.cands.length}개 있습니다.`) : null),
     h('section', { class: 'stack', 'aria-labelledby': 'gp-4' },
       h('h3', { class: 'section-title', id: 'gp-4' }, `4 후보 수정과 학생 배정 (후보 ${G.cands.length}개)`),
-      G.cands.length ? h('p', { class: 'small', role: 'status' }, `배정 ${assigned.length}명 · 미배정 ${sel.length - assigned.length}명`) : null,
+      G.cands.length ? h('div', { class: 'row' },
+        h('p', { class: 'small', role: 'status' }, `배정 ${assigned.length}명 · 미배정 ${sel.length - assigned.length}명`),
+        h('button', { type: 'button', class: 'btn btn-secondary btn-sm', disabled: !sel.length, onclick: () => { G.assign = autoAssign(sel.map((r) => r.rec.id), G.assign, G.cands.length); renderPanel(); } }, '배정 안 된 학생에게 후보를 차례로 하나씩')) : null,
       G.cands.length ? G.cands.map((t, i) => candCard(i, sel)) : h('p', { class: 'hint' }, '후보를 만들면 여기에 나옵니다. 고쳐 쓰고, 이름 칩을 눌러 그 후보를 붙일 학생을 고르세요.')),
     pasteSection(assigned.length, pasteShared, '표의 명렬 순서대로 배정된 학생의 최종본 칸에 후보 글을 넣습니다. 같은 후보를 여러 학생에게 붙이면 표의 점검에 비슷한 글 경고가 뜨니 학생마다 한 줄씩 고쳐 주세요. 붙인 학생은 선택에서 빠집니다 (다음 무리를 이어서 고르세요).'),
   ];
@@ -537,33 +560,44 @@ function candCard(i, sel) {
       h('button', { type: 'button', class: 'btn btn-ghost btn-sm', onclick: () => { for (const [id, x] of [...G.assign]) if (x === i) G.assign.delete(id); renderPanel(); } }, '이 후보 배정 풀기')));
 }
 
-async function makeShared() {
+// 후보 만들기: (고른 학생 수 + 5)개를 3개씩 여러 번 불러 채운다. 멈추기·이어서 하기가 된다
+function makeShared() {
   const sel = selectedRows();
   if (!sel.length) { toast('표에서 학생을 먼저 고르세요'); return; }
   if (!G.common.trim()) { toast('공통 특징을 먼저 적어 주세요'); return; }
+  const need = candidateTarget(sel.length) - G.cands.length;
+  if (need <= 0) { toast('후보가 이미 충분합니다'); return; }
   flushEdits();
-  G.candBusy = true;
-  renderPanel();
   const first = sel[0];
   const rec = store.state.records.get(first.rec.id) || first.rec;
-  try {
-    const res = await generateDrafts({
-      record: { ...rec, memo: G.common, traits: [...G.traits], length: G.length, achievement: rec.achievement || first.cls.achievement || '' },
-      studentName: '', roster: rosterAll(), settings: store.state.settings, apiKey: store.getApiKey(), count: 3, fake: ctx.isFakeAI(), style: styleFor(rec),
-    });
-    const drafts = (res?.drafts || []).filter((d) => d && d.trim()).map((d) => d.trim());
-    if (res?.insufficient || !drafts.length) toast('특징이 부족해 후보를 만들지 않았습니다. 더 자세히 적어 주세요.');
-    else {
-      G.cands = [...G.cands, ...drafts].slice(0, MAX_CANDS);
-      toast(`후보 ${drafts.length}개를 만들었습니다`);
-    }
-  } catch (e) {
-    if (!(e instanceof AiError)) console.warn('후보 만들기 중 예상 못 한 오류:', e?.name || 'Error');
-    toast(e?.userMessage || '후보를 만들지 못했습니다. 잠시 뒤 다시 시도해 주세요.', { danger: true });
-  } finally {
-    G.candBusy = false;
-    renderPanel();
-  }
+  const settings = store.state.settings;
+  const roster = rosterAll();
+  const common = G.common; const traits = [...G.traits]; const length = G.length;
+  const calls = Math.ceil(need / 3);
+  const job = { label: '후보 만들기', total: calls, done: 0, failed: [], short: 0, stopReason: '', batch: null, summary: () => `후보 ${G.cands.length}개` };
+  const target = candidateTarget(sel.length);
+  job.batch = createBatch({
+    targets: Array.from({ length: calls }, (_, i) => String(i)),
+    intervalMs: (Number(settings.batchIntervalSec) || 5) * 1000,
+    onProgress: (st) => { job.done = st.done + st.skipped + st.failed.length; job.failed = st.failed; job.stopReason = st.stopReason ? (st.stopMessage || '오류로 멈췄습니다') : ''; renderJob(); },
+    run: async () => {
+      const left = target - G.cands.length;
+      if (left <= 0) return 'skipped';
+      const res = await generateDrafts({
+        record: { ...rec, memo: common, traits, length, achievement: rec.achievement || first.cls.achievement || '' },
+        studentName: '', roster, settings, apiKey: store.getApiKey(), count: Math.min(3, left), fake: ctx.isFakeAI(), style: styleFor(rec),
+      });
+      const drafts = (res?.drafts || []).filter((d) => d && d.trim()).map((d) => d.trim());
+      if (res?.insufficient || !drafts.length) { job.short += 1; return 'skipped'; }
+      G.cands = [...G.cands, ...drafts].slice(0, target);
+      if (G.panel) renderPanel();
+    },
+  });
+  G.job = job; G.candBusy = true;
+  renderBar(); renderJob(); renderPanel();
+  Promise.resolve(job.batch.start()).catch((e) => { if (!(e instanceof AiError)) console.warn('후보 만들기 중 예상 못 한 오류:', e?.name || 'Error'); }).finally(() => {
+    if (G.job === job && !job.batch.state.running && job.batch.state.next >= job.total) finishJob(); else renderJob();
+  });
 }
 
 function pasteShared() {
@@ -681,6 +715,7 @@ function renderAll() {
         type: 'button', class: 'tab', role: 'tab', 'aria-selected': a === G.area, tabindex: a === G.area ? '0' : '-1',
         onclick: () => { flushEdits(); G.area = a; G.selected.clear(); G.generated.clear(); G.cands = []; G.assign = new Map(); G.hidden = defaultHidden(); G.method = a === 'subject' ? 'shared' : 'each'; ctx.setParams('write', { area: a }); renderAll(); },
       }, AREA_LABELS[a]))),
+      h('button', { type: 'button', class: 'btn btn-secondary', onclick: sendToChecker }, icon('send'), '점검기로 보내기'),
       h('div', { class: 'field' }, h('span', { class: 'label', id: 'grid-class-label' }, G.area === 'subject' ? '명단을 불러올 반 (체크)' : '보이는 반'),
         h('div', { class: 'row chips', role: 'group', 'aria-labelledby': 'grid-class-label' }, classChips))),
     els.bar, els.job, els.layout);

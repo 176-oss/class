@@ -214,3 +214,16 @@ a.sync-status-text { text-decoration: underline; }
 /* 패널이 열리면 표를 촘촘하게: 점검은 개수만, 나머지 열은 좁게 */
 .view-grid .write-layout.has-panel .grid-issues { display: none; }
 .view-grid .write-layout.has-panel .grid-table { min-width: 640px; }
+
+/* 파일 끌어다 놓기 */
+.dropzone { transition: outline-color var(--dur-fast, 0.1s); }
+.dropzone.is-drop { outline: var(--bw-strong, 2px) dashed var(--color-primary); outline-offset: 4px; background: var(--color-accent-soft); }
+
+/* 도구 바꾸기: 작성 | 점검 (점검기 머리와 같은 모양) */
+.switch { display: flex; gap: var(--sp-1); font-size: var(--fs-sm); flex: none; }
+.switch a, .switch span {
+  display: inline-flex; align-items: center; min-height: var(--touch-min); padding: 0 var(--sp-3);
+  border-radius: var(--r-md); text-decoration: none; color: var(--color-on-primary);
+}
+.switch a:hover { background: rgba(255, 255, 255, 0.14); }
+.switch [aria-current] { background: var(--color-primary-hover); font-weight: var(--fw-semibold); }
