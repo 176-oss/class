@@ -184,6 +184,8 @@ export async function generateDrafts({
     subject: record.subject,
     achievement: ach,
     achievementReached: !!record.achievementReached,
+    events: (record.events || []).map((e) => scrubMemo(e, people)),
+    request: scrubMemo(record.request || '', people),
     memo,
     traits: record.traits,
     length: record.length,

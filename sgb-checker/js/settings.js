@@ -1,6 +1,8 @@
 // 설정: 학교급 기본값, 영역별 한도, 학교 이름·별칭·축제명, 금지 목록 보기, AI 사용·키·모델.
 import { h } from './dom.js';
-import { S, settings, saveSettings, keys, recheck } from './state.js';
+import { S, settings, saveSettings, keys, recheck, schoolYear } from './state.js';
+import { parseEventList, eventLabel } from '../rules/events.js';
+import { EXTENSIONS, LIMITS } from './sheet.js';
 import { areasFor } from '../rules/areas.js';
 import { FORBIDDEN } from '../rules/check.js';
 import { maskKey } from '../shared/key-store.js';
@@ -9,6 +11,7 @@ import { announce, confirmBox } from './ui.js';
 
 let keyFormOpen = false;
 let keyNote = '';
+let eventNote = null; // { kind, text, errors }
 
 export function renderSettings({ render }) {
   const save = (msg) => { saveSettings(); if (S.items.length) recheck(); render(); if (msg) announce(msg); };
@@ -41,6 +44,8 @@ export function renderSettings({ render }) {
       h('label', { for: 'school-words', class: 'sr-only' }, '학교 이름·별칭·축제명'),
       h('textarea', { id: 'school-words', value: settings.schoolWords.join('\n'), onchange: (e) => { settings.schoolWords = e.target.value.split('\n').map((s) => s.trim()).filter((s) => s.length >= 2).slice(0, 30); save('학교 이름 목록을 저장했습니다.'); } })),
 
+    eventSection(save),
+
     h('section', { class: 'card stack', 'aria-labelledby': 'st-list' },
       h('h3', { id: 'st-list' }, '금지 목록 보기'),
       h('details', null, h('summary', `${school === 'high' ? '고등학교' : '중학교'} 금지 목록 (${FORBIDDEN.filter((e) => e.schools.includes(school)).length}개)`),
@@ -52,6 +57,49 @@ export function renderSettings({ render }) {
             h('td', null, e.basis[school]), h('td', null, e.desc)))))))),
 
     aiSection(save, render));
+}
+
+// 우리 학교 행사 목록 (자율·진로 점검용): 붙여넣기 또는 엑셀·CSV 첫 시트 (앞 칸 행사명, 뒤 칸 날짜)
+function eventSection(save) {
+  let draft = settings.events.map((e) => `${e.name}\t${e.date}`).join('\n');
+  const apply = (input, how) => {
+    const r = parseEventList(input, schoolYear());
+    if (!r.events.length) { eventNote = { kind: 'error', text: '읽은 행사가 없습니다. 한 줄에 행사명과 날짜를 적어 주세요.', errors: r.errors }; save(); return; }
+    settings.events = r.events;
+    eventNote = { kind: r.errors.length ? 'warn' : 'ok', text: `${how} 행사 ${r.events.length}개를 저장했습니다.${r.errors.length ? ` 읽지 못한 줄 ${r.errors.length}개는 뺐습니다.` : ''}`, errors: r.errors };
+    save(`행사 ${r.events.length}개를 저장했습니다.`);
+  };
+  const onFile = async (input) => {
+    const f = input.files?.[0];
+    input.value = '';
+    if (!f) return;
+    const ext = f.name.toLowerCase().split('.').pop();
+    if (!EXTENSIONS.includes(ext) || f.size > LIMITS.bytes) { eventNote = { kind: 'error', text: '5MB 이하의 엑셀(.xlsx, .xls) 또는 .csv 파일만 열 수 있습니다.', errors: [] }; save(); return; }
+    try {
+      const X = window.XLSX;
+      const buf = new Uint8Array(await f.arrayBuffer());
+      const wb = ext === 'csv' ? X.read(new TextDecoder().decode(buf), { type: 'string', sheetRows: 1000 }) : X.read(buf, { type: 'array', sheetRows: 1000, cellFormula: false, cellHTML: false });
+      const rows = X.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: false, defval: '', blankrows: false });
+      apply(rows, '파일에서');
+    } catch { eventNote = { kind: 'error', text: '파일을 읽지 못했습니다. 엑셀에서 다시 저장한 뒤 올려 주세요.', errors: [] }; save(); }
+  };
+  const fileIn = h('input', { type: 'file', id: 'event-file', accept: '.xlsx,.xls,.csv', hidden: true, 'aria-label': '행사 목록 파일', onchange: (e) => onFile(e.target) });
+  return h('section', { class: 'card stack', 'aria-labelledby': 'st-events' },
+    h('h3', { id: 'st-events' }, '우리 학교 행사 목록 (자율·진로 점검용)'),
+    h('p', { class: 'muted' }, '한 줄에 행사 하나: 행사명과 날짜(또는 기간). 자율·진로 글의 행사명(날짜)가 이 목록과 이름·날짜 모두 같은지 봅니다. 날짜는 2026.03.04., 기간은 2026.03.04.-2026.03.06.으로 맞춰 저장합니다.'),
+    eventNote ? h('div', { class: `alert ${eventNote.kind === 'error' ? 'alert-danger' : eventNote.kind === 'warn' ? 'alert-warn' : ''}`, role: 'status' },
+      eventNote.text, eventNote.errors?.length ? h('ul', null, eventNote.errors.slice(0, 10).map((x) => h('li', null, x))) : null) : null,
+    h('label', { for: 'event-list' }, '행사 목록 붙여넣기 (엑셀에서 행사명·날짜 두 열을 복사해도 됩니다)'),
+    h('textarea', { id: 'event-list', rows: 6, value: draft, placeholder: '학생자치회 임원 선거\t2026.03.15.\n체육대회\t2026.05.14.-2026.05.15.', oninput: (e) => { draft = e.target.value; } }),
+    h('div', { class: 'row' },
+      h('button', { type: 'button', class: 'btn btn-primary', onclick: () => apply(draft, '붙여넣은') }, '행사 목록 저장'),
+      h('button', { type: 'button', class: 'btn', onclick: () => fileIn.click() }, '엑셀·CSV 파일 올리기'), fileIn,
+      settings.events.length ? h('button', { type: 'button', class: 'btn', onclick: async () => {
+        if (!(await confirmBox('행사 목록 지우기', '이 브라우저에 저장한 행사 목록을 지웁니다.', '지우기'))) return;
+        settings.events = []; eventNote = null; save('행사 목록을 지웠습니다.');
+      } }, '목록 지우기') : null),
+    settings.events.length ? h('details', null, h('summary', `저장된 행사 ${settings.events.length}개`),
+      h('ul', null, settings.events.map((e) => h('li', null, eventLabel(e))))) : h('p', { class: 'muted' }, '저장된 행사가 없습니다. 없으면 행사 점검을 하지 않습니다.'));
 }
 
 function keyStatus() {

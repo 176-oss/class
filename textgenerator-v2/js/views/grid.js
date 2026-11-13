@@ -10,7 +10,7 @@ import { generateDrafts, AiError } from '../core/gemini.js';
 import { pickExamples } from '../core/style.js';
 import { createBatch } from '../core/batch.js';
 import { writeBatch, groupsForCheck } from '../core/handoff.js';
-import { checkCell, tidyText, composeMemo, planPaste, memoTargets, PASTE_MODES, assignedDrafts, removeCandidate, candidateTarget, autoAssign, parseStandards, standardsText, groupOfStudent, saveGroup, nextGroupName } from '../core/grid.js';
+import { checkCell, tidyText, composeMemo, planPaste, memoTargets, PASTE_MODES, assignedDrafts, removeCandidate, candidateTarget, autoAssign, parseStandards, standardsText, groupOfStudent, saveGroup, nextGroupName, EVENT_AREAS, formatEventDate, eventLabel, saveEvent, missingEventLabels } from '../core/grid.js';
 
 const G = {
   area: null,
@@ -28,6 +28,8 @@ const G = {
   short: new Set(), // 메모가 부족해 못 만든 기록 id
   job: null, // { batch, label, ids, kind }
   stds: new Set(), // 이번 초안에 쓸 성취기준 (줄 전체 글자)
+  evIds: new Set(), // 이번 초안에 쓸 행사 id (자율·진로)
+  request: '', // 추가 요청 (강조점·문장 모양)
   method: 'each', // each: 학생마다 만들기 | shared: 후보 몇 개를 만들어 학생에게 나눠 붙이기
   cands: [], // shared 방식의 후보 글 (최대 6개, 화면 메모리)
   assign: new Map(), // 기록 id -> 후보 번호
@@ -57,6 +59,10 @@ function writeGroups(clsId, groups, { quiet = false } = {}) {
   quietClass = quiet;
   try { store.updateClass(clsId, { groups }); } finally { quietClass = false; }
 }
+/** 이 학생 반의 행사 중 이번에 체크한 것의 표기 (자율·진로) */
+const eventsOf = (cls) => (liveCls(cls)?.events?.[G.area] || []);
+const pickedEventList = (row) => (EVENT_AREAS.includes(G.area) ? eventsOf(row?.cls).filter((e) => G.evIds.has(e.id)) : []);
+const pickedEvents = (row) => pickedEventList(row).map(eventLabel);
 
 // ---------- 계산 ----------
 function classesForArea() {
@@ -640,6 +646,8 @@ function renderPanel() {
       h('div', { class: 'field' }, h('span', { class: 'label', id: 'gp-len' }, '목표 분량'),
         seg({ labelledby: 'gp-len', options: Object.entries(LENGTH_LABELS), value: G.length, onChange: (v) => { G.length = v; } })),
       standardsBox(sel),
+      eventsBox(sel),
+      field('추가 요청 (선택)', h('textarea', { class: 'textarea', id: 'grid-request', rows: '2', value: G.request, placeholder: '예: 리더십을 특히 강조, 문장을 짧게', oninput: (e) => { G.request = e.target.value; } }), '강조점과 문장 모양에만 반영하고, 메모에 없는 사실은 더하지 않습니다.'),
       h('label', { class: 'check-row' }, h('input', { type: 'checkbox', checked: G.withOwn, onchange: (e) => { G.withOwn = e.target.checked; renderPanel(); } }), '학생 메모도 함께 쓰기'),
       picked ? h('label', { class: 'check-row' }, h('input', { type: 'checkbox', checked: G.styleOn, onchange: (e) => { G.styleOn = e.target.checked; renderPanel(); } }), `내 스타일 적용 (${picked.summary})`) : null),
     ...methodSections(sel, generated, canMake));
@@ -652,6 +660,58 @@ function updateMakeButtons() {
   els.panel?.querySelectorAll('[data-make]').forEach((b) => {
     b.disabled = !(base && (b.dataset.make === 'shared' ? G.common.trim() && G.cands.length < candidateTarget(n) : (G.common.trim() || G.withOwn)));
   });
+}
+
+// 패널: 이번 초안에 쓸 행사 (자율·진로). 행사는 반에 cls.events[영역] 으로 저장한다
+function eventsBox(sel) {
+  if (!EVENT_AREAS.includes(G.area)) return null;
+  const byCls = new Map();
+  for (const r of sel) if (!byCls.has(r.cls.id)) byCls.set(r.cls.id, liveCls(r.cls));
+  if (!byCls.size) return null;
+  const year = store.state.settings?.schoolYear;
+  const write = (c, events) => { store.updateClass(c.id, { events: { ...(liveCls(c).events || {}), [G.area]: events } }); };
+  const blocks = [...byCls.values()].map((c) => {
+    const list = eventsOf(c);
+    const nameIn = h('input', { class: 'input', type: 'text', id: `gp-ev-name-${c.id}`, maxlength: '60', placeholder: '예: 학생자치회 임원 선거' });
+    const dateIn = h('input', { class: 'input', type: 'text', id: `gp-ev-date-${c.id}`, maxlength: '30', placeholder: '예: 2026.03.15. 또는 2026.05.14.-2026.05.15.' });
+    const err = h('p', { class: 'hint form-error', role: 'alert' });
+    const add = () => {
+      err.textContent = '';
+      const name = nameIn.value.trim();
+      if (!name) { err.textContent = '행사 이름을 적어 주세요.'; nameIn.focus(); return; }
+      const d = formatEventDate(dateIn.value, year);
+      if (!d.ok) { err.textContent = d.error; dateIn.focus(); return; }
+      const ev = { id: `e_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, name, date: d.value };
+      write(c, saveEvent(list, ev));
+      G.evIds.add(ev.id);
+      if (G.mode === 'skip') G.mode = 'append'; // 행사마다 쓴 글을 최종본 뒤에 이어 붙이는 것이 보통
+      toast(`행사를 더했습니다: ${eventLabel(ev)}`);
+      renderPanel();
+      document.getElementById(`gp-ev-name-${c.id}`)?.focus();
+    };
+    return h('div', { class: 'stack gap-1' },
+      byCls.size > 1 ? h('p', { class: 'small' }, h('strong', {}, c.name)) : null,
+      list.length ? h('div', { class: 'stack gap-1', role: 'group', 'aria-label': `${c.name} 행사` }, list.map((e) => h('div', { class: 'row-between' },
+        h('label', { class: 'check-row', for: `gp-ev-${e.id}` },
+          h('input', { type: 'checkbox', id: `gp-ev-${e.id}`, checked: G.evIds.has(e.id), onchange: (ev) => { if (ev.target.checked) { G.evIds.add(e.id); if (G.mode === 'skip') G.mode = 'append'; } else G.evIds.delete(e.id); renderPanel(); document.getElementById(`gp-ev-${e.id}`)?.focus(); } }),
+          h('span', {}, eventLabel(e))),
+        h('button', { type: 'button', class: 'btn btn-ghost btn-sm', 'aria-label': `${eventLabel(e)} 행사 지우기`, onclick: () => {
+          const before = list;
+          write(c, list.filter((x) => x.id !== e.id)); G.evIds.delete(e.id);
+          toast(`행사를 지웠습니다: ${eventLabel(e)}`, { action: '되돌리기', onAction: () => { write(c, before); renderPanel(); } });
+          renderPanel();
+        } }, '지우기'))))
+        : h('p', { class: 'hint' }, '아직 행사가 없습니다. 아래에서 더해 주세요.'),
+      h('div', { class: 'grid-2' }, field('행사 이름', nameIn), field('날짜 또는 기간', dateIn)),
+      err,
+      h('div', { class: 'row' }, h('button', { type: 'button', class: 'btn btn-secondary btn-sm', onclick: add }, icon('plus'), '행사 더하기')));
+  });
+  const n = [...byCls.values()].reduce((k, c) => k + eventsOf(c).filter((e) => G.evIds.has(e.id)).length, 0);
+  return h('div', { class: 'field' }, h('span', { class: 'label', id: 'gp-ev' }, '행사 (이번 글에 넣을 것을 체크)'),
+    ...blocks,
+    h('p', { class: 'hint' }, n
+      ? `체크한 행사 ${n}개를 '행사명(날짜)'로 시작해 씁니다. 행사마다 따로 만들어 최종본 뒤에 이어 붙이면 됩니다 (붙여넣기 방식이 '뒤에 이어씀'으로 바뀝니다).`
+      : '행사를 체크하면 그 행사 글을 행사명(2026.05.14.) 형식으로 시작합니다. 날짜는 2026-5-14, 5/14처럼 적어도 맞춰 줍니다.'));
 }
 
 // 패널: 이번 초안에 쓸 성취기준 (고른 학생들 반에 올려 둔 것을 모아 보여 준다)
@@ -786,7 +846,7 @@ function makeShared() {
   const rec = store.state.records.get(first.rec.id) || first.rec;
   const settings = store.state.settings;
   const roster = rosterAll();
-  const common = G.common; const traits = [...G.traits]; const length = G.length; const stdText = G.stds.size ? standardsText(G.stds) : '';
+  const common = G.common; const traits = [...G.traits]; const length = G.length; const stdText = G.stds.size ? standardsText(G.stds) : ''; const request = G.request; const events = pickedEvents(first);
   const calls = Math.ceil(need / 3);
   const job = { label: '후보 만들기', total: calls, done: 0, failed: [], short: 0, stopReason: '', batch: null, summary: () => `후보 ${G.cands.length}개` };
   const target = candidateTarget(sel.length);
@@ -798,7 +858,7 @@ function makeShared() {
       const left = target - G.cands.length;
       if (left <= 0) return 'skipped';
       const res = await generateDrafts({
-        record: { ...rec, memo: common, traits, length, achievement: stdText || first.cls.achievement || '', achievementReached: !!stdText }, // 후보는 여러 학생이 같이 쓰니 학생별 성취기준은 넣지 않는다
+        record: { ...rec, memo: common, traits, length, achievement: stdText || first.cls.achievement || '', achievementReached: !!stdText, events, request }, // 후보는 여러 학생이 같이 쓰니 학생별 성취기준은 넣지 않는다
         studentName: '', roster, settings, apiKey: store.getApiKey(), count: Math.min(3, left), fake: ctx.isFakeAI(), style: styleFor(rec),
       });
       const drafts = (res?.drafts || []).filter((d) => d && d.trim()).map((d) => d.trim());
@@ -836,8 +896,9 @@ function draftEditor(r) {
   function paint() {
     const text = ta.value;
     const chk = checkOfText(rec, text);
-    clear(meta, `${byteLength(text)}바이트`, chk.count ? ` · 문제 ${chk.count}건: ${chk.issues.slice(0, 2).map((i) => i.message).join(', ')}` : '');
-    meta.classList.toggle('text-danger', chk.count > 0);
+    const miss = missingEventLabels(text, pickedEventList(r));
+    clear(meta, `${byteLength(text)}바이트`, chk.count ? ` · 문제 ${chk.count}건: ${chk.issues.slice(0, 2).map((i) => i.message).join(', ')}` : '', miss.length ? ` · 행사 표기 빠짐: ${miss.join(', ')}` : '');
+    meta.classList.toggle('text-danger', chk.count > 0 || miss.length > 0);
   }
   setTimeout(() => { autosize(ta); paint(); }, 0);
   return h('div', { class: 'stack gap-1 grid-draft' },
@@ -849,11 +910,11 @@ function draftEditor(r) {
 function makeSelected() {
   const sel = selectedRows().filter((r) => statusOf(r.rec) !== 'done');
   if (!sel.length) { toast('고른 학생이 없습니다'); return; }
-  const common = G.common; const withOwn = G.withOwn; const traits = [...G.traits]; const length = G.length; const stdText = G.stds.size ? standardsText(G.stds) : '';
+  const common = G.common; const withOwn = G.withOwn; const traits = [...G.traits]; const length = G.length; const stdText = G.stds.size ? standardsText(G.stds) : ''; const request = G.request;
   G.generated = new Set([...G.generated].filter((id) => !sel.some((r) => r.rec.id === id)));
   startJob({
     ids: sel.map((r) => r.rec.id), label: '초안 만들기',
-    makeRecord: (rec, row) => ({ ...rec, memo: memoFor(rec, row, common, withOwn), traits, length, achievement: stdText || rec.achievement || row?.cls?.achievement || '', achievementReached: !!(stdText || rec.achievement) }),
+    makeRecord: (rec, row) => ({ ...rec, memo: memoFor(rec, row, common, withOwn), traits, length, achievement: stdText || rec.achievement || row?.cls?.achievement || '', achievementReached: !!(stdText || rec.achievement), events: pickedEvents(row), request }),
     onText: (rid, text) => {
       store.updateRecord(rid, { draft: text, candidates: [newCandidate(text)] });
       G.generated.add(rid);

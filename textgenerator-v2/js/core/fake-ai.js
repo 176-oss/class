@@ -118,6 +118,15 @@ function fakeReached(user) {
     .filter(Boolean).map((t) => `수업 활동을 통해 ${t} 수준에 도달함.`);
 }
 
+/** [행사] 아래 행사 표기들 ('행사마다'로 시작하는 줄 앞까지) */
+function fakeEvents(user) {
+  const s = String(user ?? '');
+  const a = s.indexOf('[행사]\n');
+  if (a < 0) return [];
+  const b = s.indexOf('\n행사마다', a);
+  return s.slice(a + '[행사]\n'.length, b < 0 ? undefined : b).split('\n').map((l) => l.trim()).filter(Boolean);
+}
+
 export async function fakeGenerate(prompt, { delayMs = 300, signal } = {}) {
   await sleep(delayMs, signal);
   const user = typeof prompt === 'string' ? prompt : prompt?.user;
@@ -135,6 +144,7 @@ export async function fakeGenerate(prompt, { delayMs = 300, signal } = {}) {
     .filter(Boolean);
   const seed = hashString(memo);
   const reached = fakeReached(user);
+  const events = fakeEvents(user);
   const drafts = [];
   for (let i = 0; i < count; i += 1) {
     const k = sentences.length ? i % sentences.length : 0;
@@ -142,7 +152,8 @@ export async function fakeGenerate(prompt, { delayMs = 300, signal } = {}) {
       ? [...sentences].reverse()
       : [...sentences.slice(k), ...sentences.slice(0, k)];
     const closing = CLOSINGS[(seed + i) % CLOSINGS.length];
-    drafts.push([...order, ...reached, closing].join(' '));
+    const body = [...order, ...reached, closing].join(' ');
+    drafts.push(events.length ? `${events[0]}에서 ${body}${events.slice(1).map((e) => ` ${e}에 참여함.`).join('')}` : body);
   }
   return { text: JSON.stringify({ drafts }), model: 'fake' };
 }

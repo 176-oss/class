@@ -235,3 +235,53 @@ export function memoTargets(rows) {
 }
 
 export { byteLength };
+
+// ---------- 행사 (자율·진로): 반에 cls.events = { autonomy: [], career: [] } 로 저장 ----------
+export const EVENT_AREAS = ['autonomy', 'career'];
+
+/** 날짜 한 개를 'YYYY.MM.DD.' 로. '2026-5-14', '2026.05.14', '20260514', '5/14'(year 필요) 를 받는다. 못 읽으면 null */
+function oneDate(raw, year) {
+  const s = String(raw ?? '').trim().replace(/\s+/g, '');
+  let y; let m; let d;
+  let r = s.match(/^(\d{4})[.\-/년](\d{1,2})[.\-/월](\d{1,2})[.일]?$/);
+  if (r) [, y, m, d] = r;
+  else if ((r = s.match(/^(\d{4})(\d{2})(\d{2})$/))) [, y, m, d] = r;
+  else if ((r = s.match(/^(\d{1,2})[.\-/월](\d{1,2})[.일]?$/)) && year) { [, m, d] = r; y = String(year); } else return null;
+  const Y = Number(y); const M = Number(m); const D = Number(d);
+  const dt = new Date(Y, M - 1, D);
+  if (dt.getFullYear() !== Y || dt.getMonth() !== M - 1 || dt.getDate() !== D) return null;
+  return `${Y}.${String(M).padStart(2, '0')}.${String(D).padStart(2, '0')}.`;
+}
+
+/**
+ * 행사 날짜를 기재요령 형식으로 (중 77, 고 82): 하루 '2026.05.14.', 기간 '2026.05.14.-2026.05.16.' (~ 또는 - 로 나눈 것을 받음).
+ * year: 월·일만 적었을 때 쓸 학년도. 반환 { ok, value, error }
+ */
+export function formatEventDate(raw, year) {
+  const s = String(raw ?? '').trim();
+  if (!s) return { ok: false, value: '', error: '날짜를 적어 주세요 (예: 2026.05.14.).' };
+  const parts = s.split(/\s*~\s*|\s+-\s+|(?<=\.)\s*-\s*(?=\d)/);
+  if (parts.length > 2) return { ok: false, value: '', error: `'${s}'을(를) 날짜로 읽을 수 없습니다. 기간은 2026.05.14.-2026.05.16.처럼 적어 주세요.` };
+  const a = oneDate(parts[0], year);
+  const b = parts[1] !== undefined ? oneDate(parts[1], a ? Number(a.slice(0, 4)) : year) : null;
+  if (!a || (parts[1] !== undefined && !b)) return { ok: false, value: '', error: `'${s}'을(를) 날짜로 읽을 수 없습니다. 2026.05.14.처럼 적어 주세요.` };
+  if (b && b < a) return { ok: false, value: '', error: '기간의 끝 날짜가 시작 날짜보다 앞입니다.' };
+  return { ok: true, value: b && b !== a ? `${a}-${b}` : a, error: null };
+}
+
+/** 초안에 쓸 행사 표기: '학생자치회 임원 선거(2026.03.15.)' */
+export const eventLabel = (ev) => `${String(ev?.name ?? '').trim()}(${String(ev?.date ?? '').trim()})`;
+
+/** 행사 저장(새로 또는 고치기). 날짜순으로 정렬 */
+export function saveEvent(events, ev) {
+  const next = { id: ev.id, name: String(ev.name ?? '').trim(), date: String(ev.date ?? '').trim() };
+  const list = (Array.isArray(events) ? events : []).filter((e) => e.id !== next.id);
+  list.push(next);
+  return list.sort((x, y) => (x.date < y.date ? -1 : x.date > y.date ? 1 : 0));
+}
+
+/** 초안에서 빠진 행사 표기 (점검용) */
+export function missingEventLabels(text, events) {
+  const t = String(text ?? '');
+  return (Array.isArray(events) ? events : []).map(eventLabel).filter((l) => !t.includes(l));
+}

@@ -3,6 +3,7 @@ import { checkText, checkClass } from '../rules/check.js';
 import { byteLimit, areaById } from '../rules/areas.js';
 import { DEFAULT_MODELS, validModel } from './ai.js';
 import { createKeyStore } from '../shared/key-store.js';
+import { canonDate, MAX_EVENTS } from '../rules/events.js';
 
 const SETTINGS_KEY = 'sgb-checker:settings';
 const ls = (() => { try { return window.localStorage; } catch { return null; } })();
@@ -10,7 +11,7 @@ const ls = (() => { try { return window.localStorage; } catch { return null; } }
 export const keys = createKeyStore(ls);
 
 function defaults() {
-  return { school: 'mid', limits: {}, schoolWords: [], aiOn: false, models: [...DEFAULT_MODELS], fakeAi: false };
+  return { school: 'mid', limits: {}, schoolWords: [], events: [], aiOn: false, models: [...DEFAULT_MODELS], fakeAi: false };
 }
 function loadSettings() {
   const d = defaults();
@@ -22,6 +23,7 @@ function loadSettings() {
       for (const [k, n] of Object.entries(v.limits)) if (areaById(k) && Number.isInteger(n) && n > 0 && n <= 5000) d.limits[k] = n;
     }
     if (Array.isArray(v.schoolWords)) d.schoolWords = v.schoolWords.filter((w) => typeof w === 'string' && w.trim().length >= 2).map((w) => w.trim().slice(0, 40)).slice(0, 30);
+    if (Array.isArray(v.events)) d.events = v.events.filter((e) => e && typeof e.name === 'string' && e.name.trim() && canonDate(e.date) === e.date).map((e) => ({ name: e.name.trim().slice(0, 60), date: e.date })).slice(0, MAX_EVENTS);
     d.aiOn = v.aiOn === true;
     d.fakeAi = v.fakeAi === true;
     if (Array.isArray(v.models)) { const m = v.models.filter(validModel).slice(0, 8); if (m.length) d.models = m; }
@@ -57,7 +59,7 @@ export function itemCtx(it) {
   return {
     school: S.school, grade: S.grade, area: it.area, subject: it.subject,
     limitBytes: byteLimit(it.area, S.school, settings.limits),
-    names: allNames(), schoolWords: settings.schoolWords, schoolYear: schoolYear(),
+    names: allNames(), schoolWords: settings.schoolWords, schoolYear: schoolYear(), events: settings.events,
   };
 }
 

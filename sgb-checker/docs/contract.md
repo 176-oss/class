@@ -151,3 +151,8 @@ localStorage `sgb-handoff` =
 - 체육대회·합창대회는 학교 행사일 수 있어 '확인'. 그 밖의 '대회'는 '오류'.
 - AI로 보낼 때 세 글자 이름의 이름 부분은 앞이 한글이 아니면 뒤와 상관없이 가린다 ('하늘' 같은 낱말도 가려질 수 있음. 개인정보를 먼저).
 - 작성 도우미 자리에서 복사해 온 키는 작성 도우미에서 지워도 공용 자리에 남는다. 작성 도우미가 공용 자리를 쓰게 바뀐 뒤에는 한쪽에서 지우면 둘 다 지워진다 (프롬프트 C).
+
+## 11. 학교 행사 목록 점검 (2026-11-13)
+- `rules/events.js` (순수): `canonDate`(하루 `2026.03.04.`, 기간 `2026.03.04.-2026.03.06.`), `parseEventList`(붙여넣기 줄 또는 표 -> `{ events, errors }`, 최대 300개), `checkEvents(text, events, year)`.
+- 지적: `event-date`(이름 같고 날짜 다름, fix=목록 날짜), `event-name`(날짜는 목록에 있고 이름 다름), `event-unknown`(목록에 없는 괄호 속 날짜), `event-no-date`(목록 이름 뒤 날짜 없음, fix=`행사명(날짜)`). 모두 '확인'. 자율·진로(`EVENT_AREAS`)에서 목록이 있을 때만.
+- 목록은 설정 `settings.events` 로 localStorage 에만 둔다 (불러올 때 `canonDate` 로 다시 검사). `itemCtx.events` 로 넘긴다.

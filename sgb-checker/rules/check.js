@@ -4,6 +4,7 @@ import { byteLength } from './bytes.js';
 import { checkFormat, splitSentences } from './text.js';
 import { findForbidden } from './forbidden.js';
 import { commonSubjectBase, LIMIT_BASIS } from './areas.js';
+import { checkEvents, EVENT_AREAS } from './events.js';
 
 export const FORBIDDEN = data.entries;
 
@@ -24,6 +25,10 @@ export const RULES = {
   'special-char': { label: '특수문자', basis: { mid: '중 30', high: '고 30' } },
   'neis-char': { label: 'NEIS 깨짐 문자', basis: { mid: 'NEIS 입력', high: 'NEIS 입력' } },
   'date-format': { label: '날짜 형식', basis: { mid: '중 77', high: '고 82' } },
+  'event-date': { label: '행사 날짜가 목록과 다름', basis: { mid: '학교 행사 목록', high: '학교 행사 목록' } },
+  'event-name': { label: '행사 이름이 목록과 다름', basis: { mid: '학교 행사 목록', high: '학교 행사 목록' } },
+  'event-unknown': { label: '목록에 없는 행사 날짜', basis: { mid: '학교 행사 목록', high: '학교 행사 목록' } },
+  'event-no-date': { label: '행사 날짜 빠짐', basis: { mid: '중 77', high: '고 82' } },
   exaggeration: { label: '과장 표현', basis: { mid: '중 19', high: '고 19' } },
   'grade3-autonomy': { label: '3학년 영역 이름', basis: { mid: '중 162', high: '고 208' } },
   'club-name-repeat': { label: '동아리명 반복', basis: { mid: '중 79', high: '고 84' } },
@@ -101,6 +106,7 @@ export function checkText(text, ctx) {
   if (limit && bytes > limit) raw.push({ ruleId: 'bytes-over', level: 'error', start: 0, end: 0, reason: `${bytes}/${limit}바이트. 한도를 ${bytes - limit}바이트 넘음` });
   else if (limit && bytes >= limit * 0.95) raw.push({ ruleId: 'bytes-near', level: 'warn', start: 0, end: 0, reason: `${bytes}/${limit}바이트. 한도에 가까움` });
   raw.push(...checkFormat(t, ctx));
+  if (EVENT_AREAS.includes(ctx.area)) raw.push(...checkEvents(t, ctx.events, ctx.schoolYear));
   raw.push(...findForbidden(t, FORBIDDEN, ctx));
   checkArea(t, ctx, raw);
   const seen = new Set();

@@ -138,7 +138,7 @@ function systemText({ style = false, refine = false, reached = false } = {}) {
  * 프롬프트 만들기. memo 는 scrubMemo 를 거친 것만 넣는다.
  * @returns {{ system: string, user: string }}
  */
-export function buildPrompt({ area, subject, achievement, achievementReached = false, memo, traits, length, limit, count, style = null } = {}) {
+export function buildPrompt({ area, subject, achievement, achievementReached = false, events = [], request = '', memo, traits, length, limit, count, style = null } = {}) {
   const n = Math.max(1, Math.min(MAX_DRAFTS, Number(count) || 1));
   const cleanMemo = stripMemoMarks(memo);
   const ach = area === 'subject' ? String(achievement ?? '').trim() : '';
@@ -158,6 +158,17 @@ export function buildPrompt({ area, subject, achievement, achievementReached = f
   } else if (ach) {
     lines.push(`[관련 성취기준] ${ach}`);
     lines.push('성취기준은 방향을 잡는 데만 쓰고, 메모에 없는 학습 결과를 성취기준에서 끌어와 쓰지 않음.');
+  }
+  const evs = (area === 'autonomy' || area === 'career') ? (Array.isArray(events) ? events : []).map((e) => String(e).trim()).filter(Boolean) : [];
+  if (evs.length) {
+    lines.push('[행사]');
+    lines.push(...evs);
+    lines.push(`행사마다 그 행사를 쓰는 첫 문장을 위 행사 표기 그대로 시작함 (예: ${evs[0]}에서 ~함). 행사 이름, 날짜, 괄호 모양을 바꾸지 않음.${evs.length > 1 ? ' 행사는 위 순서대로 씀.' : ''} 메모에서 행사와 이어지는 내용만 그 행사 뒤에 씀.`);
+  }
+  const req = String(request ?? '').trim();
+  if (req) {
+    lines.push(`[추가 요청] ${req.replace(/\s+/g, ' ')}`);
+    lines.push('추가 요청은 강조점과 문장 모양에만 반영하고, 메모에 없는 사실을 더하지 않음.');
   }
   const tr = (Array.isArray(traits) ? traits : []).map((t) => String(t).trim()).filter(Boolean);
   if (tr.length) {
