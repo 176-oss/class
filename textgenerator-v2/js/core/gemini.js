@@ -190,6 +190,7 @@ export async function generateDrafts({
     memo,
     traits: record.traits,
     length: record.length,
+    targetBytes: record.targetBytes,
     limit,
     count: n,
     style: maskStyle(style, people),

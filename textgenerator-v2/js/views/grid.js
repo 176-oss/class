@@ -4,7 +4,7 @@
 import { h, clear, icon, debounce } from '../dom.js';
 import { toast, announce, chip, seg, badge, alertBox, emptyState, field, progressBar, openTool, openDialog } from '../ui.js';
 import * as store from '../store.js';
-import { AREA_LABELS, STATUS_LABELS, LENGTH_LABELS, TRAITS_BY_AREA, KIND_LABELS, newCandidate, deriveStatus, recordKey } from '../core/model.js';
+import { AREA_LABELS, STATUS_LABELS, TRAITS_BY_AREA, KIND_LABELS, newCandidate, deriveStatus, recordKey } from '../core/model.js';
 import { byteLength, byteLevel } from '../core/bytes.js';
 import { generateDrafts, aiCheck, AiError } from '../core/gemini.js';
 import { pickExamples } from '../core/style.js';
@@ -21,7 +21,7 @@ const G = {
   panel: false,
   common: '',
   traits: new Set(),
-  length: 'standard',
+  targetBytes: null, // 목표 바이트 (null 이면 영역 한도의 70%)
   withOwn: true,
   styleOn: true,
   mode: 'skip',
@@ -750,7 +750,7 @@ function renderPanel() {
     oninput: (e) => { G.common = e.target.value; updateMakeButtons(); },
   });
   const picked = pickExamples(store.getStyles(), G.area, G.area === 'subject' ? (sel[0]?.cls.subject || null) : null);
-  const canMake = !G.job && !noKey() && sel.length > 0 && (G.common.trim() || G.withOwn);
+  const canMake = !G.job && !noKey() && sel.length > 0 && (G.common.trim() || G.withOwn || G.traits.size > 0);
   clear(els.panel,
     h('div', { class: 'panel-head' },
       h('h2', { class: 'card-title' }, '일괄 작성'),
@@ -765,9 +765,8 @@ function renderPanel() {
       h('h3', { class: 'section-title', id: 'gp-2' }, '2 특징'),
       field('공통 특징', common, '이름과 학번은 AI로 보내지 않습니다. 학생마다 다른 글이 되도록 학생 메모를 함께 쓸 수 있습니다.'),
       h('div', { class: 'field' }, h('span', { class: 'label', id: 'gp-traits' }, '드러낼 모습'),
-        h('div', { class: 'row chips', role: 'group', 'aria-labelledby': 'gp-traits' }, traits.map((t) => chip(t, G.traits.has(t), (on) => { if (on) G.traits.add(t); else G.traits.delete(t); })))),
-      h('div', { class: 'field' }, h('span', { class: 'label', id: 'gp-len' }, '목표 분량'),
-        seg({ labelledby: 'gp-len', options: Object.entries(LENGTH_LABELS), value: G.length, onChange: (v) => { G.length = v; } })),
+        h('div', { class: 'row chips', role: 'group', 'aria-labelledby': 'gp-traits' }, traits.map((t) => chip(t, G.traits.has(t), (on) => { if (on) G.traits.add(t); else G.traits.delete(t); updateMakeButtons(); })))),
+      targetBytesField(),
       standardsBox(sel),
       field('추가 요청 (선택)', h('textarea', { class: 'textarea', id: 'grid-request', rows: '2', value: G.request, placeholder: '예: 리더십을 특히 강조, 문장을 짧게', oninput: (e) => { G.request = e.target.value; } }), '강조점과 문장 모양에만 반영하고, 메모에 없는 사실은 더하지 않습니다.'),
       h('label', { class: 'check-row' }, h('input', { type: 'checkbox', checked: G.withOwn, onchange: (e) => { G.withOwn = e.target.checked; renderPanel(); } }), '학생 메모도 함께 쓰기'),
@@ -780,7 +779,8 @@ function updateMakeButtons() {
   const n = selectedRows().length;
   const base = !G.job && !G.candBusy && !noKey() && n > 0;
   els.panel?.querySelectorAll('[data-make]').forEach((b) => {
-    b.disabled = !(base && (b.dataset.make === 'shared' ? G.common.trim() && G.cands.length < candidateTarget(n) : (G.common.trim() || G.withOwn)));
+    const hasInput = G.common.trim() || G.traits.size > 0;
+    b.disabled = !(base && (b.dataset.make === 'shared' ? hasInput && G.cands.length < candidateTarget(n) : (hasInput || G.withOwn)));
   });
 }
 
@@ -898,6 +898,25 @@ function standardsBox(sel) {
     h('p', { class: 'hint' }, G.stds.size ? '체크한 성취기준으로 글을 만듭니다 (학생별로 고른 것보다 우선).' : '아무것도 체크하지 않으면 학생별로 고른 성취기준, 없으면 반에 올려 둔 전체를 씁니다.'));
 }
 
+// 목표 바이트: 영역 한도 안에서. 메모가 짧아도 이 분량에 가깝게 풀어 쓴다
+function targetBytesOf() {
+  const lim = store.limitOf(G.area);
+  const v = Number(G.targetBytes);
+  return v > 0 ? Math.min(v, lim) : Math.round((lim * 0.7) / 10) * 10;
+}
+function targetBytesField() {
+  const lim = store.limitOf(G.area);
+  const hint = h('span', { class: 'hint', id: 'gp-bytes-hint' });
+  const paint = () => clear(hint, `한도 ${lim}바이트 중. 대략 ${Math.floor(targetBytesOf() / 2.6)}자. 메모가 짧아도 메모의 사실을 과정·태도·배운 점으로 풀어 이 분량에 가깝게 씁니다.`);
+  const input = h('input', {
+    class: 'input', type: 'number', id: 'gp-bytes', min: '100', max: String(lim), step: '10', inputmode: 'numeric', value: String(targetBytesOf()), 'aria-describedby': 'gp-bytes-hint',
+    oninput: (e) => { const v = Number(e.target.value); G.targetBytes = v > 0 ? v : null; paint(); },
+  });
+  paint();
+  return h('div', { class: 'field' }, h('label', { class: 'label', for: 'gp-bytes' }, '목표 바이트'),
+    h('div', { class: 'row' }, input, h('span', { class: 'small muted' }, `/ ${lim}바이트`)), hint);
+}
+
 function methodSeg() {
   return h('div', { class: 'field' }, h('span', { class: 'label', id: 'gp-method' }, '초안 만드는 방식'),
     seg({
@@ -940,14 +959,14 @@ function sharedSections(sel) {
   const assigned = sel.filter((r) => G.assign.has(r.rec.id) && G.cands[G.assign.get(r.rec.id)]?.trim());
   const target = candidateTarget(sel.length);
   const remain = Math.max(0, target - G.cands.length);
-  const canMake = !G.candBusy && !G.job && !noKey() && sel.length > 0 && G.common.trim() && remain > 0;
+  const canMake = !G.candBusy && !G.job && !noKey() && sel.length > 0 && (G.common.trim() || G.traits.size > 0) && remain > 0;
   return [
     h('section', { class: 'stack', 'aria-labelledby': 'gp-3' },
       h('h3', { class: 'section-title', id: 'gp-3' }, '3 후보 만들기'),
       methodSeg(),
       h('p', { class: 'hint' }, `위의 공통 특징만으로 후보를 만듭니다 (학생 메모와 모둠 메모는 쓰지 않음). 고른 학생 ${sel.length}명에 5개를 더해 ${target}개까지 만들고, 만든 뒤 후보마다 붙일 학생을 고르세요.`),
       noKey() ? h('p', { class: 'hint' }, '설정에서 API 키를 넣으면 만들 수 있습니다. ', h('a', { href: '#settings' }, '설정으로 가기')) : null,
-      !G.common.trim() ? h('p', { class: 'hint' }, '공통 특징을 먼저 적어 주세요.') : null,
+      !G.common.trim() && !G.traits.size ? h('p', { class: 'hint' }, '공통 특징을 적거나 드러낼 모습을 골라 주세요.') : null,
       h('div', { class: 'row' },
         h('button', { type: 'button', class: 'btn btn-primary', 'data-make': 'shared', disabled: !canMake, onclick: makeShared }, icon('spark'), G.candBusy ? '만드는 중' : (G.cands.length ? `후보 ${remain}개 더 만들기` : `후보 ${target}개 만들기`)),
         G.cands.length ? h('button', { type: 'button', class: 'btn btn-ghost', disabled: G.candBusy, onclick: () => { G.cands = []; G.assign = new Map(); renderPanel(); } }, '후보 모두 지우기') : null,
@@ -1004,7 +1023,7 @@ function candCard(i, sel) {
 function makeShared() {
   const sel = selectedRows();
   if (!sel.length) { toast('표에서 학생을 먼저 고르세요'); return; }
-  if (!G.common.trim()) { toast('공통 특징을 먼저 적어 주세요'); return; }
+  if (!G.common.trim() && !G.traits.size) { toast('공통 특징을 적거나 드러낼 모습을 골라 주세요'); return; }
   const need = candidateTarget(sel.length) - G.cands.length;
   if (need <= 0) { toast('후보가 이미 충분합니다'); return; }
   flushEdits();
@@ -1012,7 +1031,7 @@ function makeShared() {
   const rec = store.state.records.get(first.rec.id) || first.rec;
   const settings = store.state.settings;
   const roster = rosterAll();
-  const common = G.common; const traits = [...G.traits]; const length = G.length; const stdText = G.stds.size ? standardsText(G.stds) : ''; const request = G.request; const events = pickedEvents(first);
+  const common = G.common; const traits = [...G.traits]; const targetBytes = targetBytesOf(); const stdText = G.stds.size ? standardsText(G.stds) : ''; const request = G.request; const events = pickedEvents(first);
   const calls = Math.ceil(need / 3);
   const job = { label: '후보 만들기', total: calls, done: 0, failed: [], short: 0, stopReason: '', batch: null, summary: () => `후보 ${G.cands.length}개` };
   const target = candidateTarget(sel.length);
@@ -1024,7 +1043,7 @@ function makeShared() {
       const left = target - G.cands.length;
       if (left <= 0) return 'skipped';
       const res = await generateDrafts({
-        record: { ...rec, memo: common, traits, length, achievement: stdText || first.cls.achievement || '', achievementReached: !!stdText, events, request }, // 후보는 여러 학생이 같이 쓰니 학생별 성취기준은 넣지 않는다
+        record: { ...rec, memo: common, traits, targetBytes, achievement: stdText || first.cls.achievement || '', achievementReached: !!stdText, events, request }, // 후보는 여러 학생이 같이 쓰니 학생별 성취기준은 넣지 않는다
         studentName: '', roster, settings, apiKey: store.getApiKey(), count: Math.min(3, left), fake: ctx.isFakeAI(), style: styleFor(rec),
       });
       const drafts = (res?.drafts || []).filter((d) => d && d.trim()).map((d) => d.trim());
@@ -1045,10 +1064,7 @@ function pasteShared() {
   const sel = selectedRows();
   const drafts = assignedDrafts(G.cands, G.assign);
   const target = sel.filter((r) => drafts[r.rec.id]);
-  applyPaste(target, drafts, (patched) => {
-    for (const id of patched) { G.assign.delete(id); G.selected.delete(id); }
-    syncChecks(); renderBar(); renderPanel();
-  });
+  applyPaste(target, drafts, afterPaste);
 }
 
 function draftEditor(r) {
@@ -1076,11 +1092,11 @@ function draftEditor(r) {
 function makeSelected() {
   const sel = selectedRows().filter((r) => statusOf(r.rec) !== 'done');
   if (!sel.length) { toast('고른 학생이 없습니다'); return; }
-  const common = G.common; const withOwn = G.withOwn; const traits = [...G.traits]; const length = G.length; const stdText = G.stds.size ? standardsText(G.stds) : ''; const request = G.request;
+  const common = G.common; const withOwn = G.withOwn; const traits = [...G.traits]; const targetBytes = targetBytesOf(); const stdText = G.stds.size ? standardsText(G.stds) : ''; const request = G.request;
   G.generated = new Set([...G.generated].filter((id) => !sel.some((r) => r.rec.id === id)));
   startJob({
     ids: sel.map((r) => r.rec.id), label: '초안 만들기',
-    makeRecord: (rec, row) => ({ ...rec, memo: memoFor(rec, row, common, withOwn), traits, length, achievement: stdText || rec.achievement || row?.cls?.achievement || '', achievementReached: !!(stdText || rec.achievement), events: pickedEvents(row), request }),
+    makeRecord: (rec, row) => ({ ...rec, memo: memoFor(rec, row, common, withOwn), traits, targetBytes, achievement: stdText || rec.achievement || row?.cls?.achievement || '', achievementReached: !!(stdText || rec.achievement), events: pickedEvents(row), request }),
     onText: (rid, text) => {
       store.updateRecord(rid, { draft: text, candidates: [newCandidate(text)] });
       G.generated.add(rid);
@@ -1094,7 +1110,14 @@ function pasteToTable() {
   const sel = selectedRows().filter((r) => G.generated.has(r.rec.id));
   const drafts = {};
   for (const r of sel) drafts[r.rec.id] = (store.state.records.get(r.rec.id) || r.rec).draft;
-  applyPaste(sel, drafts);
+  applyPaste(sel, drafts, afterPaste);
+}
+
+// 표에 붙인 학생은 선택에서 빼서 다음 학생을 고를 수 있게 한다 (모두 빠지면 패널이 닫힘)
+function afterPaste(patched) {
+  for (const id of patched) { G.selected.delete(id); G.generated.delete(id); G.assign.delete(id); }
+  onSelection();
+  if (patched.length) toast(`붙인 ${patched.length}명은 선택을 풀었습니다. 다음 학생을 고르세요.`);
 }
 
 /** 표의 명렬 순서대로 최종본 칸에 붙인다. after(붙은 기록 id 목록) 는 붙인 뒤 화면 정리용 */

@@ -135,6 +135,13 @@ export async function fakeGenerate(prompt, { delayMs = 300, signal } = {}) {
   if (refine) return { text: JSON.stringify({ drafts: [fakeRefine(refine.text, refine.request, extractMemo(user))] }), model: 'fake' };
   const memo = extractMemo(user);
   const count = extractCount(user);
+  const traitLine = (String(user ?? '').match(/\[드러낼 모습\] ([^\n]+)/) || [])[1];
+  if (traitLine && memo.replace(/\s+/g, '').length < 30) {
+    const ts = traitLine.split(/,\s*/).filter(Boolean);
+    const body = ts.map((t, i) => `${t}${i % 2 ? '이 돋보이는 태도를 꾸준히 보임.' : '을 바탕으로 맡은 일에 성실하게 참여함.'}`).join(' ');
+    const drafts = Array.from({ length: extractCount(user) }, (_, i) => `${memo.trim() ? `${toNounEnding(memo)} ` : ''}${body} ${CLOSINGS[i % CLOSINGS.length]}`);
+    return { text: JSON.stringify({ drafts }), model: 'fake' };
+  }
   if (memo.includes('부족') || memo.replace(/\s+/g, '').length < 10) {
     return { text: JSON.stringify({ drafts: [INSUFFICIENT_TEXT] }), model: 'fake' };
   }

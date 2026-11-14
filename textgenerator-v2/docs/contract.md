@@ -789,3 +789,9 @@ export async function refineDraft({ record, text, request, studentName, roster, 
 - 학교 행사 목록: 설정 `events = { autonomy: [{ id, name, date }], career: [...] }` (드라이브·백업에 함께). 표 위 [행사 목록 가져오기]로 붙여넣기·엑셀·CSV를 `parseEventList`(core/grid.js)로 읽어 더한다(같은 행사명·날짜는 한 번). 예전에 반에 넣은 행사(`cls.events`)도 함께 보인다.
 - 패널의 '행사' 칸은 대상 바로 아래. 목록에서 체크한 행사가 초안에 `행사명(날짜)`로 들어간다.
 - 작성 표의 열은 `allCols()` 의 이름(check, no, name, memo, final, bytes, status, issues, std, done)으로 만든다. [보이는 열]로 memo·bytes·status·issues·std·done 을 숨기고, name·memo·issues 는 머리 칸 손잡이(`role=separator`, 끌기 또는 화살표 16px, 두 번 누르면 처음대로)로 너비를 바꾼다. localStorage `sgb-v2-grid-cols` = { hide: [], w: { 열: px } } (기기별, 동기화 안 함). 점검 열을 숨기면 지적 줄도 숨긴다.
+
+## 35. 목표 바이트, 드러낼 모습만으로 쓰기, 긍정적 변화, 붙인 뒤 선택 풀기 (2026-11-14)
+- 패널의 목표 분량(간결·표준·충실)을 목표 바이트 숫자로 바꿨다 (`G.targetBytes`, 기본 영역 한도의 70%, 한도 안). `record.targetBytes` -> `lengthPlan({ targetBytes })` 는 메모가 짧아도 목표를 줄이지 않고, 메모의 사실을 과정·태도·배운 점으로 풀게 한다 (지어내기 금지). 학생별 화면은 예전 `length` 를 그대로 쓴다.
+- 드러낼 모습만으로 쓰기: 드러낼 모습이 있고 메모가 30자 미만이면(`traitsOnly`) 원칙 7을 '드러낼 모습을 태도와 행동 경향으로 풀어 씀, 활동·행사·숫자·결과는 지어내지 않음'으로 바꾸고 내용 부족으로 멈추지 않는다. 버튼은 공통 특징·학생 메모·드러낼 모습 중 하나만 있어도 켜진다.
+- 원칙 2에 '부정적인 내용은 고쳐 나가려는 노력과 긍정적인 행동 변화로, 나아진 모습이 메모에 없으면 노력과 성장 가능성으로'를 더했다.
+- 표에 붙인 학생은 선택에서 빠진다(`afterPaste`, 두 방식 모두). 모두 빠지면 패널이 닫힌다.
