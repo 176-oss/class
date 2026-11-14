@@ -242,7 +242,7 @@ function refreshRow(id, { setText = false } = {}) {
     ];
     clear(ref.detailCell, items.length ? h('ul', { class: 'grid-issue-line', 'aria-label': `${row.student.name} 점검 지적` },
       items.slice(0, MAX_LINE_ITEMS), items.length > MAX_LINE_ITEMS ? h('li', { class: 'muted' }, `외 ${items.length - MAX_LINE_ITEMS}건`) : null) : null);
-    ref.detail.hidden = !items.length;
+    ref.detail.hidden = !items.length || !ref.showDetail;
     ref.tr.classList.toggle('has-detail', items.length > 0);
     if (chk.empty) { clear(ref.issues, h('span', { class: 'muted' }, '-')); return; }
     clear(ref.issues,
@@ -294,25 +294,94 @@ function rowEl(row) {
     tr: null, memo, final: fin, done: doneBox, std: stdBtn,
     bytes: h('td', { class: 'num' }), status: h('td', {}), issues: h('td', { class: 'grid-issue-cell' }),
   };
-  const compact = G.panel;
-  const showStd = G.area === 'subject' && !compact;
   const showClass = cls.kind !== 'homeroom';
-  ref.tr = h('tr', { 'data-id': id },
-    h('td', { class: 'col-check' }, h('label', { class: 'check-hit' }, sel)),
-    h('td', { class: 'num' }, showClass ? `${Number(String(student.studentId).slice(0, 1))}-${Number(String(student.studentId).slice(1, 3))} ${Number(String(student.studentId).slice(3)) || ''}` : (String(student.studentId).slice(3) * 1 || student.studentId)),
-    h('th', { scope: 'row', class: 'col-name' }, student.name, G.area === 'subject' && groupOf(rec, cls) ? h('span', { class: 'small muted grid-group-tag' }, groupOf(rec, cls).name) : null),
-    h('td', {}, memo),
-    h('td', {}, fin),
-    ref.bytes,
-    compact ? null : ref.status,
-    ref.issues,
-    showStd ? h('td', {}, stdBtn) : null,
-    compact ? null : h('td', { class: 'col-done' }, h('label', { class: 'check-hit' }, doneBox)));
-  // 지적 줄: 체크·번호·이름 칸 아래는 비우고, 메모부터 끝까지 넓게 쓴다
-  ref.detailCell = h('td', { class: 'grid-issue-detail', colspan: String(ref.tr.children.length - 3) });
+  const cells = {
+    check: () => h('td', { class: 'col-check' }, h('label', { class: 'check-hit' }, sel)),
+    no: () => h('td', { class: 'num' }, showClass ? `${Number(String(student.studentId).slice(0, 1))}-${Number(String(student.studentId).slice(1, 3))} ${Number(String(student.studentId).slice(3)) || ''}` : (String(student.studentId).slice(3) * 1 || student.studentId)),
+    name: () => h('th', { scope: 'row', class: 'col-name' }, student.name, G.area === 'subject' && groupOf(rec, cls) ? h('span', { class: 'small muted grid-group-tag' }, groupOf(rec, cls).name) : null),
+    memo: () => h('td', {}, memo),
+    final: () => h('td', {}, fin),
+    bytes: () => ref.bytes,
+    status: () => ref.status,
+    issues: () => ref.issues,
+    std: () => h('td', {}, stdBtn),
+    done: () => h('td', { class: 'col-done' }, h('label', { class: 'check-hit' }, doneBox)),
+  };
+  const keys = visibleCols().map((c) => c.key);
+  ref.tr = h('tr', { 'data-id': id }, keys.map((k) => cells[k]()));
+  // 지적 줄: 체크·번호·이름 칸 아래는 비우고, 그 뒤부터 끝까지 넓게 쓴다 (점검 열을 숨기면 지적 줄도 숨김)
+  ref.showDetail = keys.includes('issues');
+  ref.detailCell = h('td', { class: 'grid-issue-detail', colspan: String(keys.length - 3) });
   ref.detail = h('tr', { class: 'grid-issue-row', hidden: true }, h('td', { colspan: '3' }), ref.detailCell);
   cellRefs.set(id, ref);
   return [ref.tr, ref.detail];
+}
+
+// ---------- 열: 숨기기와 너비 조절 (이 브라우저에만 저장) ----------
+const COLS_KEY = 'sgb-v2-grid-cols';
+const colPrefs = (() => { try { const v = JSON.parse(localStorage.getItem(COLS_KEY) || 'null'); return { hide: Array.isArray(v?.hide) ? v.hide : [], w: v?.w && typeof v.w === 'object' ? v.w : {} }; } catch { return { hide: [], w: {} }; } })();
+const saveColPrefs = () => { try { localStorage.setItem(COLS_KEY, JSON.stringify(colPrefs)); } catch { /* 저장 못 하면 이번에만 */ } };
+// hideable: 숨길 수 있는 열. resize: 너비를 끌어 바꿀 수 있는 열 (최종본은 남는 폭을 모두 씀)
+function allCols() {
+  const wide = rows.some((r) => r.cls.kind !== 'homeroom'); // 교과·동아리 반은 학년-반 번호로 보인다
+  const p = G.panel;
+  return [
+    { key: 'check', label: '', w: 44 },
+    { key: 'no', label: wide ? '반 번호' : '번호', w: wide ? 76 : 48, num: true },
+    { key: 'name', label: '이름', w: 76, resize: true },
+    { key: 'memo', label: '메모', w: p ? '14%' : '18%', hideable: true, resize: true },
+    { key: 'final', label: '최종본', w: 'auto' },
+    { key: 'bytes', label: '바이트', w: 64, num: true, hideable: true },
+    p ? null : { key: 'status', label: '상태', w: 72, hideable: true },
+    { key: 'issues', label: '점검', w: p ? 96 : 104, hideable: true, resize: true },
+    G.area === 'subject' && !p ? { key: 'std', label: '성취기준', w: 104, hideable: true } : null,
+    p ? null : { key: 'done', label: '완료', w: 52, hideable: true },
+  ].filter(Boolean);
+}
+const visibleCols = () => allCols().filter((c) => !(c.hideable && colPrefs.hide.includes(c.key)));
+const colWidth = (c) => (colPrefs.w[c.key] ? `${colPrefs.w[c.key]}px` : typeof c.w === 'number' ? `${c.w}px` : c.w);
+const COL_MIN = 48; const COL_MAX = 640;
+
+/** 머리 칸 오른쪽 끝의 손잡이: 끌거나, 포커스 뒤 왼쪽·오른쪽 화살표로 16px씩. 두 번 누르면 처음 너비 */
+function resizer(c, col) {
+  const set = (px) => { const v = Math.round(Math.min(COL_MAX, Math.max(COL_MIN, px))); colPrefs.w[c.key] = v; col.style.width = `${v}px`; el.setAttribute('aria-valuenow', String(v)); return v; };
+  const el = h('span', {
+    class: 'col-resize', role: 'separator', tabindex: '0', 'aria-orientation': 'vertical', 'aria-label': `${c.label} 열 너비 (왼쪽·오른쪽 화살표로 조절)`,
+    'aria-valuemin': String(COL_MIN), 'aria-valuemax': String(COL_MAX),
+    onpointerdown: (e) => {
+      e.preventDefault();
+      const th = el.parentElement; const x0 = e.clientX; const w0 = th.getBoundingClientRect().width;
+      el.setPointerCapture?.(e.pointerId);
+      const move = (ev) => { set(w0 + ev.clientX - x0); };
+      const up = () => { el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up); saveColPrefs(); resizeAll(); };
+      el.addEventListener('pointermove', move); el.addEventListener('pointerup', up);
+    },
+    onkeydown: (e) => {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      e.preventDefault();
+      const cur = el.parentElement.getBoundingClientRect().width;
+      announce(`${c.label} 열 ${set(cur + (e.key === 'ArrowRight' ? 16 : -16))}px`);
+      saveColPrefs(); resizeAll();
+    },
+    ondblclick: () => { delete colPrefs.w[c.key]; saveColPrefs(); renderTable(); },
+  });
+  return el;
+}
+
+/** 표 위 '보이는 열' 메뉴 */
+function colMenu() {
+  const opts = allCols().filter((c) => c.hideable);
+  const hidden = opts.filter((c) => colPrefs.hide.includes(c.key)).length;
+  return h('details', { class: 'grid-colmenu' },
+    h('summary', { class: 'btn btn-ghost btn-sm' }, `보이는 열${hidden ? ` (${hidden}개 숨김)` : ''}`),
+    h('div', { class: 'stack gap-1 grid-colmenu-body', role: 'group', 'aria-label': '보이는 열' },
+      opts.map((c) => h('label', { class: 'check-row', for: `col-${c.key}` },
+        h('input', { type: 'checkbox', id: `col-${c.key}`, checked: !colPrefs.hide.includes(c.key), onchange: (e) => {
+          colPrefs.hide = e.target.checked ? colPrefs.hide.filter((k) => k !== c.key) : [...colPrefs.hide, c.key];
+          saveColPrefs(); renderTable(); document.getElementById(`col-${c.key}`)?.focus();
+        } }), h('span', {}, c.label))),
+      h('button', { type: 'button', class: 'btn btn-ghost btn-sm', onclick: () => { colPrefs.hide = []; colPrefs.w = {}; saveColPrefs(); renderTable(); } }, '열 처음대로'),
+      h('p', { class: 'hint' }, '열 이름 오른쪽 끝을 끌면 너비가 바뀝니다. 두 번 누르면 처음 너비로 돌아갑니다.')));
 }
 
 function renderTable() {
@@ -339,25 +408,21 @@ function renderTable() {
       });
       body.push(h('tr', { class: 'grid-group' },
         h('td', { class: 'col-check' }, h('label', { class: 'check-hit' }, gbox)),
-        h('th', { colspan: G.panel ? '6' : (G.area === 'subject' ? '9' : '8'), /* 체크 칸 뺀 열 수, 세특은 성취기준 열 하나 더 */ scope: 'colgroup' }, `${row.cls.name} (${KIND_LABELS[row.cls.kind]}${row.cls.subject ? ` · ${row.cls.subject}` : ''}) · ${mine.length}명`)));
+        h('th', { colspan: String(visibleCols().length - 1), scope: 'colgroup' }, `${row.cls.name} (${KIND_LABELS[row.cls.kind]}${row.cls.subject ? ` · ${row.cls.subject}` : ''}) · ${mine.length}명`)));
     }
     body.push(...rowEl(row));
   }
-  const wide = rows.some((r) => r.cls.kind !== 'homeroom'); // 교과·동아리 반은 학년-반 번호로 보인다
-  const noW = wide ? '76px' : '48px';
-  const subj = G.area === 'subject' && !G.panel;
+  const cols = visibleCols();
+  const colEls = cols.map((c) => h('col', { style: { width: colWidth(c) } }));
   const table = h('table', { class: 'table grid-table' },
     h('caption', { class: 'sr-only' }, `${AREA_LABELS[G.area]} 작성 표 (명렬순)`),
-    h('colgroup', {}, ...(G.panel ? ['44px', noW, '76px', '14%', 'auto', '64px', '96px'] : ['44px', noW, '76px', '18%', 'auto', '64px', '72px', '104px', ...(subj ? ['104px'] : []), '52px']).map((w) => h('col', { style: { width: w } }))),
-    h('thead', {}, h('tr', {},
-      h('th', { scope: 'col', class: 'col-check' }, h('label', { class: 'check-hit' }, selAll)),
-      h('th', { scope: 'col', class: 'num' }, wide ? '반 번호' : '번호'), h('th', { scope: 'col' }, '이름'),
-      h('th', { scope: 'col' }, '메모'), h('th', { scope: 'col' }, '최종본'),
-      h('th', { scope: 'col', class: 'num' }, '바이트'), G.panel ? null : h('th', { scope: 'col' }, '상태'),
-      h('th', { scope: 'col' }, '점검'), subj ? h('th', { scope: 'col' }, '성취기준') : null, G.panel ? null : h('th', { scope: 'col' }, '완료'))),
+    h('colgroup', {}, colEls),
+    h('thead', {}, h('tr', {}, cols.map((c, i) => h('th', { scope: 'col', class: [c.key === 'check' ? 'col-check' : null, c.num ? 'num' : null, 'grid-th'] },
+      c.key === 'check' ? h('label', { class: 'check-hit' }, selAll) : c.label,
+      c.resize ? resizer(c, colEls[i]) : null)))),
     h('tbody', {}, body));
   els.table = table;
-  clear(els.tableHost, h('div', { class: 'table-wrap grid-wrap' }, table));
+  clear(els.tableHost, h('div', { class: 'grid-table-actions' }, colMenu()), h('div', { class: 'table-wrap grid-wrap' }, table));
   for (const r of rows) refreshRow(r.rec.id);
   resizeAll();
   syncChecks();

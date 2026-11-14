@@ -193,7 +193,18 @@ a.sync-status-text { text-decoration: underline; }
 .grid-group th { text-align: left; background: var(--color-surface-sunken); font-weight: var(--fw-semibold); }
 .grid-table tr.has-issue > td:nth-child(5) .grid-ta { border-color: var(--color-danger); }
 .grid-table tr.is-done > td { background: var(--color-bg); }
-.grid-table-actions { display: flex; justify-content: flex-end; }
+.grid-table-actions { display: flex; justify-content: flex-end; margin-bottom: var(--sp-2); }
+/* 보이는 열 메뉴: 표 위 오른쪽, 펼치면 아래로 뜬다 */
+.grid-colmenu { position: relative; }
+.grid-colmenu > summary { list-style: none; cursor: pointer; }
+.grid-colmenu > summary::-webkit-details-marker { display: none; }
+.grid-colmenu-body { position: absolute; right: 0; top: calc(100% + var(--sp-1)); z-index: 5; min-width: 220px; padding: var(--sp-3); background: var(--color-surface); border: var(--bw) solid var(--color-border); border-radius: var(--r-md); box-shadow: var(--shadow-2); }
+/* 열 너비 손잡이: 머리 칸 오른쪽 끝 */
+.grid-table thead th.grid-th { position: sticky; }
+.col-resize { position: absolute; top: 0; right: -6px; width: 12px; height: 100%; cursor: col-resize; touch-action: none; z-index: 2; }
+.col-resize::after { content: ''; position: absolute; top: 25%; bottom: 25%; left: 5px; width: 2px; border-radius: 1px; background: var(--color-border); }
+.col-resize:hover::after, .col-resize:focus-visible::after { background: var(--color-primary); }
+.col-resize:focus-visible { outline: var(--focus-ring) solid var(--color-focus); outline-offset: -2px; }
 .grid-issue-cell { font-size: var(--fs-sm); }
 .grid-issue-cell .row { flex-wrap: wrap; }
 /* 점검 지적 줄: 학생 행 바로 아래, 메모부터 끝까지 넓게. 지적은 점 + 글로 가로로 이어 쓴다 */

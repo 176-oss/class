@@ -788,3 +788,4 @@ export async function refineDraft({ record, text, request, studentName, roster, 
 - [메모로 초안 만들기]와 [한 명씩 작성하기]를 뺐다. 학생을 체크하면 초안 만들기 패널이 바로 열리고, 체크를 모두 풀면 닫힌다(`onSelection`). 패널을 닫아도 선택이 남아 있으면 [초안 만들기 패널 열기]. `#write-detail` 라우트는 남지만 표에서 가는 길은 없다.
 - 학교 행사 목록: 설정 `events = { autonomy: [{ id, name, date }], career: [...] }` (드라이브·백업에 함께). 표 위 [행사 목록 가져오기]로 붙여넣기·엑셀·CSV를 `parseEventList`(core/grid.js)로 읽어 더한다(같은 행사명·날짜는 한 번). 예전에 반에 넣은 행사(`cls.events`)도 함께 보인다.
 - 패널의 '행사' 칸은 대상 바로 아래. 목록에서 체크한 행사가 초안에 `행사명(날짜)`로 들어간다.
+- 작성 표의 열은 `allCols()` 의 이름(check, no, name, memo, final, bytes, status, issues, std, done)으로 만든다. [보이는 열]로 memo·bytes·status·issues·std·done 을 숨기고, name·memo·issues 는 머리 칸 손잡이(`role=separator`, 끌기 또는 화살표 16px, 두 번 누르면 처음대로)로 너비를 바꾼다. localStorage `sgb-v2-grid-cols` = { hide: [], w: { 열: px } } (기기별, 동기화 안 함). 점검 열을 숨기면 지적 줄도 숨긴다.
