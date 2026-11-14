@@ -18,7 +18,7 @@ import { settingsView } from './views/settings.js';
 const ROUTES = [
   { name: 'roster', label: '명단', icon: 'users', view: rosterView },
   { name: 'write', label: '작성', icon: 'pen', view: gridView },
-  { name: 'write-detail', label: '작성(자세히)', icon: 'pen', view: writeView, hidden: true },
+  { name: 'write-detail', label: '한 명씩 작성하기', icon: 'pen', view: writeView, hidden: true },
   { name: 'style', label: '내 스타일', icon: 'brush', view: styleView },
   { name: 'neis', label: 'NEIS 옮기기', icon: 'send', view: neisView },
   { name: 'backup', label: '백업', icon: 'archive', view: backupView },

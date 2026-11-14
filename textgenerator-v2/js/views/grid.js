@@ -131,37 +131,35 @@ function autosize(ta) {
 }
 function resizeAll() { els.table?.querySelectorAll('textarea.grid-ta').forEach(autosize); }
 
-function issueLines(chk) {
-  const kinds = { over: 'danger', forbidden: 'danger', spell: 'warn', neis: 'warn', input: 'warn', similar: 'warn', style: 'warn' };
-  const shown = chk.issues.slice(0, 3).map((i) => h('li', { class: `is-${kinds[i.kind] || 'warn'}` }, i.message));
-  if (chk.issues.length > 3) shown.push(h('li', { class: 'muted' }, `외 ${chk.issues.length - 3}건`));
-  return shown;
-}
+// 점검 지적은 학생 행 바로 아래의 넓은 줄에 가로로 이어 쓴다 (좁은 칸에 세로로 쌓이지 않게)
+const ISSUE_LEVEL = { over: 'danger', forbidden: 'danger', spell: 'warn', neis: 'warn', input: 'warn', similar: 'warn', style: 'warn' };
+const MAX_LINE_ITEMS = 8;
+const issueItem = (level, message, tag, action) => h('li', { class: `is-${level}` },
+  tag ? h('span', { class: 'grid-issue-tag' }, tag) : null, h('span', {}, message), action || null);
 
 // ---------- AI 점검 (설정 aiCheck 로 켜고 끔) ----------
 const aiOn = () => !!store.state.settings?.aiCheck;
-/** 점검 칸의 AI 지적. 점검한 뒤 글이 바뀌었으면 결과를 버린다 */
-function aiLines(id, row, ref, locked) {
+/** AI 지적 결과. 점검한 뒤 글이 바뀌었으면 결과를 버린다. 없으면 null */
+function aiResult(id, ref) {
   if (!aiOn()) return null;
   const got = G.ai.get(id);
   if (!got) return null;
   if (got.text !== ref.final.value) { G.ai.delete(id); return null; }
-  if (!got.issues.length) return h('p', { class: 'small muted' }, 'AI: 지적 없음');
-  return h('div', { class: 'stack gap-1' }, badge(`AI ${got.issues.length}`, 'warn'),
-    h('ul', { class: 'issue-list grid-issues' }, got.issues.slice(0, 4).map((i) => h('li', { class: 'is-warn' }, i.message,
-      i.fix && !locked ? h('button', {
-        type: 'button', class: 'btn btn-ghost btn-sm', 'aria-label': `${row.student.name} AI 고침 적용: ${i.message}`,
-        onclick: () => {
-          const cur = ref.final.value;
-          if (cur.indexOf(i.original) < 0) return;
-          const next = cur.replace(i.original, i.fix);
-          ref.final.value = next; autosize(ref.final);
-          G.ai.set(id, { text: next, issues: got.issues.filter((x) => x !== i && next.includes(x.original)) });
-          queue(id, { final: next }); refreshRow(id);
-          announce('AI 고침을 적용했습니다');
-        },
-      }, 'AI 고침 적용') : null)),
-      got.issues.length > 4 ? h('li', { class: 'muted' }, `외 ${got.issues.length - 4}건`) : null));
+  return got;
+}
+function aiItems(id, row, ref, locked, got) {
+  return got.issues.map((i) => issueItem('warn', i.message, 'AI', i.fix && !locked ? h('button', {
+    type: 'button', class: 'btn btn-ghost btn-sm', 'aria-label': `${row.student.name} AI 고침 적용: ${i.message}`,
+    onclick: () => {
+      const cur = ref.final.value;
+      if (cur.indexOf(i.original) < 0) return;
+      const next = cur.replace(i.original, i.fix);
+      ref.final.value = next; autosize(ref.final);
+      G.ai.set(id, { text: next, issues: got.issues.filter((x) => x !== i && next.includes(x.original)) });
+      queue(id, { final: next }); refreshRow(id);
+      announce('AI 고침을 적용했습니다');
+    },
+  }, '고침 적용') : null));
 }
 
 function runAiCheck() {
@@ -230,11 +228,22 @@ function refreshRow(id, { setText = false } = {}) {
     const chk = checkOfText(rec, ref.final.value);
     ref.chk = chk;
     ref.tr.classList.toggle('has-issue', chk.count > 0);
+    const ai = chk.empty ? null : aiResult(id, ref);
+    const same = new Map(); // 같은 지적은 한 번만, 몇 곳인지 붙인다
+    for (const i of chk.empty ? [] : chk.issues) { const k = `${i.kind}|${i.message}`; same.set(k, { i, n: (same.get(k)?.n || 0) + 1 }); }
+    const items = chk.empty ? [] : [
+      ...[...same.values()].map(({ i, n }) => issueItem(ISSUE_LEVEL[i.kind] || 'warn', n > 1 ? `${i.message} ${n}곳` : i.message)),
+      ...(ai ? aiItems(id, row, ref, locked, ai) : []),
+    ];
+    clear(ref.detailCell, items.length ? h('ul', { class: 'grid-issue-line', 'aria-label': `${row.student.name} 점검 지적` },
+      items.slice(0, MAX_LINE_ITEMS), items.length > MAX_LINE_ITEMS ? h('li', { class: 'muted' }, `외 ${items.length - MAX_LINE_ITEMS}건`) : null) : null);
+    ref.detail.hidden = !items.length;
+    ref.tr.classList.toggle('has-detail', items.length > 0);
     if (chk.empty) { clear(ref.issues, h('span', { class: 'muted' }, '-')); return; }
     clear(ref.issues,
-      chk.count ? badge(`문제 ${chk.count}`, 'danger') : h('span', { class: 'small muted' }, '문제 없음'),
-      aiLines(id, row, ref, locked),
-      chk.count ? h('ul', { class: 'issue-list grid-issues' }, issueLines(chk)) : null,
+      h('div', { class: 'row gap-1' },
+        chk.count ? badge(`문제 ${chk.count}`, 'danger') : h('span', { class: 'small muted' }, '문제 없음'),
+        ai ? badge(ai.issues.length ? `AI ${ai.issues.length}` : 'AI 없음', ai.issues.length ? 'warn' : 'done') : null),
       chk.fixable && !locked ? h('button', {
         type: 'button', class: 'btn btn-ghost btn-sm', 'aria-label': `${row.student.name} 글 정리하기`,
         onclick: () => {
@@ -293,13 +302,12 @@ function rowEl(row) {
     compact ? null : ref.status,
     ref.issues,
     showStd ? h('td', {}, stdBtn) : null,
-    compact ? null : h('td', { class: 'col-done' }, h('label', { class: 'check-hit' }, doneBox)),
-    compact ? null : h('td', {}, h('a', {
-      class: 'btn btn-ghost btn-sm', 'aria-label': `${student.name} 자세히 (후보 3개 비교, 검사, NEIS)`,
-      href: `#write-detail?class=${encodeURIComponent(cls.id)}&area=${G.area}&student=${student.studentId}`,
-    }, '자세히')));
+    compact ? null : h('td', { class: 'col-done' }, h('label', { class: 'check-hit' }, doneBox)));
+  // 지적 줄: 체크·번호·이름 칸 아래는 비우고, 메모부터 끝까지 넓게 쓴다
+  ref.detailCell = h('td', { class: 'grid-issue-detail', colspan: String(ref.tr.children.length - 3) });
+  ref.detail = h('tr', { class: 'grid-issue-row', hidden: true }, h('td', { colspan: '3' }), ref.detailCell);
   cellRefs.set(id, ref);
-  return ref.tr;
+  return [ref.tr, ref.detail];
 }
 
 function renderTable() {
@@ -326,22 +334,22 @@ function renderTable() {
       });
       body.push(h('tr', { class: 'grid-group' },
         h('td', { class: 'col-check' }, h('label', { class: 'check-hit' }, gbox)),
-        h('th', { colspan: G.panel ? '6' : (G.area === 'subject' ? '10' : '9'), /* 체크 칸 뺀 열 수, 세특은 성취기준 열 하나 더 */ scope: 'colgroup' }, `${row.cls.name} (${KIND_LABELS[row.cls.kind]}${row.cls.subject ? ` · ${row.cls.subject}` : ''}) · ${mine.length}명`)));
+        h('th', { colspan: G.panel ? '6' : (G.area === 'subject' ? '9' : '8'), /* 체크 칸 뺀 열 수, 세특은 성취기준 열 하나 더 */ scope: 'colgroup' }, `${row.cls.name} (${KIND_LABELS[row.cls.kind]}${row.cls.subject ? ` · ${row.cls.subject}` : ''}) · ${mine.length}명`)));
     }
-    body.push(rowEl(row));
+    body.push(...rowEl(row));
   }
   const wide = rows.some((r) => r.cls.kind !== 'homeroom'); // 교과·동아리 반은 학년-반 번호로 보인다
   const noW = wide ? '76px' : '48px';
   const subj = G.area === 'subject' && !G.panel;
   const table = h('table', { class: 'table grid-table' },
     h('caption', { class: 'sr-only' }, `${AREA_LABELS[G.area]} 작성 표 (명렬순)`),
-    h('colgroup', {}, ...(G.panel ? ['44px', noW, '76px', '14%', 'auto', '64px', '96px'] : ['44px', noW, '76px', '16%', 'auto', '64px', '72px', '152px', ...(subj ? ['96px'] : []), '52px', '68px']).map((w) => h('col', { style: { width: w } }))),
+    h('colgroup', {}, ...(G.panel ? ['44px', noW, '76px', '14%', 'auto', '64px', '96px'] : ['44px', noW, '76px', '18%', 'auto', '64px', '72px', '104px', ...(subj ? ['104px'] : []), '52px']).map((w) => h('col', { style: { width: w } }))),
     h('thead', {}, h('tr', {},
       h('th', { scope: 'col', class: 'col-check' }, h('label', { class: 'check-hit' }, selAll)),
       h('th', { scope: 'col', class: 'num' }, wide ? '반 번호' : '번호'), h('th', { scope: 'col' }, '이름'),
       h('th', { scope: 'col' }, '메모'), h('th', { scope: 'col' }, '최종본'),
       h('th', { scope: 'col', class: 'num' }, '바이트'), G.panel ? null : h('th', { scope: 'col' }, '상태'),
-      h('th', { scope: 'col' }, '점검'), subj ? h('th', { scope: 'col' }, '성취기준') : null, G.panel ? null : h('th', { scope: 'col' }, '완료'), G.panel ? null : h('th', { scope: 'col' }, ''))),
+      h('th', { scope: 'col' }, '점검'), subj ? h('th', { scope: 'col' }, '성취기준') : null, G.panel ? null : h('th', { scope: 'col' }, '완료'))),
     h('tbody', {}, body));
   els.table = table;
   clear(els.tableHost, h('div', { class: 'table-wrap grid-wrap' }, table));
@@ -1062,8 +1070,18 @@ function renderAll() {
       h('button', { type: 'button', class: 'btn btn-secondary', onclick: sendToChecker }, icon('send'), '점검기로 보내기'),
       h('div', { class: 'field' }, h('span', { class: 'label', id: 'grid-class-label' }, G.area === 'subject' ? '명단을 불러올 반 (체크)' : '보이는 반'),
         h('div', { class: 'row chips', role: 'group', 'aria-labelledby': 'grid-class-label' }, classChips, onlyChip))),
-    els.bar, els.job, els.board, els.layout);
+    els.bar, els.job, els.board,
+    h('div', { class: 'grid-table-actions' }, h('button', { type: 'button', class: 'btn btn-secondary', onclick: openOneByOne }, icon('pen'), '한 명씩 작성하기')),
+    els.layout);
   renderTable(); renderBoard(); renderBar(); renderJob(); renderPanel(); setSave();
+}
+
+// 한 명씩 작성하기: 고른 학생(없으면 표의 첫 학생)부터 학생별 화면(#write-detail)에서 쓴다
+function openOneByOne() {
+  flushEdits();
+  const r = selectedRows()[0] || rows[0];
+  if (!r) { toast('표에 학생이 없습니다. 위에서 반을 고르세요.'); return; }
+  location.hash = `#write-detail?class=${encodeURIComponent(r.cls.id)}&area=${G.area}&student=${r.student.studentId}`;
 }
 
 const typing = () => !!root && root.contains(document.activeElement) && document.activeElement.matches('textarea,input:not([type="checkbox"])');

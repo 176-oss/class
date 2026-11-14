@@ -994,7 +994,7 @@ function renderAll() {
     h('div', { class: 'view-head row-between' },
       h('div', { class: 'row' },
         h('a', { class: 'btn btn-secondary', href: `#write?area=${encodeURIComponent(S.area || '')}` }, icon('left'), '표로 돌아가기'),
-        h('h1', { class: 'view-title', tabindex: '-1' }, '작성 (자세히)')),
+        h('h1', { class: 'view-title', tabindex: '-1' }, '한 명씩 작성하기')),
       h('span', { class: 'small muted save-global' })),
     noKey ? alertBox('info', h('p', {}, 'AI 초안을 만들려면 설정에서 Gemini API 키를 넣어 주세요. 메모 쓰기와 검사는 키 없이도 됩니다. ', h('a', { href: '#settings' }, '설정으로 가기'))) : null,
     h('div', { class: 'write-toolbar' },
