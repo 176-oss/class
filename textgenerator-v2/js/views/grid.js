@@ -10,7 +10,8 @@ import { generateDrafts, aiCheck, AiError } from '../core/gemini.js';
 import { pickExamples } from '../core/style.js';
 import { createBatch } from '../core/batch.js';
 import { writeBatch, groupsForCheck } from '../core/handoff.js';
-import { checkCell, tidyText, composeMemo, planPaste, memoTargets, PASTE_MODES, assignedDrafts, removeCandidate, candidateTarget, autoAssign, parseStandards, standardsText, groupOfStudent, saveGroup, nextGroupName, EVENT_AREAS, formatEventDate, eventLabel, saveEvent, missingEventLabels } from '../core/grid.js';
+import { checkCell, tidyText, composeMemo, planPaste, PASTE_MODES, assignedDrafts, removeCandidate, candidateTarget, autoAssign, parseStandards, standardsText, groupOfStudent, saveGroup, nextGroupName, EVENT_AREAS, formatEventDate, eventLabel, saveEvent, missingEventLabels, parseEventList } from '../core/grid.js';
+import { readSheetFile } from '../xlsx-io.js';
 
 const G = {
   area: null,
@@ -61,7 +62,11 @@ function writeGroups(clsId, groups, { quiet = false } = {}) {
   try { store.updateClass(clsId, { groups }); } finally { quietClass = false; }
 }
 /** 이 학생 반의 행사 중 이번에 체크한 것의 표기 (자율·진로) */
-const eventsOf = (cls) => (liveCls(cls)?.events?.[G.area] || []);
+// 학교 행사 목록: 설정 events[영역] (모든 반이 함께 씀). 예전에 반에 넣은 행사(cls.events)도 함께 보여 준다
+const schoolEvents = () => store.state.settings?.events?.[G.area] || [];
+const eventsOf = (cls) => { const a = schoolEvents(); const ids = new Set(a.map((e) => e.id)); return [...a, ...(liveCls(cls)?.events?.[G.area] || []).filter((e) => !ids.has(e.id))]; };
+const writeSchoolEvents = (list) => store.updateSettings({ events: { ...(store.state.settings?.events || {}), [G.area]: list } });
+const newEventId = () => `e_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 const pickedEventList = (row) => (EVENT_AREAS.includes(G.area) ? eventsOf(row?.cls).filter((e) => G.evIds.has(e.id)) : []);
 const pickedEvents = (row) => pickedEventList(row).map(eventLabel);
 
@@ -420,12 +425,17 @@ function syncBoard() {
 
 function selectedRows() { return rows.filter((r) => G.selected.has(r.rec.id)); }
 
+// 학생을 고르면 초안 만들기 패널을 바로 열고, 모두 풀면 닫는다
 function onSelection() {
-  if (G.onlySelected) renderTable(); // 체크를 풀면 그 학생은 표에서 빠진다
+  const n = selectedRows().length;
+  const toggle = (n > 0) !== G.panel;
+  if (toggle) G.panel = n > 0;
+  if (toggle) applyLayout(); else if (G.onlySelected) renderTable(); // 체크를 풀면 그 학생은 표에서 빠진다
   syncChecks();
   renderBar();
   if (G.panel) renderPanel();
 }
+function openPanel() { G.panel = true; applyLayout(); renderPanel(); renderBar(); document.getElementById('grid-common')?.focus(); }
 
 // ---------- 성취기준 ----------
 /** 이 학생에게 쓸 성취기준 글: 패널에서 체크한 것 > 학생에게 고른 것 > 반에 올려 둔 전체 */
@@ -494,25 +504,16 @@ function sendToChecker() {
 function renderBar() {
   if (!els.bar) return;
   const n = selectedRows().length;
-  const memoCount = memoTargets(scopeRows().map(toPlain)).length;
   clear(els.bar,
-    h('div', { class: 'row grid-actions' },
-      h('button', {
-        type: 'button', class: 'btn btn-primary', disabled: !!G.job || noKey() || !memoCount,
-        'aria-describedby': 'grid-memo-hint', onclick: runMemoBatch,
-      }, icon('spark'), '메모로 초안 만들기'),
-      h('span', { class: 'small muted', id: 'grid-memo-hint' },
-        noKey() ? '설정에서 API 키를 넣으면 쓸 수 있습니다.'
-          : memoCount ? `${n ? '고른 학생 중 ' : ''}메모가 있고 최종본이 빈 ${memoCount}명의 초안을 최종본 칸에 만듭니다.`
-            : `${n ? '고른 학생 중 ' : ''}메모가 있고 최종본이 빈 학생이 없습니다.`)),
+    n ? null : h('p', { class: 'small muted' }, '초안을 만들 학생을 표에서 체크하면 오른쪽에 초안 만들기 패널이 열립니다. 여러 명을 체크하면 함께 만듭니다.'),
+    eventBar(),
     aiBar(),
     groupBar(),
     n ? h('div', { class: 'row grid-selbar', role: 'status' },
       h('strong', {}, `${n}명 선택`),
-      h('button', { type: 'button', class: 'btn btn-secondary btn-sm', onclick: () => { G.panel = true; renderPanel(); applyLayout(); document.getElementById('grid-common')?.focus(); } }, '특징 쓰고 초안 만들기'),
+      G.panel ? null : h('button', { type: 'button', class: 'btn btn-secondary btn-sm', onclick: openPanel }, '초안 만들기 패널 열기'),
       h('button', { type: 'button', class: 'btn btn-ghost btn-sm', onclick: () => { G.selected.clear(); onSelection(); } }, '선택 풀기')) : null);
 }
-const toPlain = (r) => { const l = liveRec(r.rec); return { id: l.id, memo: memoFor(l, r, ''), final: l.final, status: statusOf(r.rec) }; };
 function scopeRows() { const sel = selectedRows(); return sel.length ? sel : rows; }
 
 function applyLayout() {
@@ -588,25 +589,6 @@ function renderJob() {
     bar,
     j.stopReason ? alertBox('danger', j.stopReason, { role: 'alert' }) : null,
     j.failed.length ? h('ul', { class: 'issue-list' }, j.failed.slice(0, 5).map((f) => h('li', { class: 'is-warn' }, `${store.getStudent(store.state.records.get(f.id)?.studentId)?.name || ''}: ${f.message || '실패'}`))) : null);
-}
-
-// 맨 위 버튼: 메모가 있는 학생의 초안을 한꺼번에 최종본 칸에 만든다
-function runMemoBatch() {
-  const ids = memoTargets(scopeRows().map(toPlain));
-  if (!ids.length) { toast('대상 학생이 없습니다'); return; }
-  const made = [];
-  const job = { after: null };
-  startJob({
-    ids, label: '메모로 초안 만들기',
-    makeRecord: (rec, row) => ({ ...rec, memo: memoFor(rec, row, ''), achievement: rec.achievement || row?.cls?.achievement || '', achievementReached: !!rec.achievement }),
-    onText: (rid, text) => {
-      store.updateRecord(rid, { draft: text, final: text, candidates: [newCandidate(text)] });
-      made.push(rid);
-      refreshRow(rid, { setText: true });
-    },
-  });
-  if (G.job) G.job.after = { action: '되돌리기', onAction: () => { for (const rid of made) { store.updateRecord(rid, { final: '', draft: '', candidates: [] }); refreshRow(rid, { setText: true }); } toast('만든 초안을 지웠습니다'); } };
-  void job;
 }
 
 // ---------- 모둠 ----------
@@ -712,6 +694,7 @@ function renderPanel() {
       h('h3', { class: 'section-title', id: 'gp-1' }, `1 대상 (${sel.length}명)`),
       sel.length ? h('div', { class: 'stack gap-1' }, [...groups.values()].map((g) => h('p', { class: 'small' }, h('strong', {}, `${g.cls.name}${g.cls.subject ? ` (${g.cls.subject})` : ''}: `), g.list.map((r) => r.student.name).join(', '))))
         : alertBox('info', '표에서 글을 쓸 학생을 체크하세요. 교과반이 여러 개면 반별 제목 줄의 체크로 반 전체를 고를 수 있습니다.')),
+    eventsBox(sel),
     groupSection(sel),
     h('section', { class: 'stack', 'aria-labelledby': 'gp-2' },
       h('h3', { class: 'section-title', id: 'gp-2' }, '2 특징'),
@@ -721,7 +704,6 @@ function renderPanel() {
       h('div', { class: 'field' }, h('span', { class: 'label', id: 'gp-len' }, '목표 분량'),
         seg({ labelledby: 'gp-len', options: Object.entries(LENGTH_LABELS), value: G.length, onChange: (v) => { G.length = v; } })),
       standardsBox(sel),
-      eventsBox(sel),
       field('추가 요청 (선택)', h('textarea', { class: 'textarea', id: 'grid-request', rows: '2', value: G.request, placeholder: '예: 리더십을 특히 강조, 문장을 짧게', oninput: (e) => { G.request = e.target.value; } }), '강조점과 문장 모양에만 반영하고, 메모에 없는 사실은 더하지 않습니다.'),
       h('label', { class: 'check-row' }, h('input', { type: 'checkbox', checked: G.withOwn, onchange: (e) => { G.withOwn = e.target.checked; renderPanel(); } }), '학생 메모도 함께 쓰기'),
       picked ? h('label', { class: 'check-row' }, h('input', { type: 'checkbox', checked: G.styleOn, onchange: (e) => { G.styleOn = e.target.checked; renderPanel(); } }), `내 스타일 적용 (${picked.summary})`) : null),
@@ -737,56 +719,100 @@ function updateMakeButtons() {
   });
 }
 
-// 패널: 이번 초안에 쓸 행사 (자율·진로). 행사는 반에 cls.events[영역] 으로 저장한다
-function eventsBox(sel) {
-  if (!EVENT_AREAS.includes(G.area)) return null;
-  const byCls = new Map();
-  for (const r of sel) if (!byCls.has(r.cls.id)) byCls.set(r.cls.id, liveCls(r.cls));
-  if (!byCls.size) return null;
+// 행사 목록 가져오기: 붙여넣기 또는 엑셀·CSV (앞 칸 행사명, 뒤 칸 날짜). 지금 목록에 더한다 (같은 행사는 한 번)
+function importEvents() {
   const year = store.state.settings?.schoolYear;
-  const write = (c, events) => { store.updateClass(c.id, { events: { ...(liveCls(c).events || {}), [G.area]: events } }); };
-  const blocks = [...byCls.values()].map((c) => {
-    const list = eventsOf(c);
-    const nameIn = h('input', { class: 'input', type: 'text', id: `gp-ev-name-${c.id}`, maxlength: '60', placeholder: '예: 학생자치회 임원 선거' });
-    const dateIn = h('input', { class: 'input', type: 'text', id: `gp-ev-date-${c.id}`, maxlength: '30', placeholder: '예: 2026.03.15. 또는 2026.05.14.-2026.05.15.' });
-    const err = h('p', { class: 'hint form-error', role: 'alert' });
-    const add = () => {
-      err.textContent = '';
-      const name = nameIn.value.trim();
-      if (!name) { err.textContent = '행사 이름을 적어 주세요.'; nameIn.focus(); return; }
-      const d = formatEventDate(dateIn.value, year);
-      if (!d.ok) { err.textContent = d.error; dateIn.focus(); return; }
-      const ev = { id: `e_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, name, date: d.value };
-      write(c, saveEvent(list, ev));
-      G.evIds.add(ev.id);
-      if (G.mode === 'skip') G.mode = 'append'; // 행사마다 쓴 글을 최종본 뒤에 이어 붙이는 것이 보통
-      toast(`행사를 더했습니다: ${eventLabel(ev)}`);
-      renderPanel();
-      document.getElementById(`gp-ev-name-${c.id}`)?.focus();
-    };
-    return h('div', { class: 'stack gap-1' },
-      byCls.size > 1 ? h('p', { class: 'small' }, h('strong', {}, c.name)) : null,
-      list.length ? h('div', { class: 'stack gap-1', role: 'group', 'aria-label': `${c.name} 행사` }, list.map((e) => h('div', { class: 'row-between' },
-        h('label', { class: 'check-row', for: `gp-ev-${e.id}` },
-          h('input', { type: 'checkbox', id: `gp-ev-${e.id}`, checked: G.evIds.has(e.id), onchange: (ev) => { if (ev.target.checked) { G.evIds.add(e.id); if (G.mode === 'skip') G.mode = 'append'; } else G.evIds.delete(e.id); renderPanel(); document.getElementById(`gp-ev-${e.id}`)?.focus(); } }),
-          h('span', {}, eventLabel(e))),
-        h('button', { type: 'button', class: 'btn btn-ghost btn-sm', 'aria-label': `${eventLabel(e)} 행사 지우기`, onclick: () => {
-          const before = list;
-          write(c, list.filter((x) => x.id !== e.id)); G.evIds.delete(e.id);
-          toast(`행사를 지웠습니다: ${eventLabel(e)}`, { action: '되돌리기', onAction: () => { write(c, before); renderPanel(); } });
-          renderPanel();
-        } }, '지우기'))))
-        : h('p', { class: 'hint' }, '아직 행사가 없습니다. 아래에서 더해 주세요.'),
-      h('div', { class: 'grid-2' }, field('행사 이름', nameIn), field('날짜 또는 기간', dateIn)),
-      err,
-      h('div', { class: 'row' }, h('button', { type: 'button', class: 'btn btn-secondary btn-sm', onclick: add }, icon('plus'), '행사 더하기')));
+  const ta = h('textarea', { class: 'textarea', id: 'ev-import', rows: '8', placeholder: '학생자치회 임원 선거\t2026.03.15.\n체육대회\t2026.05.14.-2026.05.15.\n진로의 날, 2026.6.3' });
+  const note = h('div', { class: 'stack gap-1', role: 'status' });
+  let dlg = null;
+  function save(input, how) {
+    const r = parseEventList(input, year);
+    if (!r.events.length) { clear(note, alertBox('warn', h('div', {}, '읽은 행사가 없습니다. 한 줄에 행사명과 날짜를 적어 주세요.', r.errors.length ? h('ul', {}, r.errors.slice(0, 5).map((x) => h('li', {}, x))) : null))); return; }
+    const cur = schoolEvents();
+    const have = new Set(cur.map((e) => `${e.name}|${e.date}`));
+    const added = r.events.filter((e) => !have.has(`${e.name}|${e.date}`));
+    let list = cur;
+    for (const e of added) list = saveEvent(list, { id: newEventId(), ...e });
+    writeSchoolEvents(list);
+    toast(`${how} 행사 ${added.length}개를 더했습니다${r.events.length - added.length ? ` (이미 있는 ${r.events.length - added.length}개 빼고)` : ''}${r.errors.length ? `. 읽지 못한 줄 ${r.errors.length}개` : ''}`);
+    dlg?.close(true);
+    if (G.panel) renderPanel();
+    renderBar();
+  }
+  const fileIn = h('input', { type: 'file', accept: '.xlsx,.xls,.csv', hidden: true, 'aria-label': '행사 목록 파일', onchange: async () => {
+    const f = fileIn.files?.[0]; fileIn.value = '';
+    if (!f) return;
+    try { save(await readSheetFile(f), '파일에서'); } catch (e) { clear(note, alertBox('danger', e?.message || '파일을 읽지 못했습니다. 엑셀(.xlsx) 또는 CSV인지 확인해 주세요.')); }
+  } });
+  dlg = openDialog({
+    title: `${AREA_LABELS[G.area]} 행사 목록 가져오기`,
+    body: [
+      h('p', { class: 'small' }, '학교 행사를 한 줄에 하나씩 행사명과 날짜(또는 기간)로 붙여 넣거나, 엑셀·CSV 파일(앞 칸 행사명, 뒤 칸 날짜)을 올립니다. 날짜는 2026.05.14., 기간은 2026.05.14.-2026.05.15.으로 맞춰 저장합니다. 모든 반이 이 목록을 함께 씁니다.'),
+      field('붙여넣기', ta), note,
+      h('div', { class: 'row' }, h('button', { type: 'button', class: 'btn btn-secondary', onclick: () => fileIn.click() }, icon('upload'), '엑셀·CSV 파일에서 가져오기'), fileIn),
+    ],
+    actions: [
+      { label: '취소', variant: 'secondary', value: false },
+      { label: '붙여넣은 목록 저장', variant: 'primary', value: 'paste' },
+    ],
+    beforeClose: (v) => { if (v !== 'paste') return true; save(ta.value, '붙여넣은'); return false; },
   });
-  const n = [...byCls.values()].reduce((k, c) => k + eventsOf(c).filter((e) => G.evIds.has(e.id)).length, 0);
-  return h('div', { class: 'field' }, h('span', { class: 'label', id: 'gp-ev' }, '행사 (이번 글에 넣을 것을 체크)'),
-    ...blocks,
+  setTimeout(() => ta.focus(), 0);
+}
+
+function eventBar() {
+  if (!EVENT_AREAS.includes(G.area)) return null;
+  const n = schoolEvents().length;
+  return h('div', { class: 'row grid-events' },
+    h('span', { class: 'small' }, n ? `${AREA_LABELS[G.area]} 행사 목록 ${n}개` : `${AREA_LABELS[G.area]} 행사 목록이 없습니다`),
+    h('button', { type: 'button', class: 'btn btn-secondary btn-sm', onclick: importEvents }, icon('upload'), '행사 목록 가져오기'),
+    h('span', { class: 'small muted' }, '학생을 체크하면 패널에서 쓸 행사를 고릅니다.'));
+}
+
+// 패널: 이번 초안에 쓸 행사 (자율·진로). 학교 행사 목록에서 체크하고, 없는 행사는 하나씩 더한다
+function eventsBox(sel) {
+  if (!EVENT_AREAS.includes(G.area) || !sel.length) return null;
+  const year = store.state.settings?.schoolYear;
+  const list = eventsOf(sel[0].cls);
+  for (const id of [...G.evIds]) if (!list.some((e) => e.id === id)) G.evIds.delete(id);
+  const nameIn = h('input', { class: 'input', type: 'text', id: 'gp-ev-name', maxlength: '60', placeholder: '예: 학생자치회 임원 선거' });
+  const dateIn = h('input', { class: 'input', type: 'text', id: 'gp-ev-date', maxlength: '30', placeholder: '예: 2026.03.15.' });
+  const err = h('p', { class: 'hint form-error', role: 'alert' });
+  const pick = (id, on) => { if (on) { G.evIds.add(id); if (G.mode === 'skip') G.mode = 'append'; } else G.evIds.delete(id); };
+  const add = () => {
+    err.textContent = '';
+    const name = nameIn.value.trim();
+    if (!name) { err.textContent = '행사 이름을 적어 주세요.'; nameIn.focus(); return; }
+    const d = formatEventDate(dateIn.value, year);
+    if (!d.ok) { err.textContent = d.error; dateIn.focus(); return; }
+    const ev = { id: newEventId(), name, date: d.value };
+    writeSchoolEvents(saveEvent(schoolEvents(), ev));
+    pick(ev.id, true);
+    toast(`행사를 더했습니다: ${eventLabel(ev)}`);
+    renderPanel(); renderBar();
+    document.getElementById('gp-ev-name')?.focus();
+  };
+  const n = list.filter((e) => G.evIds.has(e.id)).length;
+  return h('section', { class: 'stack', 'aria-labelledby': 'gp-ev' },
+    h('div', { class: 'row-between' }, h('h3', { class: 'section-title', id: 'gp-ev' }, '행사 (이번 글에 넣을 것을 체크)'),
+      h('button', { type: 'button', class: 'btn btn-ghost btn-sm', onclick: importEvents }, '목록 가져오기')),
+    list.length ? h('div', { class: 'stack gap-1 grid-ev-list', role: 'group', 'aria-labelledby': 'gp-ev' }, list.map((e) => h('div', { class: 'row-between' },
+      h('label', { class: 'check-row', for: `gp-ev-${e.id}` },
+        h('input', { type: 'checkbox', id: `gp-ev-${e.id}`, checked: G.evIds.has(e.id), onchange: (ev) => { pick(e.id, ev.target.checked); renderPanel(); document.getElementById(`gp-ev-${e.id}`)?.focus(); } }),
+        h('span', {}, eventLabel(e))),
+      h('button', { type: 'button', class: 'btn btn-ghost btn-sm', 'aria-label': `${eventLabel(e)} 행사 지우기`, onclick: () => {
+        const before = schoolEvents();
+        writeSchoolEvents(before.filter((x) => x.id !== e.id)); G.evIds.delete(e.id);
+        toast(`행사를 지웠습니다: ${eventLabel(e)}`, { action: '되돌리기', onAction: () => { writeSchoolEvents(before); renderPanel(); renderBar(); } });
+        renderPanel(); renderBar();
+      } }, '지우기'))))
+      : h('p', { class: 'hint' }, '행사 목록이 없습니다. [목록 가져오기]로 학교 행사를 한꺼번에 넣거나 아래에서 하나씩 더하세요.'),
+    h('details', {}, h('summary', {}, '행사 하나 더하기'),
+      h('div', { class: 'stack gap-1' }, h('div', { class: 'grid-2' }, field('행사 이름', nameIn), field('날짜 또는 기간', dateIn)), err,
+        h('div', { class: 'row' }, h('button', { type: 'button', class: 'btn btn-secondary btn-sm', onclick: add }, icon('plus'), '행사 더하기')))),
     h('p', { class: 'hint' }, n
-      ? `체크한 행사 ${n}개를 '행사명(날짜)'로 시작해 씁니다. 행사마다 따로 만들어 최종본 뒤에 이어 붙이면 됩니다 (붙여넣기 방식이 '뒤에 이어씀'으로 바뀝니다).`
-      : '행사를 체크하면 그 행사 글을 행사명(2026.05.14.) 형식으로 시작합니다. 날짜는 2026-5-14, 5/14처럼 적어도 맞춰 줍니다.'));
+      ? `체크한 행사 ${n}개를 '행사명(날짜)'로 시작해 씁니다. 붙여넣기는 '뒤에 이어씀'이라 행사마다 만든 글이 최종본에 쌓입니다.`
+      : '행사를 체크하면 글을 행사명(2026.05.14.) 형식으로 시작합니다.'));
 }
 
 // 패널: 이번 초안에 쓸 성취기준 (고른 학생들 반에 올려 둔 것을 모아 보여 준다)
@@ -1071,17 +1097,8 @@ function renderAll() {
       h('div', { class: 'field' }, h('span', { class: 'label', id: 'grid-class-label' }, G.area === 'subject' ? '명단을 불러올 반 (체크)' : '보이는 반'),
         h('div', { class: 'row chips', role: 'group', 'aria-labelledby': 'grid-class-label' }, classChips, onlyChip))),
     els.bar, els.job, els.board,
-    h('div', { class: 'grid-table-actions' }, h('button', { type: 'button', class: 'btn btn-secondary', onclick: openOneByOne }, icon('pen'), '한 명씩 작성하기')),
     els.layout);
   renderTable(); renderBoard(); renderBar(); renderJob(); renderPanel(); setSave();
-}
-
-// 한 명씩 작성하기: 고른 학생(없으면 표의 첫 학생)부터 학생별 화면(#write-detail)에서 쓴다
-function openOneByOne() {
-  flushEdits();
-  const r = selectedRows()[0] || rows[0];
-  if (!r) { toast('표에 학생이 없습니다. 위에서 반을 고르세요.'); return; }
-  location.hash = `#write-detail?class=${encodeURIComponent(r.cls.id)}&area=${G.area}&student=${r.student.studentId}`;
 }
 
 const typing = () => !!root && root.contains(document.activeElement) && document.activeElement.matches('textarea,input:not([type="checkbox"])');
