@@ -52,10 +52,13 @@ export function createSync({
   }
   const result = (patch = {}) => ({ ok: false, uploaded: false, unchanged: false, changes: null, error: null, ...patch });
 
-  async function ensureToken(interactive) {
+  // 토큰(약 1시간)이 없을 때: 버튼은 로그인 창, 앱 시작은 조용한 재요청 한 번, 그 밖(자동 저장 등)은 창을 열지 않고 'auth'.
+  // 조용한 재요청도 창이 잠깐 열리므로, 글을 고칠 때마다 시도하면 창이 계속 뜬다
+  async function ensureToken(mode) {
     if (drive.hasToken()) return;
-    if (interactive) await drive.requestToken();
-    else await drive.requestToken({ silent: true });
+    if (mode === 'button') await drive.requestToken();
+    else if (mode === 'start') await drive.requestToken({ silent: true });
+    else throw new DriveError('auth');
   }
 
   function offerSecrets(data) {
@@ -124,7 +127,7 @@ export function createSync({
     if (!isOnline()) return handleError(new DriveError('network'));
     const genAtStart = gen;
     try {
-      await ensureToken(reason === 'button');
+      await ensureToken(reason === 'button' || reason === 'start' ? reason : 'auto');
       setStatus('saving');
       for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
         const p = await pullMerge(reason);
@@ -263,13 +266,13 @@ export function createSync({
     },
 
     async listBackups() {
-      await ensureToken(false);
+      await ensureToken('auto');
       return drive.listBackups();
     },
 
     async restoreBackup(id) {
       try {
-        await ensureToken(true);
+        await ensureToken('button');
         const cur = await local.read();
         await local.snapshot('before-restore', toDriveFile(cur, now()));
         const chk = checkDataFile(await drive.download(id));
@@ -288,7 +291,7 @@ export function createSync({
     },
 
     async deleteDriveData() {
-      await ensureToken(true);
+      await ensureToken('button');
       const n = await drive.deleteAppFiles();
       await this.disconnect({ wipeLocal: false });
       return n;
