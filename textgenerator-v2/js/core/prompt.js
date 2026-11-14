@@ -133,7 +133,7 @@ function systemText({ style = false, refine = false, reached = false, traitsOnly
     '5. 학교생활기록부 기재요령에서 쓰지 못하게 한 내용은 메모에 있어도 쓰지 않음: 교외 수상과 교외 대회, 공인 어학 시험과 점수, 올림피아드, 논문과 소논문, 도서 출간, 특허 등 지식재산권, 해외 활동과 어학연수, 부모나 친척의 직업과 사회경제적 지위, 특정 대학명·기관명·상호명·강사명, 학원·과외 등 사교육, 장학금, 모의고사 성적과 석차·등급, 수상 실적.',
     '6. 한 문단으로 씀. 줄바꿈, 글머리표, 큰따옴표, 특수 기호를 쓰지 않음.',
     traitsOnly
-      ? '7. 메모가 없거나 짧아도 [드러낼 모습]을 바탕으로 초안을 씀. 드러낼 모습을 학교생활에서 보인 태도와 행동 경향으로 풀어 쓰되, 구체적인 활동명, 행사명, 숫자, 결과, 수상은 지어내지 않음.'
+      ? '7. 메모가 없거나 짧아도 [드러낼 모습]을 바탕으로 초안을 씀. 드러낼 모습을 학교생활에서 보인 태도와 행동 경향으로 짧고 담백하게 씀. 과장하지 않음: 매우, 탁월한, 뛰어난, 남다른 같은 꾸밈말과 최고·최상 같은 평가어를 쓰지 않고, 구체적인 활동명, 행사명, 숫자, 결과, 수상은 지어내지 않음.'
       : reached
         ? `7. 메모와 [도달한 성취기준]을 합쳐도 기록할 만한 내용이 거의 없을 때만 drafts 에 "${INSUFFICIENT_TEXT}" 한 문장만 넣음.`
         : `7. 메모에 기록할 만한 사실이 거의 없으면 초안을 만들지 말고 drafts 에 "${INSUFFICIENT_TEXT}" 한 문장만 넣음.`,
@@ -160,6 +160,10 @@ export function buildPrompt({ area, subject, achievement, achievementReached = f
   const traitsOnly = traitList.length > 0 && memoChars < 30 && !reached;
   // 드러낼 모습만으로 쓸 때는 분량을 메모 길이로 줄이지 않는다 (목표 바이트가 없으면 표준 분량)
   const plan = lengthPlan({ area, limit, length, memoChars: traitsOnly ? Infinity : memoChars, targetBytes });
+  if (traitsOnly) {
+    plan.targetChars = Math.min(plan.targetChars, Math.floor(plan.maxChars * 0.4));
+    plan.note = '쓸 거리가 적으니 목표보다 짧아도 됨. 분량을 채우려고 늘이지 않음';
+  }
   const label = AREA_LABELS[area] || area;
 
   const lines = [];
@@ -188,10 +192,11 @@ export function buildPrompt({ area, subject, achievement, achievementReached = f
   if (tr.length) {
     lines.push(`[드러낼 모습] ${tr.join(', ')}`);
     lines.push(traitsOnly
-      ? '메모가 거의 없으니 드러낼 모습을 글의 중심으로 삼아, 그 모습이 드러나는 태도와 행동 경향으로 씀. 구체적인 활동이나 사건은 지어내지 않음.'
+      ? '메모가 거의 없으니 드러낼 모습을 담백하게 2~3문장으로 씀. 과장하거나 꾸미지 않음. 구체적인 활동이나 사건은 지어내지 않음.'
       : '드러낼 모습은 메모 속 사실로 뒷받침될 때 반영하고, 메모와 이어서 드러냄.');
   }
   lines.push(...styleLines(style)); // 문체 블록은 언제나 [교사 메모] 앞
+  if (!traitsOnly && memoChars >= 30) lines.push('메모에 적힌 사실을 빠뜨리지 말고 하나하나 살려, 각 사실마다 활동 과정과 그때 보인 태도, 달라진 점이 드러나게 공들여 씀.');
   lines.push(`[분량] 공백 포함 약 ${plan.targetChars}자. ${plan.maxChars}자를 넘기지 않음.${plan.note ? ` ${plan.note}.` : ''}`);
   lines.push(`[초안 개수] ${n}개`);
   if (n > 1) {

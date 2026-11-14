@@ -240,7 +240,14 @@ test('buildPrompt: 메모가 없어도 드러낼 모습만으로 초안을 쓰�
   assert.match(p.system, /메모가 없거나 짧아도 \[드러낼 모습\]을 바탕으로 초안을 씀/);
   assert.match(p.system, /지어내지 않음/);
   assert.ok(!p.system.includes(INSUFFICIENT_TEXT), '내용 부족으로 멈추지 않음');
-  assert.equal(Number(p.user.match(/약 (\d+)자/)[1]), Math.floor(600 / 2.6));
+  assert.equal(Number(p.user.match(/약 (\d+)자/)[1]), Math.floor(Math.floor(900 / 2.6) * 0.4), '특징 없는 학생은 한도의 40%까지만');
+  assert.match(p.system, /과장하지 않음/);
+  assert.match(p.user, /짧아도 됨/);
+  // 메모가 있는 학생은 사실을 하나하나 살려 공들여 씀, 목표 바이트대로
+  const rich = buildPrompt({ area: 'behavior', memo: '학급 도서 정리를 맡아 매주 대출 목록을 정리함. 친구들에게 책을 추천하는 게시판을 만듦.', traits: ['성실함'], targetBytes: 600, limit: 900, count: 1 });
+  assert.match(rich.user, /하나하나 살려/);
+  assert.equal(Number(rich.user.match(/약 (\d+)자/)[1]), Math.floor(600 / 2.6));
+  assert.ok(!rich.system.includes('과장하지 않음: 매우'));
   const d = JSON.parse((await fakeGenerate(p, { delayMs: 0 })).text).drafts[0];
   assert.ok(d.includes('성실함') && d.includes('배려심') && d !== INSUFFICIENT_TEXT, d);
   // 메모도 드러낼 모습도 없으면 지금처럼 내용 부족
