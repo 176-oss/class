@@ -148,3 +148,17 @@ test('행사 날짜 형식, 표기, 저장, 빠진 표기', async () => {
   assert.deepEqual(ev.map((e) => e.name), ['임원 선거', '체육 대회']);
   assert.deepEqual(missingEventLabels('임원 선거(2026.03.15.)에서 공약을 발표함.', ev), ['체육 대회(2026.05.14.)']);
 });
+
+test('parseEventList: 붙여넣기 여러 꼴, 엑셀 표, 머리글·오류·중복', async () => {
+  const { parseEventList } = await import('../js/core/grid.js');
+  const r = parseEventList('행사명\t날짜\n학생자치회 임원 선거\t2026-3-15\n체육대회, 2026.05.14.~2026.05.15.\n진로의 날(2026.6.3)\n과학의 날 2026.04.21\n잘못된 줄\n진로의 날(2026.06.03.)\n축제\t다음 달');
+  assert.deepEqual(r.events, [
+    { name: '학생자치회 임원 선거', date: '2026.03.15.' },
+    { name: '체육대회', date: '2026.05.14.-2026.05.15.' },
+    { name: '진로의 날', date: '2026.06.03.' },
+    { name: '과학의 날', date: '2026.04.21.' },
+  ]);
+  assert.equal(r.errors.length, 2);
+  assert.deepEqual(parseEventList([['행사', '일자'], ['독서 토론회', '2026.09.10'], ['직업인 특강', '9/24']], 2026).events,
+    [{ name: '독서 토론회', date: '2026.09.10.' }, { name: '직업인 특강', date: '2026.09.24.' }]);
+});

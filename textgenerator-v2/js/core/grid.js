@@ -285,3 +285,37 @@ export function missingEventLabels(text, events) {
   const t = String(text ?? '');
   return (Array.isArray(events) ? events : []).map(eventLabel).filter((l) => !t.includes(l));
 }
+
+/**
+ * 학교 행사 목록 읽기 (붙여넣기 글 또는 엑셀 표 2차원 배열). 줄마다 행사명과 날짜(또는 기간).
+ * 글: '행사명<탭|쉼표>날짜', '행사명(날짜)', '행사명 2026.05.14'. 표: 앞 칸 행사명, 뒤 칸들 날짜.
+ * 머리글 줄(행사명·날짜)은 건너뛴다. 반환 { events: [{ name, date }], errors: [줄 안내] } (최대 300개, 같은 행사는 한 번)
+ */
+export function parseEventList(input, year) {
+  const rows = Array.isArray(input) ? input : String(input ?? '').split(/\r\n|\r|\n/).map((l) => [l]);
+  const events = [];
+  const errors = [];
+  const seen = new Set();
+  rows.forEach((row, i) => {
+    const cells = (Array.isArray(row) ? row : [row]).map((c) => String(c ?? '').trim()).filter(Boolean);
+    if (!cells.length) return;
+    let name; let raw;
+    if (cells.length >= 2) [name, raw] = [cells[0], cells.slice(1).join(' ')];
+    else {
+      const line = cells[0];
+      const m = line.match(/^(.+?)\s*\(([^()]+)\)\s*$/) || line.match(/^(.+?)[\t,]\s*(.+)$/) || line.match(/^(.+?)\s+(\d{4}[.\-/년][\s\S]*|\d{8}[\s\S]*)$/);
+      if (!m) { errors.push(`${i + 1}째 줄: 행사명과 날짜를 나눌 수 없습니다 ('${line.slice(0, 30)}')`); return; }
+      [, name, raw] = m;
+    }
+    if (/^(행사|행사명|이름)$/.test(name) && /날짜|일자|기간/.test(raw)) return; // 머리글
+    const d = formatEventDate(raw, year);
+    if (!d.ok) { errors.push(`${i + 1}째 줄: ${d.error}`); return; }
+    name = name.replace(/\s+/g, ' ').slice(0, 60);
+    const k = `${name}|${d.value}`;
+    if (seen.has(k)) return;
+    seen.add(k);
+    events.push({ name, date: d.value });
+  });
+  if (events.length > 300) { errors.push('행사는 300개까지만 씁니다.'); events.length = 300; }
+  return { events, errors };
+}

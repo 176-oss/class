@@ -213,3 +213,43 @@ test('generateDrafts: 행사와 추가 요청의 이름·학번도 가림', asyn
   assert.ok(sent && !sent.includes('박하늘') && !sent.includes('30501'));
   assert.ok(sent.includes('(2026.03.15.)'));
 });
+
+test('buildPrompt: 목표 바이트를 정하면 메모가 짧아도 분량을 줄이지 않고, 지어내지 말라는 안내', async () => {
+  const { lengthPlan } = await import('../js/core/prompt.js');
+  const memo = '환경 캠페인 포스터를 만듦.';
+  const short = buildPrompt({ area: 'autonomy', memo, length: 'standard', limit: 1500, count: 1 });
+  const byBytes = buildPrompt({ area: 'autonomy', memo, targetBytes: 1200, limit: 1500, count: 1 });
+  const chars = (p) => Number(p.user.match(/약 (\d+)자/)[1]);
+  assert.ok(chars(short) < 100, '예전 방식은 짧은 메모면 줄임');
+  assert.equal(chars(byBytes), Math.floor(1200 / 2.6));
+  assert.match(byBytes.user, /과정, 그때의 태도와 생각, 배우거나 달라진 점/);
+  assert.match(byBytes.user, /메모에 없는 활동, 사건, 숫자, 결과는 만들지 않음/);
+  assert.equal(lengthPlan({ area: 'behavior', limit: 900, targetBytes: 5000 }).targetChars, Math.floor(900 / 2.6), '한도를 넘지 않음');
+});
+
+test('buildPrompt: 부정적인 내용은 긍정적인 행동 변화로 쓰라는 원칙', () => {
+  const p = buildPrompt({ area: 'behavior', memo: '수업 중 산만함. 지각이 잦았음.', limit: 900, count: 1 });
+  assert.match(p.system, /부정적인 내용/);
+  assert.match(p.system, /긍정적인 행동 변화로 씀/);
+  assert.match(p.system, /지어내지 말고/);
+});
+
+test('buildPrompt: 메모가 없어도 드러낼 모습만으로 초안을 쓰게 하고, 가짜 AI도 쓴다', async () => {
+  const { fakeGenerate } = await import('../js/core/fake-ai.js');
+  const p = buildPrompt({ area: 'behavior', memo: '', traits: ['성실함', '배려심'], targetBytes: 600, limit: 900, count: 1 });
+  assert.match(p.system, /메모가 없거나 짧아도 \[드러낼 모습\]을 바탕으로 초안을 씀/);
+  assert.match(p.system, /지어내지 않음/);
+  assert.ok(!p.system.includes(INSUFFICIENT_TEXT), '내용 부족으로 멈추지 않음');
+  assert.equal(Number(p.user.match(/약 (\d+)자/)[1]), Math.floor(Math.floor(900 / 2.6) * 0.4), '특징 없는 학생은 한도의 40%까지만');
+  assert.match(p.system, /과장하지 않음/);
+  assert.match(p.user, /짧아도 됨/);
+  // 메모가 있는 학생은 사실을 하나하나 살려 공들여 씀, 목표 바이트대로
+  const rich = buildPrompt({ area: 'behavior', memo: '학급 도서 정리를 맡아 매주 대출 목록을 정리함. 친구들에게 책을 추천하는 게시판을 만듦.', traits: ['성실함'], targetBytes: 600, limit: 900, count: 1 });
+  assert.match(rich.user, /하나하나 살려/);
+  assert.equal(Number(rich.user.match(/약 (\d+)자/)[1]), Math.floor(600 / 2.6));
+  assert.ok(!rich.system.includes('과장하지 않음: 매우'));
+  const d = JSON.parse((await fakeGenerate(p, { delayMs: 0 })).text).drafts[0];
+  assert.ok(d.includes('성실함') && d.includes('배려심') && d !== INSUFFICIENT_TEXT, d);
+  // 메모도 드러낼 모습도 없으면 지금처럼 내용 부족
+  assert.ok(buildPrompt({ area: 'behavior', memo: '', limit: 900, count: 1 }).system.includes(INSUFFICIENT_TEXT));
+});
