@@ -34,24 +34,60 @@
         display: block !important;
       }
 
+      html,
       body {
-        background: white;
+        background: white !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        height: auto !important;
+        overflow: visible !important;
       }
 
-      .seat-grid {
-        gap: 4px !important;
+      /* 화면용 레이아웃 해제: A4 한 장만 남긴다 */
+      .app-shell,
+      .preview-pane {
+        display: block !important;
+        height: auto !important;
+        overflow: visible !important;
+        padding: 0 !important;
+        background: white !important;
+      }
+
+      .preview-frame {
+        width: auto !important;
+        height: auto !important;
+        margin: 0 !important;
+      }
+
+      .a4-landscape {
+        transform: none !important;
+        width: 297mm !important;
+        height: 209mm !important;
+        border-radius: 0 !important;
+        box-shadow: none !important;
+        border: none !important;
+        margin: 0 !important;
+        overflow: hidden !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+
+      /* 빈 자리는 인쇄하지 않는다 (자리 위치만 유지) */
+      .seat-box.empty-seat {
+        border-color: transparent !important;
+        background: transparent !important;
       }
 
       /* 인쇄 시 테두리 명확하게 */
       .seat-box {
-        border: 1.5px solid #3B82F6 !important;
+        border-color: #3B82F6 !important;
         box-shadow: none !important;
         break-inside: avoid;
       }
 
       @page {
-        size: landscape;
-        margin: 1cm;
+        size: A4 landscape;
+        margin: 0;
       }
     }
 
@@ -77,9 +113,31 @@
     /* A4 가로 사이즈 고정 클래스 */
     .a4-landscape {
       width: 1123px;
-      min-height: 794px;
+      height: 794px;
       flex-shrink: 0;
       box-sizing: border-box;
+      overflow: hidden;
+      transform-origin: top left;
+    }
+
+    /* 순서 뽑기 카드 등장 */
+    @keyframes orderIn {
+      0% { transform: translateY(8px); opacity: 0; }
+      100% { transform: translateY(0); opacity: 1; }
+    }
+
+    @keyframes reveal {
+      0% { transform: scale(0.6); opacity: 0; }
+      60% { transform: scale(1.12); opacity: 1; }
+      100% { transform: scale(1); opacity: 1; }
+    }
+
+    .animate-reveal {
+      animation: reveal 0.5s cubic-bezier(.2,.9,.3,1.2) both;
+    }
+
+    .order-in {
+      animation: orderIn 0.25s ease-out both;
     }
 
     /* 카운트다운 애니메이션 */
@@ -171,13 +229,66 @@
       // 설정 불러오기 파일 input 참조
       const fileInputRef = useRef(null);
 
+      // 자리 고를 순서 뽑기
+      const [pickOrder, setPickOrder] = useState([]);          // 지금까지 뽑힌 순서
+      const [orderSession, setOrderSession] = useState(false); // 순서 뽑기 진행 중 여부
+      const [currentPick, setCurrentPick] = useState(null);    // 지금 자리를 고를 학생
+      const [roulette, setRoulette] = useState({ open: false, spinning: false, name: null, nth: 0 });
+      const rouletteTimer = useRef(null);
+
+      // 비밀 고정석 드래그 상태
+      const [secretDrag, setSecretDrag] = useState(null);
+
+      // A4 미리보기 축소 비율
+      const previewRef = useRef(null);
+      const [previewScale, setPreviewScale] = useState(1);
+
       useEffect(() => {
-        const initialGrid = Array(rows).fill(null).map(() => Array(cols).fill(null));
-        setGrid(initialGrid);
+        const el = previewRef.current;
+        if (!el) return;
+        const update = () => {
+          const w = el.clientWidth - 32;
+          setPreviewScale(Math.min(1, Math.max(0.3, w / 1123)));
+        };
+        update();
+        const ro = new ResizeObserver(update);
+        ro.observe(el);
+        return () => ro.disconnect();
+      }, []);
+
+      // 최초 1회 빈 배치 생성
+      useEffect(() => {
+        setGrid(Array(rows).fill(null).map(() => Array(cols).fill(null)));
+      }, []);
+
+      // 행/열 변경은 사용자가 직접 바꿀 때만 초기화한다 (설정 불러오기 시 덮어쓰기 방지)
+      const changeDims = (newRows, newCols) => {
+        const r = Math.min(10, Math.max(1, Number(newRows) || 1));
+        const c = Math.min(10, Math.max(1, Number(newCols) || 1));
+        setRows(r);
+        setCols(c);
+        setGrid(Array(r).fill(null).map(() => Array(c).fill(null)));
         setFixedSeats({});
         setInactiveSeats({});
-        setPrioritySeats({}); // 배열 크기 변경 시 우선 배치 초기화
-      }, [rows, cols]);
+        setPrioritySeats({});
+      };
+
+      // 실제 글자 폭을 재서, 주어진 폭 안에 한 줄로 들어가는 최대 글자 크기(px)를 구한다
+      const measureCanvas = useRef(null);
+      const measureText = (text, size, weight) => {
+        if (!measureCanvas.current) measureCanvas.current = document.createElement('canvas');
+        const ctx = measureCanvas.current.getContext('2d');
+        const family = getComputedStyle(document.documentElement).fontFamily || 'sans-serif';
+        ctx.font = `${weight || 700} ${size}px ${family}`;
+        return ctx.measureText(text || '').width;
+      };
+      const fitText = (text, maxWidth, maxSize, weight, minSize = 9) => {
+        if (!text) return maxSize;
+        const w = measureText(text, 100, weight);
+        if (w <= 0) return maxSize;
+        const size = Math.floor((maxWidth / w) * 100 * 0.97); // 3% 여유
+        return Math.max(minSize, Math.min(maxSize, size));
+      };
 
       const displayName = (name) => name ? name.replace(/[\s\(\[\-]*(남|여)[\)\]\s]*$/, '').trim() : '';
 
@@ -244,6 +355,136 @@
         return pairs;
       };
 
+      // 비밀 고정석: "이름: 행-열" 텍스트 <-> { 이름: {r, c} } 변환 (기존 저장 파일과 호환)
+      const parseSecretSeats = (text) => {
+        const result = {};
+        (text || '').split('\n').forEach(line => {
+          const parts = line.split(':');
+          if (parts.length >= 2) {
+            const name = cleanName(parts[0].trim());
+            const posMatch = parts[1].match(/(\d+)[^\d]+(\d+)/);
+            if (name && posMatch) {
+              const r = parseInt(posMatch[1], 10) - 1;
+              const c = parseInt(posMatch[2], 10) - 1;
+              if (r >= 0 && r < rows && c >= 0 && c < cols) result[name] = { r, c };
+            }
+          }
+        });
+        return result;
+      };
+
+      const writeSecretSeats = (obj) => {
+        const text = Object.entries(obj)
+          .sort((a, b) => (a[1].r - b[1].r) || (a[1].c - b[1].c))
+          .map(([name, pos]) => `${name}: ${pos.r + 1}-${pos.c + 1}`)
+          .join('\n');
+        setSecretSeatsInput(text);
+      };
+
+      // 미니 배치도에 이름을 놓으면 그 자리의 기존 학생은 빠지고, 같은 학생의 이전 자리도 지워진다
+      const placeSecretSeat = (rawName, r, c) => {
+        const name = cleanName(rawName);
+        if (!name || inactiveSeats[`${r}-${c}`]) return;
+        const next = { ...parseSecretSeats(secretSeatsInput) };
+        Object.keys(next).forEach(k => {
+          if (next[k].r === r && next[k].c === c) delete next[k];
+        });
+        next[name] = { r, c };
+        writeSecretSeats(next);
+      };
+
+      const removeSecretSeat = (name) => {
+        const next = { ...parseSecretSeats(secretSeatsInput) };
+        delete next[cleanName(name)];
+        writeSecretSeats(next);
+      };
+
+      // 뽑을 후보: 아직 자리에 앉지 않은 학생 (고정석 학생, 지금 차례 학생 제외)
+      const shuffleArray = (arr) => {
+        const a = [...arr];
+        for (let i = a.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [a[i], a[j]] = [a[j], a[i]];
+        }
+        return a;
+      };
+
+      const getOrderCandidates = () => {
+        const all = [...new Set(inputText.split(/[,\n]/).map(n => n.trim()).filter(n => n !== ""))];
+        return all.filter(n => !fixedSeats[n] && !isPlaced(n) && n !== currentPick);
+      };
+
+      // ===== 자리 고를 순서 뽑기 (한 명씩) =====
+      // 흐름: 시작 -> 한 명 뽑기(룰렛) -> 그 학생이 자리 고르기(드래그) -> 다음 학생 뽑기 -> ... -> 전원 배치
+      const isPlaced = (n) => grid.some(row => row.includes(n));
+
+      const startOrderSession = () => {
+        const begin = () => {
+          const emptyGrid = Array(rows).fill(null).map(() => Array(cols).fill(null));
+          Object.entries(fixedSeats).forEach(([name, pos]) => {
+            if (pos.r < rows && pos.c < cols && !inactiveSeats[`${pos.r}-${pos.c}`]) emptyGrid[pos.r][pos.c] = name;
+          });
+          setGrid(emptyGrid);
+          setLayoutMode('manual');
+          setPickOrder([]);
+          setCurrentPick(null);
+          setOrderSession(true);
+        };
+        const total = [...new Set(inputText.split(/[,\n]/).map(n => n.trim()).filter(n => n !== ""))].length;
+        if (total === 0) {
+          showAlert("명단 없음", "학생 명단을 먼저 입력해 주세요.");
+          return;
+        }
+        const hasUnfixed = grid.some((row, r) => row.some((n, c) => n && !(fixedSeats[n] && fixedSeats[n].r === r && fixedSeats[n].c === c)));
+        if (hasUnfixed) {
+          showConfirm("순서 뽑기 시작", "고정석(핀)을 제외한 자리를 모두 비우고, 한 명씩 뽑아 자리를 고르게 합니다.\n시작할까요?", begin);
+        } else {
+          begin();
+        }
+      };
+
+      const endOrderSession = () => {
+        if (rouletteTimer.current) clearTimeout(rouletteTimer.current);
+        setOrderSession(false);
+        setCurrentPick(null);
+        setRoulette({ open: false, spinning: false, name: null });
+      };
+
+      const drawNextStudent = () => {
+        const candidates = getOrderCandidates();
+        if (candidates.length === 0) return;
+        const finalName = candidates[Math.floor(Math.random() * candidates.length)];
+        const nth = pickOrder.length + 1;
+
+        // 후보가 한 명이면 바로 공개
+        if (candidates.length === 1) {
+          setRoulette({ open: true, spinning: false, name: finalName, nth });
+          setPickOrder(prev => [...prev, finalName]);
+          setCurrentPick(finalName);
+          return;
+        }
+
+        // 빠르게 돌다가 점점 느려지는 룰렛
+        let delay = 55;
+        let last = null;
+        setRoulette({ open: true, spinning: true, name: candidates[0], nth });
+        const tick = () => {
+          let next = candidates[Math.floor(Math.random() * candidates.length)];
+          if (next === last) next = candidates[(candidates.indexOf(next) + 1) % candidates.length];
+          last = next;
+          delay = delay * 1.11;
+          if (delay > 420) {
+            setRoulette({ open: true, spinning: false, name: finalName, nth });
+            setPickOrder(prev => [...prev, finalName]);
+            setCurrentPick(finalName);
+            return;
+          }
+          setRoulette(prev => ({ ...prev, name: next }));
+          rouletteTimer.current = setTimeout(tick, delay);
+        };
+        rouletteTimer.current = setTimeout(tick, delay);
+      };
+
       const checkConflict = (testGrid, r, c, studentName, targetList, mode, gr, gc) => {
         let strict = false;
         let soft = false;
@@ -291,7 +532,11 @@
 
       const allNamesOriginal = [...new Set(inputText.split(/[,\n]/).map(n => n.trim()).filter(n => n !== ""))];
       const assignedNamesOriginal = grid.flat().filter(n => n !== null);
-      const waitingList = allNamesOriginal.filter(n => !assignedNamesOriginal.includes(n));
+      const waitingListRaw = allNamesOriginal.filter(n => !assignedNamesOriginal.includes(n));
+      // 순서를 뽑았다면 대기 명단을 뽑은 순서대로 정렬 (순서에 없는 학생은 뒤로)
+      const orderIndex = (n) => { const i = pickOrder.indexOf(n); return i === -1 ? Infinity : i; };
+      const waitingList = (pickOrder.length > 0 ? [...waitingListRaw].sort((a, b) => orderIndex(a) - orderIndex(b)) : waitingListRaw)
+        .sort((a, b) => (a === currentPick ? -1 : b === currentPick ? 1 : 0));
 
       const executeAssign = (useSecret) => {
         let names = inputText.split(/[,\n]/).map(n => n.trim()).filter(n => n !== "");
@@ -317,23 +562,7 @@
         const avoids = getAvoidsList();
         const prevPairs = getPrevPairsList();
 
-        const secretSeats = {};
-        if (useSecret && secretSeatsInput.trim()) {
-          secretSeatsInput.split('\n').forEach(line => {
-            const parts = line.split(':');
-            if (parts.length >= 2) {
-              const name = cleanName(parts[0].trim());
-              const posMatch = parts[1].match(/(\d+)[^\d]+(\d+)/);
-              if (name && posMatch) {
-                const r = parseInt(posMatch[1], 10) - 1;
-                const c = parseInt(posMatch[2], 10) - 1;
-                if (r >= 0 && r < rows && c >= 0 && c < cols) {
-                  secretSeats[name] = { r, c };
-                }
-              }
-            }
-          });
-        }
+        const secretSeats = useSecret ? parseSecretSeats(secretSeatsInput) : {};
 
         let bestGrid = null;
         let minViolations = Infinity;
@@ -500,6 +729,15 @@
       const toggleSeatState = (r, c) => {
         if (grid[r][c] !== null) return; // 사람이 있으면 변경 불가
         const key = `${r}-${c}`;
+
+        // 순서 뽑기 중에는 빈 자리를 클릭하면 지금 차례 학생이 앉는다 (전자칠판 터치 대응)
+        if (orderSession && currentPick && !isPlaced(currentPick)) {
+          if (inactiveSeats[key]) return;
+          const next = grid.map(row => [...row]);
+          next[r][c] = currentPick;
+          setGrid(next);
+          return;
+        }
 
         if (!prioritySeats[key] && !inactiveSeats[key]) {
           // 기본 -> 우선배치
@@ -678,14 +916,31 @@
           el.style.display = 'block';
         });
 
+        // 빈 자리 칸은 저장 결과에서 보이지 않게 한다
+        const emptySeats = element.querySelectorAll('.empty-seat');
+        const emptyStyles = [];
+        emptySeats.forEach(el => {
+          emptyStyles.push([el.style.borderColor, el.style.backgroundColor]);
+          el.style.borderColor = 'transparent';
+          el.style.backgroundColor = 'transparent';
+        });
+
+        // 미리보기 축소를 잠시 풀고 A4 원래 크기(1123 x 794)로 캡처
+        const originalTransform = element.style.transform;
+        const originalRadius = element.style.borderRadius;
+        element.style.transform = 'none';
+        element.style.borderRadius = '0';
+
         try {
           const canvas = await window.html2canvas(element, {
             scale: 2,
+            width: 1123,
+            height: 794,
             backgroundColor: '#ffffff',
             useCORS: true,
             logging: false,
-            windowWidth: element.scrollWidth,
-            windowHeight: element.scrollHeight
+            windowWidth: 1123,
+            windowHeight: 794
           });
           const imgData = canvas.toDataURL('image/png');
 
@@ -698,8 +953,9 @@
             showAlert("저장 완료", "배치도가 이미지(PNG) 파일로 저장되었습니다.");
           } else if (format === 'pdf') {
             const { jsPDF } = window.jspdf;
-            const pdf = new jsPDF({ orientation: canvas.width > canvas.height ? 'landscape' : 'portrait', unit: 'px', format: [canvas.width, canvas.height] });
-            pdf.addImage(imgData, 'PNG', 0, 0, canvas.width, canvas.height);
+            // A4 가로(297 x 210mm) 한 장에 정확히 맞춘다
+            const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+            pdf.addImage(imgData, 'PNG', 0, 0, 297, 210);
             pdf.save(`자리배치도_${new Date().getTime()}.pdf`);
             setModal(prev => ({ ...prev, isOpen: false }));
             showAlert("저장 완료", "배치도가 PDF 파일로 저장되었습니다.");
@@ -708,6 +964,9 @@
           setModal(prev => ({ ...prev, isOpen: false }));
           showAlert("저장 실패", "저장 중 오류가 발생했습니다. 키보드 단축키 [ Ctrl + P ]를 이용하여 인쇄/저장해 주세요.");
         } finally {
+          emptySeats.forEach((el, idx) => { el.style.borderColor = emptyStyles[idx][0]; el.style.backgroundColor = emptyStyles[idx][1]; });
+          element.style.transform = originalTransform;
+          element.style.borderRadius = originalRadius;
           hideElements.forEach((el, idx) => el.style.display = originalDisplays[idx]);
           printOnlyElements.forEach((el, idx) => el.style.display = originalPrintDisplays[idx]);
           setIsExporting(false);
@@ -748,7 +1007,7 @@
           classTitle, inputText, rows, cols, layoutMode, groupRows, groupCols,
           grid, fixedSeats, inactiveSeats, prioritySeats, priorityStudentsInput,
           useGenderColor, avoidPairs, genderPairing, secretSeatsInput, prevLayoutText,
-          footerNote, footerFontSize, footerFontWeight
+          footerNote, footerFontSize, footerFontWeight, pickOrder
         };
         const blob = new Blob([JSON.stringify(settings, null, 2)], { type: "application/json" });
         const url = URL.createObjectURL(blob);
@@ -793,6 +1052,7 @@
             if (settings.footerNote !== undefined) setFooterNote(settings.footerNote);
             if (settings.footerFontSize !== undefined) setFooterFontSize(settings.footerFontSize);
             if (settings.footerFontWeight !== undefined) setFooterFontWeight(settings.footerFontWeight);
+            setPickOrder(Array.isArray(settings.pickOrder) ? settings.pickOrder : []);
 
             setModal(prev => ({ ...prev, isOpen: false }));
             setTimeout(() => showAlert("복구 완료", "설정 파일을 성공적으로 불러왔습니다!"), 300);
@@ -807,36 +1067,88 @@
       const renderRows = printPerspective === 'teacher' ? [...Array(rows)].map((_, i) => rows - 1 - i) : [...Array(rows)].map((_, i) => i);
       const renderCols = printPerspective === 'teacher' ? [...Array(cols)].map((_, i) => cols - 1 - i) : [...Array(cols)].map((_, i) => i);
 
-      const getSeatMarginClass = (r, c) => {
-        let classes = "transition-all duration-300 ease-in-out ";
+      // ===== A4 가로 자동 레이아웃 계산 =====
+      // 종이(1123 x 794px = 297 x 210mm)를 기준으로 제목/교탁/하단문구/명단을 뺀 공간을 행과 열로 나눈다.
+      const PAGE_W = 1123, PAGE_H = 794, PAD_X = 36, PAD_Y = 28;
+      const BASE_GAP = 8;     // 책상 사이 기본 간격
+      const GROUP_GAP = 18;   // 짝/모둠 사이 추가 간격
+
+      const hasGroupGapRight = (c) => {
         if (printPerspective === 'normal') {
-          if (layoutMode === 'pair') {
-            if (c % 2 === 1 && c !== cols - 1) classes += "mr-2 sm:mr-5 lg:mr-8 ";
-          } else if (layoutMode === 'group') {
-            if (c % groupCols === groupCols - 1 && c !== cols - 1) classes += "mr-2 sm:mr-5 lg:mr-8 ";
-            if (r % groupRows === groupRows - 1 && r !== rows - 1) classes += "mb-2 sm:mb-5 lg:mb-8 ";
-          }
+          if (layoutMode === 'pair') return c % 2 === 1 && c !== cols - 1;
+          if (layoutMode === 'group') return c % groupCols === groupCols - 1 && c !== cols - 1;
         } else {
-          if (layoutMode === 'pair') {
-            if (c > 0 && (c - 1) % 2 === 1) classes += "mr-2 sm:mr-5 lg:mr-8 ";
-          } else if (layoutMode === 'group') {
-            if (c > 0 && (c - 1) % groupCols === groupCols - 1) classes += "mr-2 sm:mr-5 lg:mr-8 ";
-            if (r > 0 && (r - 1) % groupRows === groupRows - 1) classes += "mb-2 sm:mb-5 lg:mb-8 ";
-          }
+          if (layoutMode === 'pair') return c > 0 && (c - 1) % 2 === 1;
+          if (layoutMode === 'group') return c > 0 && (c - 1) % groupCols === groupCols - 1;
         }
-        return classes;
+        return false;
+      };
+      const hasGroupGapBottom = (r) => {
+        if (layoutMode !== 'group') return false;
+        if (printPerspective === 'normal') return r % groupRows === groupRows - 1 && r !== rows - 1;
+        return r > 0 && (r - 1) % groupRows === groupRows - 1;
       };
 
-      const getSeatSizeClass = () => {
-        if (cols >= 9) return "w-[3rem] h-[2.5rem] sm:w-[3.5rem] sm:h-[3rem] md:w-[4rem] md:h-[3.5rem] lg:w-[4.5rem] lg:h-[3.5rem]";
-        if (cols >= 7) return "w-[3.5rem] h-[3rem] sm:w-[4.5rem] sm:h-[3.5rem] md:w-[5rem] md:h-[4rem] lg:w-[5.5rem] lg:h-[4.5rem]";
-        if (layoutMode !== 'normal') return "w-[4rem] h-[3.5rem] sm:w-[4.5rem] sm:h-[4rem] md:w-[5.5rem] md:h-[4.5rem] lg:w-[6.5rem] lg:h-[5rem]";
-        return "w-[4.5rem] h-[4rem] sm:w-[5.5rem] sm:h-[4.5rem] md:w-[6.5rem] md:h-[5rem] lg:w-[7.5rem] lg:h-[5.5rem]";
+      const getSeatMarginStyle = (r, c) => ({
+        marginRight: hasGroupGapRight(c) ? GROUP_GAP : 0,
+        marginBottom: hasGroupGapBottom(r) ? GROUP_GAP : 0,
+      });
+
+      const computeLayout = () => {
+        const footerFs = footerFontSize === 'text-xs' ? 12 : footerFontSize === 'text-base' ? 16 : 14;
+        const footerLines = footerNote ? footerNote.split('\n').length : 0;
+        const titleH = classTitle ? 52 : 0;
+        const footerH = footerNote ? Math.ceil(footerLines * footerFs * 1.5) + 20 : 0;
+        const deskH = 52;
+        const bodyH = PAGE_H - PAD_Y * 2 - titleH - footerH;
+
+        // 학급 명단: 1열로 넣었을 때 한 줄이 너무 작아지면 2열(세로 방향으로 반씩)로 나눈다
+        const n = allNamesOriginal.length;
+        let roster = null;
+        if (showRoster && n > 0) {
+          const headerH = 34;
+          const ROW_MIN = 26, ROW_MAX = 44;
+          const listH = bodyH - headerH - 4;
+          const colCount = listH / n >= ROW_MIN ? 1 : 2;
+          const rowCount = Math.ceil(n / colCount);
+          const rowH = Math.min(ROW_MAX, Math.floor(listH / rowCount));
+          // 칸 폭은 고정하고, 가장 긴 이름이 한 줄에 들어가도록 글자 크기를 줄인다
+          const colW = colCount === 1 ? 168 : 136;
+          const baseSize = Math.max(10, Math.min(16, Math.round(rowH * 0.5)));
+          const fontSize = Math.min(...allNamesOriginal.map(nm => fitText(displayName(nm), colW - 18, baseSize, 600)));
+          roster = { colCount, rowCount, rowH, fontSize, colW, width: colW * colCount + (colCount - 1) + 4, headerH };
+        }
+
+        const seatAreaW = PAGE_W - PAD_X * 2 - (roster ? roster.width + 24 : 0);
+        const seatAreaH = bodyH - deskH;
+
+        let extraCols = 0;
+        for (let c = 0; c < cols; c++) if (hasGroupGapRight(c)) extraCols++;
+        let extraRows = 0;
+        for (let r = 0; r < rows; r++) if (hasGroupGapBottom(r)) extraRows++;
+
+        let seatW = Math.floor((seatAreaW - (cols - 1) * BASE_GAP - extraCols * GROUP_GAP) / cols);
+        let seatH = Math.floor((seatAreaH - (rows - 1) * BASE_GAP - extraRows * GROUP_GAP) / rows);
+        // 너무 길쭉하거나 납작한 책상 방지
+        seatH = Math.min(seatH, Math.floor(seatW * 1.0));
+        seatW = Math.min(seatW, Math.floor(seatH * 2.4));
+
+        // 책상 안 이름도 줄바꿈 없이 한 줄에 들어가도록 가장 긴 이름 기준으로 맞춘다
+        // 글자 크기는 원래 버전과 동일한 상한(기본 24px / 짝꿍·모둠 19px / 7열 이상 16px)을 유지하고,
+        // 책상이 작거나 이름이 길 때만 줄인다
+        const nameCap = cols >= 7 ? 16 : (layoutMode !== 'normal' ? 19 : 24);
+        const nameMax = Math.max(11, Math.min(nameCap, Math.floor(seatH * 0.3)));
+        const nameFont = allNamesOriginal.length > 0
+          ? Math.min(...allNamesOriginal.map(nm => fitText(parseStudentName(nm).name, seatW - 14, nameMax, 700, 10)))
+          : nameMax;
+        const numFont = Math.max(10, Math.min(15, Math.round(nameFont * 0.65)));
+
+        return { titleH, footerH, deskH, bodyH, roster, seatW, seatH, nameFont, numFont };
       };
-      const seatSizeClass = getSeatSizeClass();
+      const layout = computeLayout();
 
       return (
-        <div className="h-screen bg-gray-50 flex flex-col md:flex-row text-gray-800 font-sans overflow-hidden relative">
+        <div className="app-shell h-screen bg-gray-50 flex flex-col md:flex-row text-gray-800 font-sans overflow-hidden relative">
 
           <div className="no-print w-full md:w-80 bg-white border-b md:border-b-0 md:border-r border-gray-200 flex flex-col shadow-lg z-10 flex-shrink-0 h-[45vh] md:h-full">
             <div className="p-3 sm:p-4 overflow-y-auto flex-1 flex flex-col gap-2.5">
@@ -879,18 +1191,18 @@
               <div className="bg-gray-50 p-2.5 rounded-xl border border-gray-100">
                 <h2 className="text-[11px] sm:text-xs font-semibold text-gray-700 mb-1.5">교실 크기 (행 x 열)</h2>
                 <div className="flex gap-1.5 mb-2">
-                  <button onClick={() => { setRows(5); setCols(6); }} className="flex-1 py-1 px-1 text-[11px] font-medium bg-white border border-gray-300 rounded hover:bg-gray-100 transition-colors">5x6</button>
-                  <button onClick={() => { setRows(6); setCols(5); }} className="flex-1 py-1 px-1 text-[11px] font-medium bg-white border border-gray-300 rounded hover:bg-gray-100 transition-colors">6x5</button>
-                  <button onClick={() => { setRows(6); setCols(6); }} className="flex-1 py-1 px-1 text-[11px] font-medium bg-white border border-gray-300 rounded hover:bg-gray-100 transition-colors">6x6</button>
+                  <button onClick={() => changeDims(5, 6)} className="flex-1 py-1 px-1 text-[11px] font-medium bg-white border border-gray-300 rounded hover:bg-gray-100 transition-colors">5x6</button>
+                  <button onClick={() => changeDims(6, 5)} className="flex-1 py-1 px-1 text-[11px] font-medium bg-white border border-gray-300 rounded hover:bg-gray-100 transition-colors">6x5</button>
+                  <button onClick={() => changeDims(6, 6)} className="flex-1 py-1 px-1 text-[11px] font-medium bg-white border border-gray-300 rounded hover:bg-gray-100 transition-colors">6x6</button>
                 </div>
                 <div className="flex gap-3">
                   <div className="flex-1">
                     <label className="text-[9px] text-gray-500 block mb-0.5">행 (세로줄)</label>
-                    <input type="number" min="1" max="10" value={rows} onChange={(e) => setRows(Number(e.target.value))} className="w-full border border-gray-300 rounded p-1 text-center focus:ring-2 focus:ring-blue-500 outline-none text-xs" />
+                    <input type="number" min="1" max="10" value={rows} onChange={(e) => changeDims(e.target.value, cols)} className="w-full border border-gray-300 rounded p-1 text-center focus:ring-2 focus:ring-blue-500 outline-none text-xs" />
                   </div>
                   <div className="flex-1">
                     <label className="text-[9px] text-gray-500 block mb-0.5">열 (가로줄)</label>
-                    <input type="number" min="1" max="10" value={cols} onChange={(e) => setCols(Number(e.target.value))} className="w-full border border-gray-300 rounded p-1 text-center focus:ring-2 focus:ring-blue-500 outline-none text-xs" />
+                    <input type="number" min="1" max="10" value={cols} onChange={(e) => changeDims(rows, e.target.value)} className="w-full border border-gray-300 rounded p-1 text-center focus:ring-2 focus:ring-blue-500 outline-none text-xs" />
                   </div>
                 </div>
                 <p className="text-[9px] text-gray-500 mt-2 pt-1.5 border-t border-gray-200">
@@ -980,6 +1292,9 @@
               </div>
 
               <div className="flex flex-col gap-1.5 mt-auto pt-2 border-t border-gray-100">
+                <button onClick={() => orderSession ? endOrderSession() : startOrderSession()} className="w-full bg-white border border-blue-300 hover:bg-blue-50 text-blue-700 font-bold py-2 rounded-lg flex items-center justify-center gap-1.5 transition-colors text-[13px]">
+                  <i className={`fa-solid ${orderSession ? 'fa-stop' : 'fa-list-ol'}`}></i> {orderSession ? '순서 뽑기 끝내기' : '자리 고를 순서 뽑기'}
+                </button>
                 <button onClick={handleAssignClick} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 rounded-lg flex items-center justify-center gap-1.5 transition-colors shadow-md text-[13px]">
                   <i className="fa-solid fa-shuffle"></i> {layoutMode === 'manual' ? '남은 자리 자동 채우기' : '자리 랜덤 배치'}
                 </button>
@@ -995,31 +1310,75 @@
             </div>
           </div>
 
-          <div className="flex-1 flex flex-col items-center p-4 md:p-8 overflow-auto bg-gray-200 relative">
+          <div ref={previewRef} className="preview-pane flex-1 flex flex-col items-center p-4 md:p-6 overflow-auto bg-gray-200 relative">
 
-            <div id="capture-area" className="flex flex-col bg-white p-8 md:p-10 rounded-3xl shadow-sm border border-gray-100 mb-8 transition-all a4-landscape mx-auto relative flex-shrink-0">
+            {/* 순서 뽑기 진행 상태 */}
+            {orderSession && (() => {
+              const remaining = getOrderCandidates().length;
+              const waitingForSeat = currentPick && !isPlaced(currentPick);
+              const allDone = !waitingForSeat && remaining === 0;
+              return (
+                <div className="no-print sticky top-0 z-20 flex-shrink-0 w-full max-w-5xl mb-4 bg-white border border-blue-200 rounded-xl shadow-sm px-5 py-3 flex items-center gap-4">
+                  <div className="flex-shrink-0 text-xs text-gray-500 leading-tight">
+                    <div className="font-bold text-gray-700 text-sm">순서 뽑기 진행 중</div>
+                    {pickOrder.length}명 뽑음 · 남은 학생 {remaining}명
+                  </div>
+                  <div className="flex-1 min-w-0 text-center">
+                    {waitingForSeat ? (
+                      <span className="text-sm text-gray-700">
+                        <b className="text-blue-700 text-base">{displayName(currentPick)}</b> 학생 차례입니다. 원하는 빈 자리를 클릭하거나 끌어다 놓으세요.
+                      </span>
+                    ) : allDone ? (
+                      <span className="text-sm font-bold text-emerald-600">모든 학생이 자리를 골랐습니다.</span>
+                    ) : (
+                      <span className="text-sm text-gray-500">{pickOrder.length === 0 ? '첫 번째 학생을 뽑아주세요.' : '자리 배치 완료. 다음 학생을 뽑아주세요.'}</span>
+                    )}
+                  </div>
+                  {allDone ? (
+                    <button onClick={endOrderSession} className="flex-shrink-0 bg-gray-800 hover:bg-gray-900 text-white font-bold py-2.5 px-5 rounded-lg text-sm">
+                      끝내기
+                    </button>
+                  ) : (
+                    <button
+                      onClick={drawNextStudent}
+                      disabled={waitingForSeat || roulette.spinning}
+                      className="flex-shrink-0 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-bold py-2.5 px-5 rounded-lg text-sm flex items-center gap-2"
+                    >
+                      <i className="fa-solid fa-shuffle"></i> {pickOrder.length === 0 ? '첫 학생 뽑기' : '다음 학생 뽑기'}
+                    </button>
+                  )}
+                </div>
+              );
+            })()}
+
+            <div className="preview-frame flex-shrink-0 mb-6" style={{ width: PAGE_W * previewScale, height: PAGE_H * previewScale }}>
+            <div
+              id="capture-area"
+              className="a4-landscape flex flex-col bg-white rounded-xl shadow-sm border border-gray-100 relative"
+              style={{ transform: `scale(${previewScale})`, padding: `${PAD_Y}px ${PAD_X}px` }}
+            >
 
               {classTitle && (
-                <div className="w-full text-center mb-6">
-                  <h2 className="text-3xl sm:text-4xl font-black text-gray-800 tracking-widest drop-shadow-sm">{classTitle}</h2>
+                <div className="w-full text-center flex items-start justify-center flex-shrink-0" style={{ height: layout.titleH }}>
+                  <h2 className="font-black text-gray-800 tracking-widest m-0" style={{ fontSize: 30, lineHeight: '40px' }}>{classTitle}</h2>
                 </div>
               )}
 
-              <div className="flex flex-col lg:flex-row items-center lg:items-start justify-center gap-6 lg:gap-10 w-full flex-grow">
-                <div className="flex flex-col items-center">
+              <div className="flex flex-row items-stretch justify-between w-full flex-shrink-0" style={{ height: layout.bodyH, gap: layout.roster ? 24 : 0 }}>
+                <div className="flex flex-col items-center flex-1 min-w-0">
 
                   {printPerspective === 'normal' && (
-                    <div className="w-full flex justify-center mb-8 sm:mb-12">
-                      <div className="bg-blue-500 text-white px-16 py-3 rounded-b-3xl shadow-lg text-lg font-bold tracking-widest border-t-4 border-blue-400 relative overflow-hidden">
-                        <div className="absolute inset-0 bg-white opacity-10 w-full h-1/2 rounded-b-full"></div>
+                    <div className="w-full flex justify-center flex-shrink-0" style={{ height: layout.deskH }}>
+                      <div className="bg-blue-500 text-white px-16 rounded-b-2xl text-base font-bold tracking-widest flex items-center" style={{ height: 36 }}>
                         교 탁
                       </div>
                     </div>
                   )}
 
+                  <div className="flex-1 w-full flex items-center justify-center min-h-0">
                   <div
-                    className="seat-grid inline-grid gap-2 sm:gap-3"
-                    style={{ gridTemplateColumns: `repeat(${cols}, max-content)` }}
+                    className="seat-grid inline-grid"
+                    style={{ gridTemplateColumns: `repeat(${cols}, max-content)`, gap: BASE_GAP }}
                   >
                     {renderRows.map((r, vr) => (
                       renderCols.map((c, vc) => {
@@ -1032,16 +1391,16 @@
                         const gender = getGender(studentName);
 
                         // 기본 빈자리 클래스
-                        let activeSeatClass = 'bg-gray-100 border-dashed border-gray-300 text-gray-400 cursor-pointer hover:bg-blue-50 hover:border-blue-300';
+                        let activeSeatClass = 'empty-seat bg-gray-50/60 border-dashed border-gray-200 text-gray-300 cursor-pointer hover:bg-blue-50 hover:border-blue-300';
                         if (studentName) {
                           if (isFixed) {
-                            activeSeatClass = 'border-amber-400 bg-amber-50 text-gray-900 shadow-sm hover:border-amber-500 hover:shadow-md hover:-translate-y-1 cursor-grab active:cursor-grabbing';
+                            activeSeatClass = 'border-amber-400 bg-amber-50 text-gray-900 hover:border-amber-500 cursor-grab active:cursor-grabbing';
                           } else if (useGenderColor && gender === 'M') {
-                            activeSeatClass = 'bg-blue-50 border-blue-300 text-blue-900 shadow-sm hover:border-blue-400 hover:shadow-md hover:-translate-y-1 cursor-grab active:cursor-grabbing';
+                            activeSeatClass = 'bg-blue-50 border-blue-300 text-blue-900 hover:border-blue-400 cursor-grab active:cursor-grabbing';
                           } else if (useGenderColor && gender === 'F') {
-                            activeSeatClass = 'bg-pink-50 border-pink-300 text-pink-900 shadow-sm hover:border-pink-400 hover:shadow-md hover:-translate-y-1 cursor-grab active:cursor-grabbing';
+                            activeSeatClass = 'bg-pink-50 border-pink-300 text-pink-900 hover:border-pink-400 cursor-grab active:cursor-grabbing';
                           } else {
-                            activeSeatClass = 'bg-white border-blue-200 text-gray-800 shadow-sm hover:border-blue-400 hover:shadow-md hover:-translate-y-1 cursor-grab active:cursor-grabbing';
+                            activeSeatClass = 'bg-white border-blue-300 text-gray-800 hover:border-blue-500 cursor-grab active:cursor-grabbing';
                           }
                         } else if (isPriority) {
                           // 우선 구역이면서 빈자리일 때의 스타일
@@ -1055,123 +1414,130 @@
                             onDragStart={(e) => onDragStartFromGrid(e, r, c, studentName)}
                             onDragOver={(e) => onDragOverGrid(e, r, c)}
                             onDrop={(e) => onDropToGrid(e, r, c)}
-                            onClick={() => toggleSeatState(r, c)} // ⭐️ 토글 함수 변경 적용
-                            className={`
-                              seat-box relative flex flex-col items-center justify-center rounded-xl border-2 transition-all p-2 flex-shrink-0
-                              ${seatSizeClass}
-                              ${isInactive ? 'opacity-30 border-dashed border-gray-300 bg-transparent text-transparent hover:opacity-70 hover:bg-gray-100 hover:border-gray-300 cursor-pointer' : activeSeatClass}
-                              ${getSeatMarginClass(r, c)}
-                            `}
-                            title={isInactive ? "클릭하면 기본 자리 복구" : (!studentName ? (isPriority ? "클릭하면 책상 없앰 (사용 불가)" : "클릭하면 🌟우선 배치 구역으로 설정") : "")}
+                            onClick={() => toggleSeatState(r, c)}
+                            className={`seat-box relative flex flex-col items-center justify-center rounded-lg border-2 transition-colors flex-shrink-0 ${isInactive ? 'opacity-30 border-dashed border-gray-300 bg-transparent text-transparent hover:opacity-70 hover:bg-gray-100 cursor-pointer' : activeSeatClass}`}
+                            style={{ width: layout.seatW, height: layout.seatH, ...getSeatMarginStyle(r, c) }}
+                            title={isInactive ? "클릭하면 기본 자리 복구" : (!studentName ? (isPriority ? "클릭하면 책상 없앰 (사용 불가)" : "클릭하면 우선 배치 구역으로 설정") : "")}
                           >
                             {!isInactive && (
-                              <span className="absolute top-1 left-2 text-[9px] sm:text-[10px] text-gray-400 no-print select-none">
+                              <span className="absolute top-1 left-1.5 text-[9px] text-gray-400 no-print select-none leading-none">
                                 {r + 1}-{c + 1}
                               </span>
                             )}
 
-                            {/* 우선 구역 표시 아이콘 (비어있거나 사용중이어도 작게 표시) */}
-                            {isPriority && !isInactive && !isPresenting && (
-                              <span className="absolute top-1 left-8 text-[9px] text-yellow-500 no-print">🌟</span>
+                            {isPriority && !isInactive && !isPresenting && studentName && (
+                              <i className="fa-solid fa-star absolute bottom-1 left-1.5 text-[9px] text-yellow-500 no-print"></i>
                             )}
 
                             {!isInactive && studentName && !isPresenting && (
                               <button
                                 onClick={(e) => { e.stopPropagation(); toggleFixed(r, c, studentName); }}
-                                className={`absolute top-1 right-1 p-1 rounded-full hover:bg-gray-100 transition-colors no-print ${isFixed ? 'text-amber-600 hover:bg-amber-100' : 'text-gray-300 hover:text-gray-600'}`}
+                                className={`absolute top-0.5 right-0.5 p-1 rounded-full hover:bg-gray-100 transition-colors no-print leading-none ${isFixed ? 'text-amber-600 hover:bg-amber-100' : 'text-gray-300 hover:text-gray-600'}`}
                                 title={isFixed ? "고정 해제" : "자리 고정"}
                               >
-                                {isFixed ? <i className="fa-solid fa-thumbtack text-sm sm:text-base"></i> : <i className="fa-solid fa-thumbtack fa-rotate-90 opacity-50 text-xs sm:text-sm"></i>}
+                                {isFixed ? <i className="fa-solid fa-thumbtack text-xs"></i> : <i className="fa-solid fa-thumbtack fa-rotate-90 opacity-50 text-[10px]"></i>}
                               </button>
                             )}
 
-                            <div className="font-bold text-center px-1 select-none w-full flex flex-col items-center justify-center gap-0.5" style={{ wordBreak: 'keep-all', overflowWrap: 'anywhere' }}>
+                            <div className="font-bold text-center px-1 select-none w-full flex flex-col items-center justify-center" style={{ wordBreak: 'keep-all', overflowWrap: 'anywhere', gap: 2 }}>
                               {isInactive ? (
-                                <span className="text-xl opacity-60 no-print">❌</span>
+                                <i className="fa-solid fa-xmark text-lg text-gray-500 no-print"></i>
                               ) : isPriority && !studentName ? (
-                                // 우선 구역 빈자리일 때 UI
-                                <div className="flex flex-col items-center opacity-70 no-print">
-                                  <span className="text-lg">🌟</span>
-                                  <span className="text-[10px] sm:text-xs text-yellow-600 mt-0.5 tracking-tighter">우선배치</span>
+                                <div className="flex flex-col items-center opacity-80 no-print">
+                                  <i className="fa-solid fa-star text-yellow-500 text-base"></i>
+                                  <span className="text-[11px] text-yellow-700 mt-0.5 tracking-tighter">우선배치</span>
                                 </div>
                               ) : (
                                 studentName ? (
                                   <>
-                                    {number && <span className="text-xs sm:text-sm md:text-[15px] font-bold opacity-75">{number}</span>}
-                                    <span style={{ fontSize: cols >= 7 ? 'clamp(0.7rem, 1.2vw, 1rem)' : (layoutMode !== 'normal' ? 'clamp(0.85rem, 1.5vw, 1.2rem)' : 'clamp(1rem, 1.8vw, 1.5rem)'), lineHeight: '1.2' }}>{name}</span>
+                                    {number && <span className="font-bold opacity-70" style={{ fontSize: layout.numFont, lineHeight: 1.1 }}>{number}</span>}
+                                    <span className="whitespace-nowrap" style={{ fontSize: layout.nameFont, lineHeight: 1.15 }}>{name}</span>
                                   </>
-                                ) : <span className="text-gray-300 text-[10px] sm:text-xs md:text-sm font-normal">빈 자리</span>
+                                ) : <span className="no-print text-gray-300 text-[11px] font-normal opacity-70">빈 자리</span>
                               )}
                             </div>
-
-                            {isFixed && !isInactive && !isPresenting && <div className="print-only hidden absolute bottom-1 right-1 text-[10px] text-gray-500">📌</div>}
                           </div>
                         );
                       })
                     ))}
                   </div>
+                  </div>
 
                   {printPerspective === 'teacher' && (
-                    <div className="w-full flex justify-center mt-8 sm:mt-12">
-                      <div className="bg-blue-500 text-white px-16 py-3 rounded-t-3xl shadow-lg text-lg font-bold tracking-widest border-b-4 border-blue-400 relative overflow-hidden">
-                        <div className="absolute inset-0 bg-white opacity-10 w-full h-1/2 rounded-t-full top-0"></div>
+                    <div className="w-full flex justify-center items-end flex-shrink-0" style={{ height: layout.deskH }}>
+                      <div className="bg-blue-500 text-white px-16 rounded-t-2xl text-base font-bold tracking-widest flex items-center" style={{ height: 36 }}>
                         교 탁
                       </div>
                     </div>
                   )}
                 </div>
 
-                {showRoster && allNamesOriginal.length > 0 && (
-                  <div className="flex flex-col border-2 border-blue-500 rounded-xl min-w-[220px] bg-white shadow-sm overflow-hidden h-fit">
-                    <div className="bg-blue-500 text-white px-5 py-3">
-                      <h3 className="text-center font-bold text-base tracking-widest m-0">
-                        학 급 명 단
-                      </h3>
+                {layout.roster && (
+                  <div className="flex flex-col border-2 border-blue-500 rounded-lg bg-white overflow-hidden flex-shrink-0 self-center" style={{ width: layout.roster.width }}>
+                    <div className="bg-blue-500 text-white flex items-center justify-center" style={{ height: layout.roster.headerH }}>
+                      <h3 className="text-center font-bold text-sm tracking-widest m-0">학 급 명 단</h3>
                     </div>
-                    <div className="p-0 border-t border-blue-500">
-                      <div className={`grid ${allNamesOriginal.length > 20 ? 'grid-cols-2' : 'grid-cols-1'} bg-blue-200 gap-px`}>
-                        {allNamesOriginal.map((name, idx) => {
-                          const gender = getGender(name);
-                          const bgColor = useGenderColor ? (gender === 'M' ? 'bg-blue-50 text-blue-900' : gender === 'F' ? 'bg-pink-50 text-pink-900' : 'bg-white text-gray-800') : 'bg-white text-gray-800';
-                          return (
-                            <div key={idx} className={`text-sm font-semibold px-4 py-2.5 flex items-center justify-center text-center ${bgColor}`}>
-                              {displayName(name)}
-                            </div>
-                          );
-                        })}
-                      </div>
+                    {/* 세로 방향으로 읽히도록 열 우선(column) 흐름으로 채운다: 왼쪽 열 1~절반, 오른쪽 열 나머지 */}
+                    <div
+                      className="grid bg-blue-200"
+                      style={{
+                        gridAutoFlow: 'column',
+                        gridTemplateRows: `repeat(${layout.roster.rowCount}, ${layout.roster.rowH}px)`,
+                        gridTemplateColumns: `repeat(${layout.roster.colCount}, 1fr)`,
+                        gap: 1,
+                      }}
+                    >
+                      {allNamesOriginal.map((name, idx) => {
+                        const gender = getGender(name);
+                        const bgColor = useGenderColor ? (gender === 'M' ? 'bg-blue-50 text-blue-900' : gender === 'F' ? 'bg-pink-50 text-pink-900' : 'bg-white text-gray-800') : 'bg-white text-gray-800';
+                        return (
+                          <div key={idx} className={`font-semibold px-2 flex items-center justify-center text-center whitespace-nowrap ${bgColor}`} style={{ fontSize: layout.roster.fontSize }}>
+                            {displayName(name)}
+                          </div>
+                        );
+                      })}
+                      {layout.roster.colCount * layout.roster.rowCount > allNamesOriginal.length && <div className="bg-white"></div>}
                     </div>
                   </div>
                 )}
               </div>
 
               {footerNote && (
-                <div className="w-full mt-auto pt-6 border-t border-gray-100 flex justify-between items-end">
-                  <div className={`text-gray-600 ${footerFontSize} ${footerFontWeight} text-left whitespace-pre-wrap`}>
+                <div className="w-full border-t border-gray-200 flex items-end flex-shrink-0" style={{ height: layout.footerH }}>
+                  <div className={`text-gray-600 ${footerFontSize} ${footerFontWeight} text-left whitespace-pre-wrap`} style={{ lineHeight: 1.5 }}>
                     {footerNote}
                   </div>
                 </div>
               )}
 
             </div>
+            </div>
 
             {(layoutMode === 'manual' || waitingList.length > 0) && (
               <div
-                className="no-print w-full max-w-4xl bg-white p-5 rounded-2xl shadow-md min-h-[120px] border-2 border-dashed border-gray-300 relative transition-all"
+                className="no-print flex-shrink-0 w-full max-w-4xl bg-white p-5 rounded-2xl shadow-md min-h-[120px] border-2 border-dashed border-gray-300 relative transition-all"
                 onDragOver={onDragOverWaiting}
                 onDrop={onDropToWaitingList}
               >
                 <div className="absolute -top-3 left-6 bg-gray-600 text-white text-xs font-bold px-3 py-1 rounded-full">
-                  대기 명단 ({waitingList.length}명)
+                  대기 명단 ({waitingList.length}명){orderSession ? ' · 순서 뽑기 진행 중' : ''}
                 </div>
-                <p className="text-xs text-gray-500 mb-3 ml-2">💡 학생을 드래그하여 빈 자리에 직접 배치하세요. 자리에 있는 학생을 이 박스로 끌고 오면 자리가 비워집니다.</p>
+                <p className="text-xs text-gray-500 mb-3 ml-2">
+                  {orderSession
+                    ? '뽑힌 학생이 원하는 빈 자리를 클릭하거나 끌어다 놓으세요. 자리에 있는 학생을 이 상자로 끌고 오면 자리가 비워집니다.'
+                    : '학생을 끌어서 빈 자리에 직접 배치하세요. 자리에 있는 학생을 이 상자로 끌고 오면 자리가 비워집니다.'}
+                </p>
 
                 <div className="flex flex-wrap gap-2.5">
-                  {waitingList.map(name => {
+                  {waitingList.map((name, idx) => {
                     const gender = getGender(name);
-                    const waitingClass = useGenderColor
-                      ? (gender === 'M' ? 'bg-blue-50 text-blue-800 border-blue-200 hover:bg-blue-100' : gender === 'F' ? 'bg-pink-50 text-pink-800 border-pink-200 hover:bg-pink-100' : 'bg-gray-50 text-gray-800 border-gray-200 hover:bg-gray-100')
-                      : 'bg-blue-50 text-blue-800 border-blue-200 hover:bg-blue-100';
+                    const orderNo = pickOrder.indexOf(name);
+                    const isTurn = orderSession && name === currentPick;
+                    const waitingClass = isTurn
+                      ? 'bg-blue-600 text-white border-blue-600 hover:bg-blue-700'
+                      : useGenderColor
+                        ? (gender === 'M' ? 'bg-blue-50 text-blue-800 border-blue-200 hover:bg-blue-100' : gender === 'F' ? 'bg-pink-50 text-pink-800 border-pink-200 hover:bg-pink-100' : 'bg-gray-50 text-gray-800 border-gray-200 hover:bg-gray-100')
+                        : 'bg-blue-50 text-blue-800 border-blue-200 hover:bg-blue-100';
                     return (
                       <div
                         key={name}
@@ -1179,14 +1545,17 @@
                         onDragStart={(e) => onDragStartFromWaiting(e, name)}
                         className={`px-3 py-1.5 rounded-lg font-bold shadow-sm cursor-grab active:cursor-grabbing text-sm border transition-colors flex items-center gap-1.5 ${waitingClass}`}
                       >
-                        <i className="fa-solid fa-hand-pointer opacity-50"></i>
+                        {orderNo !== -1
+                          ? <span className={`text-[11px] font-black rounded px-1.5 py-0.5 ${isTurn ? 'bg-white text-blue-700' : 'bg-white/80 text-gray-500'}`}>{orderNo + 1}</span>
+                          : <i className="fa-solid fa-grip-vertical opacity-40"></i>}
                         {displayName(name)}
+                        {isTurn && <span className="text-[10px] font-semibold opacity-90 ml-0.5">지금 차례</span>}
                       </div>
                     );
                   })}
                   {waitingList.length === 0 && (
                     <div className="w-full text-center text-gray-400 text-sm py-4 font-medium flex items-center justify-center gap-2">
-                      🎉 모든 학생이 배치되었습니다!
+                      <i className="fa-solid fa-circle-check text-emerald-500"></i> 모든 학생이 배치되었습니다.
                     </div>
                   )}
                 </div>
@@ -1196,7 +1565,7 @@
 
           {showAdvanced && !isPresenting && (
             <div className="fixed inset-0 bg-black bg-opacity-40 z-50 flex justify-center items-center p-3 sm:p-4 no-print">
-              <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200">
+              <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200">
                 <div className="flex justify-between items-center p-3 sm:p-4 border-b border-gray-100 bg-gray-50">
                   <h3 className="font-bold text-gray-800 flex items-center gap-2 text-sm sm:text-base">
                     <i className="fa-solid fa-gear text-base sm:text-lg text-gray-500"></i>
@@ -1210,18 +1579,91 @@
                 <div className="p-4 sm:p-5 space-y-4 sm:space-y-5 max-h-[75vh] overflow-y-auto">
 
                   <div className="bg-rose-50 p-3 sm:p-4 rounded-xl border border-rose-100">
-                    <label className="text-xs sm:text-sm font-bold text-rose-900 block mb-1.5 sm:mb-2">🤫 비밀 고정석 (학생 몰래 지정)</label>
-                    <p className="text-[10px] sm:text-xs text-rose-700 mb-2 sm:mb-3 leading-relaxed">
-                      화면에는 표시되지 않지만 랜덤 배치 시 지정된 자리로 <b>마치 우연히 뽑힌 것처럼</b> 들어갑니다.<br />
-                      💡 <b>발표 모드 팁:</b> 발표 모드에서는 <kbd className="bg-rose-100 px-1 rounded font-mono">Ctrl</kbd> 키(Mac은 <kbd className="bg-rose-100 px-1 rounded font-mono">Cmd</kbd>)를 누른 채로 <b>[자리 랜덤 배치]</b>를 클릭할 때만 적용됩니다! 평소엔 누르지 말고 여러 번 섞는 척 연기하세요 😉<br />
-                      입력 형식: <code>이름: 행-열</code> (예: <code>홍길동: 1-2</code>)
+                    <label className="text-xs sm:text-sm font-bold text-rose-900 block mb-1.5">비밀 고정석 (학생 몰래 지정)</label>
+                    <p className="text-[10px] sm:text-xs text-rose-700 mb-3 leading-relaxed">
+                      아래 명단의 이름을 배치도의 자리로 끌어다 놓으세요. 메인 화면에는 표시되지 않고, 랜덤 배치 때 <b>우연히 뽑힌 것처럼</b> 그 자리에 들어갑니다.
+                      자리에 놓인 이름을 다른 자리로 끌면 옮겨지고, 명단 쪽으로 다시 끌거나 X를 누르면 해제됩니다.<br />
+                      <b>발표 모드</b>에서는 <kbd className="bg-rose-100 px-1 rounded font-mono">Ctrl</kbd>(Mac은 <kbd className="bg-rose-100 px-1 rounded font-mono">Cmd</kbd>)를 누른 채 [자리 랜덤 배치]를 클릭할 때만 적용됩니다.
                     </p>
-                    <textarea
-                      className="w-full border border-rose-200 rounded-lg p-2 sm:p-3 text-xs sm:text-sm h-12 sm:h-16 resize-none focus:ring-2 focus:ring-rose-500 outline-none bg-white placeholder-rose-300"
-                      placeholder="홍길동: 1-1&#10;김철수: 2-3"
-                      value={secretSeatsInput}
-                      onChange={(e) => setSecretSeatsInput(e.target.value)}
-                    />
+
+                    {(() => {
+                      const secretMap = parseSecretSeats(secretSeatsInput);
+                      const byPos = {};
+                      Object.entries(secretMap).forEach(([nm, pos]) => { byPos[`${pos.r}-${pos.c}`] = nm; });
+                      const cellW = Math.max(44, Math.min(72, Math.floor(520 / cols)));
+                      return (
+                        <div className="flex flex-col gap-3">
+                          {/* 미니 배치도 (교탁 기준 기본 시점) */}
+                          <div className="bg-white rounded-lg border border-rose-200 p-3 overflow-x-auto">
+                            <div className="flex justify-center mb-2">
+                              <div className="bg-rose-400 text-white text-[10px] font-bold px-6 py-0.5 rounded-b-lg tracking-widest">교 탁</div>
+                            </div>
+                            <div className="grid gap-1 mx-auto w-fit" style={{ gridTemplateColumns: `repeat(${cols}, ${cellW}px)` }}>
+                              {[...Array(rows)].map((_, r) => [...Array(cols)].map((_, c) => {
+                                const key = `${r}-${c}`;
+                                const nm = byPos[key];
+                                const off = inactiveSeats[key];
+                                return (
+                                  <div
+                                    key={key}
+                                    onDragOver={(e) => { if (!off) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; } }}
+                                    onDrop={(e) => { e.preventDefault(); if (secretDrag) placeSecretSeat(secretDrag.name, r, c); setSecretDrag(null); }}
+                                    draggable={!!nm}
+                                    onDragStart={(e) => { setSecretDrag({ name: nm, from: key }); e.dataTransfer.effectAllowed = 'move'; }}
+                                    className={`relative h-9 rounded border text-[11px] font-bold flex items-center justify-center text-center leading-tight px-0.5 select-none
+                                      ${off ? 'bg-gray-100 border-gray-200 text-gray-300' : nm ? 'bg-rose-100 border-rose-400 text-rose-900 cursor-grab' : 'bg-white border-dashed border-rose-200 text-rose-200'}`}
+                                    title={off ? '사용하지 않는 자리' : `${r + 1}-${c + 1}`}
+                                  >
+                                    {off ? <i className="fa-solid fa-xmark"></i> : nm ? (
+                                      <>
+                                        <span className="truncate">{nm}</span>
+                                        <button
+                                          onClick={() => removeSecretSeat(nm)}
+                                          className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-white border border-rose-300 text-rose-500 text-[9px] leading-none flex items-center justify-center hover:bg-rose-500 hover:text-white"
+                                          title="고정 해제"
+                                        >
+                                          <i className="fa-solid fa-xmark"></i>
+                                        </button>
+                                      </>
+                                    ) : <span className="font-normal">{r + 1}-{c + 1}</span>}
+                                  </div>
+                                );
+                              }))}
+                            </div>
+                          </div>
+
+                          {/* 끌어올 학생 명단 (여기로 다시 끌면 해제) */}
+                          <div
+                            className="bg-white/70 rounded-lg border border-rose-200 p-2 flex flex-wrap gap-1.5 min-h-[44px]"
+                            onDragOver={(e) => { e.preventDefault(); }}
+                            onDrop={(e) => { e.preventDefault(); if (secretDrag && secretDrag.from) removeSecretSeat(secretDrag.name); setSecretDrag(null); }}
+                          >
+                            {allNamesOriginal.map(raw => {
+                              const nm = cleanName(raw);
+                              const pos = secretMap[nm];
+                              return (
+                                <div
+                                  key={raw}
+                                  draggable
+                                  onDragStart={(e) => { setSecretDrag({ name: nm, from: null }); e.dataTransfer.effectAllowed = 'move'; }}
+                                  className={`px-2 py-1 rounded border text-[11px] font-bold cursor-grab select-none ${pos ? 'bg-rose-500 text-white border-rose-500' : 'bg-white text-gray-700 border-gray-300 hover:border-rose-400'}`}
+                                  title={pos ? `${pos.r + 1}-${pos.c + 1} 자리에 고정됨` : '배치도로 끌어다 놓기'}
+                                >
+                                  {displayName(raw)}{pos && <span className="ml-1 font-normal opacity-90">{pos.r + 1}-{pos.c + 1}</span>}
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          <div className="flex justify-between items-center">
+                            <span className="text-[10px] text-rose-700">지정 {Object.keys(secretMap).length}명</span>
+                            {Object.keys(secretMap).length > 0 && (
+                              <button onClick={() => setSecretSeatsInput('')} className="text-[10px] text-rose-600 hover:text-rose-800 font-bold">모두 해제</button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
 
                   <div>
@@ -1293,12 +1735,12 @@
                     <div className="flex items-center gap-2 sm:gap-3 bg-gray-50 p-2 sm:p-3 rounded-lg border border-gray-200">
                       <input
                         type="checkbox"
-                        id="gender-pair"
+                        id="gender-pair-adv"
                         checked={genderPairing}
                         onChange={(e) => setGenderPairing(e.target.checked)}
                         className="w-4 h-4 sm:w-5 sm:h-5 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500 cursor-pointer"
                       />
-                      <label htmlFor="gender-pair" className="text-xs sm:text-sm text-gray-800 cursor-pointer font-medium leading-tight">
+                      <label htmlFor="gender-pair-adv" className="text-xs sm:text-sm text-gray-800 cursor-pointer font-medium leading-tight">
                         남녀 짝꿍 우선 배치<br />
                         <span className="text-[9px] sm:text-xs text-gray-500 font-normal">(명단 이름 끝에 '남', '여' 표기. 괄호 생략 가능)</span>
                       </label>
@@ -1337,7 +1779,7 @@
 
           {/* ⭐️ 인쇄 및 저장 / 백업 모달 */}
           {modal.isOpen && (
-            <div className="fixed inset-0 bg-black bg-opacity-50 z-[60] flex justify-center items-center p-4 no-print">
+            <div className="fixed inset-0 bg-black bg-opacity-50 z-[95] flex justify-center items-center p-4 no-print">
               <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200">
                 <div className="p-5 sm:p-6 border-b border-gray-100">
                   <h3 className={`font-bold text-lg sm:text-xl flex items-center gap-2 ${modal.title.includes('주의') || modal.title.includes('⚠️') || modal.title.includes('실패') ? 'text-red-600' : (modal.title.includes('💡') ? 'text-amber-600' : 'text-gray-800')}`}>
@@ -1442,6 +1884,39 @@
                     </button>
                   </div>
                 )}
+              </div>
+            </div>
+          )}
+
+          {/* 순서 뽑기: 한 명씩 공개하는 룰렛 */}
+          {roulette.open && (
+            <div className="fixed inset-0 z-[90] bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-6 no-print">
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl px-10 py-12 flex flex-col items-center text-center">
+                <div className="text-blue-600 font-bold tracking-widest text-lg mb-6">
+                  {roulette.nth}번째 차례
+                </div>
+                <div className="h-40 w-full flex items-center justify-center overflow-hidden">
+                  <div
+                    key={roulette.spinning ? 'spin' : `final-${roulette.name}`}
+                    className={`font-black whitespace-nowrap ${roulette.spinning ? 'text-gray-300' : 'text-gray-900 animate-reveal'}`}
+                    style={{ fontSize: fitText(displayName(roulette.name), 640, 112, 900) }}
+                  >
+                    {displayName(roulette.name)}
+                  </div>
+                </div>
+                <div className="h-14 mt-8 flex items-center">
+                  {roulette.spinning ? (
+                    <span className="text-gray-400 text-sm tracking-wider">누가 나올까요...</span>
+                  ) : (
+                    <button
+                      onClick={() => setRoulette(prev => ({ ...prev, open: false }))}
+                      className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-10 rounded-xl text-lg flex items-center gap-2"
+                    >
+                      자리 고르러 가기 <i className="fa-solid fa-arrow-right"></i>
+                    </button>
+                  )}
+                </div>
+                <div className="text-xs text-gray-400 mt-4">남은 학생 {getOrderCandidates().length}명</div>
               </div>
             </div>
           )}
