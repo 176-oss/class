@@ -1,5 +1,5 @@
 // 생기부 점검기 화면: 시작, 결과 목록, 보고서. 상세는 detail.js, 설정은 settings.js.
-import { h, clear } from './dom.js';
+import { h, clear, labelTableCells } from './dom.js';
 import { S, recheck, loadGroups, statusOf, activeIssues, issuesOf, areaLabel, STATUS_LABEL, LEVEL_LABEL, settings, saveSettings, keys } from './state.js';
 import { readWorkbook, parseSheets, parseTsv, SheetError } from './sheet.js';
 import { buildReport, reportFile, textSheet } from './report.js';
@@ -11,6 +11,8 @@ import { renderDetail } from './detail.js';
 import { renderSettings } from './settings.js';
 
 const main = document.getElementById('main');
+// 화면이 표를 새로 그릴 때마다 칸 이름을 붙인다 (휴대폰 폭 카드 보기)
+new MutationObserver(() => { for (const t of main.querySelectorAll('.table-wrap > table')) labelTableCells(t); }).observe(main, { childList: true, subtree: true });
 const XLSX = () => window.XLSX;
 let pending = null; // 읽었지만 아직 점검하지 않은 묶음 { groups, problems }
 let pasteText = '';

@@ -530,3 +530,27 @@ input[type="checkbox"], input[type="radio"] {
   .navtab[aria-current="page"] { outline: 2px solid CanvasText; outline-offset: -2px; }
   .bytebar-fill, .progress-fill { background: Highlight; forced-color-adjust: none; }
 }
+
+/* ---------- 휴대폰 폭: 표를 줄마다 카드로 쌓는다 (칸 이름은 data-label, js/dom.js labelTableCells) ---------- */
+@media (max-width: 640px) {
+  .tabs { flex-wrap: wrap; overflow-x: visible; }
+  .table-wrap { overflow-x: visible; max-height: none; }
+  .table-wrap > .table { min-width: 0 !important; width: 100%; table-layout: auto; border-collapse: separate; }
+  .table-wrap > .table colgroup, .table-wrap > .table caption { display: none; }
+  .table-wrap > .table thead { display: none; } /* 칸 이름은 카드 안 data-label 로 보인다 */
+  .table-wrap > .table tbody { display: block; }
+  .table-wrap > .table tbody tr {
+    display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-3);
+    margin-bottom: var(--sp-3); padding: var(--sp-3);
+    border: var(--bw) solid var(--color-border); border-radius: var(--r-md); background: var(--color-surface);
+  }
+  .table-wrap > .table tbody tr > * { display: block; flex: 0 1 auto; min-width: 0; padding: 0; border: 0; text-align: left; white-space: normal; }
+  /* 글 칸(입력칸, 긴 글, 목록)은 한 줄을 다 쓴다 */
+  .table-wrap > .table tbody tr > :is(:has(textarea, select, input:not([type="checkbox"]), ul, .cell-text, .clamp-2), [colspan]) { flex-basis: 100%; }
+  .table-wrap > .table tbody tr > [data-label]:not(.col-check)::before {
+    content: attr(data-label); display: block; margin-bottom: 2px;
+    font-size: var(--fs-xs); font-weight: var(--fw-medium); color: var(--color-text-muted);
+  }
+  /* 작은 칸은 이름 뒤에 붙여 한 줄로 */
+  .table-wrap > .table tbody tr > :is(.num, .col-name, .col-done, .col-check)[data-label]::before { display: inline; margin-right: var(--sp-1); }
+}
