@@ -499,6 +499,8 @@ function onSelection() {
   syncChecks();
   renderBar();
   if (G.panel) renderPanel();
+  // 좁은 화면은 패널이 표 아래에 생기니, 처음 열 때 패널로 내려간다
+  if (toggle && G.panel && window.matchMedia?.('(max-width: 1099px)').matches) els.panel?.scrollIntoView({ block: 'start', behavior: 'smooth' });
 }
 function openPanel() { G.panel = true; applyLayout(); renderPanel(); renderBar(); document.getElementById('grid-common')?.focus(); }
 

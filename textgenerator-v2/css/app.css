@@ -251,3 +251,13 @@ a.sync-status-text { text-decoration: underline; }
 .board-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(6.5rem, 1fr)); gap: var(--sp-2); }
 .board-chip { justify-content: flex-start; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .board-chip.is-written { text-decoration: underline; text-underline-offset: 3px; }
+
+/* 휴대폰 폭 작성 표: 지적 줄은 위 학생 카드에 붙이고, 반 제목 줄은 제목처럼 */
+@media (max-width: 640px) {
+  .grid-table tbody tr.grid-group { border: 0; padding: var(--sp-2) 0 0; background: transparent; }
+  .grid-table tbody tr.has-detail { margin-bottom: 0; border-bottom: 0; border-radius: var(--r-md) var(--r-md) 0 0; }
+  .grid-table tbody tr.grid-issue-row { margin-top: 0; padding-top: 0; border-top: 0; border-radius: 0 0 var(--r-md) var(--r-md); }
+  .grid-table tbody tr.grid-issue-row > td:first-child { display: none; }
+  .grid-table .grid-issue-line { gap: var(--sp-1) var(--sp-3); }
+  .col-resize { display: none; }
+}

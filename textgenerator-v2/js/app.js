@@ -1,5 +1,5 @@
 // 시작, 라우팅(#roster 등), 머리 메뉴, 드라이브 동기화 연결, 전역 상태 연결
-import { h, clear, icon, focusEl } from './dom.js';
+import { h, clear, icon, focusEl, labelTableCells } from './dom.js';
 import { toast, alertBox, badge, openDialog } from './ui.js';
 import * as store from './store.js';
 import * as realDrive from './drive.js';
@@ -36,6 +36,8 @@ const fakeDrive = devMode && lsGet(FAKE_DRIVE_FLAG) === '1';
 const drive = fakeDrive ? createFakeDrive({ storage: localStorage }) : realDrive;
 
 const main = document.getElementById('main');
+// 화면이 표를 새로 그릴 때마다 칸 이름을 붙인다 (휴대폰 폭 카드 보기)
+new MutationObserver(() => { for (const t of main.querySelectorAll('.table-wrap > .table')) labelTableCells(t); }).observe(main, { childList: true, subtree: true });
 const navEl = document.getElementById('navtabs');
 const badgesEl = document.getElementById('appbar-badges');
 const bannerRoot = document.getElementById('banner-root');
