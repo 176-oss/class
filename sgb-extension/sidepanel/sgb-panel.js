@@ -6,6 +6,9 @@ import { hasClientId, redirectUrl, getToken, forgetToken, download, upload, getM
 
 // shortcut: localhost 주소는 가상 나이스 시험용. 학교 배포 전 manifest 와 여기서 뺀다.
 const EXT_VER = (() => { try { return chrome.runtime.getManifest().version; } catch (e) { return ''; } })();
+// 새 버전 안내: 작성 도우미와 같은 폴더의 최신 버전 정보 (출결 확장과 같은 방식)
+const APP_BASE = 'https://176-oss.github.io/class/textgenerator-v2/';
+const VERSION_URL = `${APP_BASE}sgb-extension-version.json`;
 const NEIS_URLS = ['https://*.neis.go.kr/*', 'http://localhost/*', 'http://127.0.0.1/*'];
 const K = { data: 'sgb.data', done: 'sgb.done', drive: 'sgb.drive' };
 
@@ -379,6 +382,34 @@ async function doSurveyValues() {
 }
 
 // ---------- 화면 ----------
+function cmpVer(a, b) {
+  const pa = String(a || '').split('.').map((x) => parseInt(x, 10) || 0);
+  const pb = String(b || '').split('.').map((x) => parseInt(x, 10) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) { const x = pa[i] || 0; const y = pb[i] || 0; if (x !== y) return x < y ? -1 : 1; }
+  return 0;
+}
+async function checkUpdate() {
+  try {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 8000);
+    const res = await fetch(VERSION_URL, { cache: 'no-store', credentials: 'omit', signal: ctl.signal });
+    clearTimeout(timer);
+    if (!res.ok) return;
+    const j = await res.json();
+    if (!j || typeof j.version !== 'string' || !/^\d+(\.\d+)*$/.test(j.version)) return;
+    if (cmpVer(EXT_VER, j.version) >= 0) return;
+    const zip = typeof j.zip === 'string' && /^[\w.-]+\.zip$/.test(j.zip) ? j.zip : 'sgb-extension.zip';
+    S.update = { version: j.version, zip };
+    render();
+  } catch (e) { /* 조용히 무시 */ }
+}
+function updateBand() {
+  const u = S.update;
+  if (!u) return '';
+  return `<div class="alert alert-info" role="status"><div class="alert-body"><span class="alert-title">새 버전 ${esc(u.version)}이 있습니다 (지금 ${esc(EXT_VER)})</span>
+    <div class="btn-row"><a class="btn btn-secondary btn-sm" href="${esc(APP_BASE + u.zip)}" target="_blank" rel="noopener">내려받기</a>
+    <a class="btn btn-ghost btn-sm" href="${esc(APP_BASE)}guide.html#update" target="_blank" rel="noopener">업데이트 방법</a></div></div></div>`;
+}
 function noticeHtml(n) {
   if (!n) return '';
   return `<div class="alert ${n.kind === 'block' ? 'alert-block' : 'alert-info'}" role="status"><div class="alert-body">
@@ -491,7 +522,7 @@ function render() {
   if (!root) return;
   const list = S.data && S.det && S.det.cond ? itemsFor(activeItems(S.data), (S.run && S.run.cond) || S.det.cond) : [];
   const open = root.querySelector('details.log') && root.querySelector('details.log').open;
-  root.innerHTML = `${noticeHtml(S.notice)}${screenCard()}${dataCard()}${studentsCard(list)}<section class="stack-sm">${actions(list)}</section>${toolsCard()}`;
+  root.innerHTML = `${updateBand()}${noticeHtml(S.notice)}${screenCard()}${dataCard()}${studentsCard(list)}<section class="stack-sm">${actions(list)}</section>${toolsCard()}`;
   if (open) root.querySelector('details.log').open = true;
 }
 
@@ -532,6 +563,7 @@ export async function mount(el) {
   });
   await loadState();
   render();
+  checkUpdate();
   await detect();
   chrome.tabs.onActivated.addListener(() => detect());
   chrome.tabs.onUpdated.addListener((id, info) => { if (info.status === 'complete') detect(); });

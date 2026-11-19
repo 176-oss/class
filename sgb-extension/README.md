@@ -1,4 +1,4 @@
-# 생기부 도우미 - 나이스 연동 (크롬 확장, v0.4.6)
+# 생기부 도우미 - 나이스 연동 (크롬 확장, v0.4.8)
 
 생기부 작성 도우미에서 '완료'로 표시한 글을 나이스 생기부 입력 화면에 반자동으로 입력합니다.
 기획: `docs/textgenerator-v2/생기부-NEIS-확장프로그램-기획초안.md`. 데이터 규칙: 웹앱 계약 `textgenerator-v2/docs/contract.md` 7절·12절·19절.
@@ -89,6 +89,11 @@
 - `content/sgb-bridge.js`는 출결 `bridge.js` 복사본(채널 이름만 다름), `sidepanel/sgb-drive.js`는 출결 0.4.3 `drive.js` 복사본(파일 이름·토큰 키만 다름), CSS 3개는 0.4.3 그대로 복사
 - 사이드 패널은 `sgb-panel.js`의 `mount(root)` 하나로 그려지므로 출결 패널의 '생기부' 탭에서 부르면 됩니다
 - 합칠 때 manifest는 출결 확장의 `key`를 씁니다 (설치된 출결 확장 ID 유지). 이 확장의 `chrome.storage` 데이터는 옮겨지지 않으니 글은 다시 불러옵니다
+
+## 업데이트 알림 (0.4.8)
+- 출결 확장과 같은 방식입니다. `content/sgb-version.js`가 작성 도우미 페이지에 설치된 버전 문자열만 알려 주고(`data-sgb-ext-version`, postMessage), 작성 도우미(`js/ext-version.js`)가 `sgb-extension-version.json`과 비교해 팝업을 띄웁니다 ([내려받기], [나중에]=다음 날 다시, [이 버전은 알리지 않기]).
+- 사이드 패널도 시작할 때 같은 파일을 읽어 새 버전이면 위쪽에 띠를 보입니다.
+- 버전을 올릴 때 `release-notes.json`에 그 버전의 업데이트 내용을 적고 zip 을 다시 만듭니다.
 
 ## 배포 (zip)
 - `node sgb-extension/tools/make-zip.mjs` 로 `textgenerator-v2/sgb-extension.zip` 과 `sgb-extension-version.json` 을 만듭니다. tests·mock-neis·tools 는 빼고, manifest 와 패널의 localhost 주소는 지운 채로 넣습니다. 버전을 올리면 꼭 다시 만드세요 (`tests/zip.test.mjs` 가 버전이 다르면 실패).

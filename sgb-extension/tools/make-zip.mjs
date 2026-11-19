@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const SRC = path.resolve(here, '..');
 const OUT_DIR = path.resolve(SRC, '../textgenerator-v2');
-const SKIP = new Set(['tests', 'mock-neis', 'tools', '.gitattributes']);
+const SKIP = new Set(['tests', 'mock-neis', 'tools', '.gitattributes', 'release-notes.json']);
 const LOCAL = ['http://localhost/*', 'http://127.0.0.1/*'];
 
 function walk(dir, rel = '') {
@@ -99,7 +99,10 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const files = walk(SRC);
   const zip = makeZip(files.map((f) => ({ name: `sgb-extension/${f.rel}`, data: contentOf(f) })));
   fs.writeFileSync(path.join(OUT_DIR, 'sgb-extension.zip'), zip);
-  const info = { version: manifest.version, date: new Date().toISOString().slice(0, 10), zip: 'sgb-extension.zip' };
+  let notes = [];
+  try { notes = JSON.parse(fs.readFileSync(path.join(SRC, 'release-notes.json'), 'utf8'))[manifest.version] || []; } catch { notes = []; }
+  // 작성 도우미의 업데이트 알림과 사이드 패널이 이 파일을 읽는다
+  const info = { version: manifest.version, date: new Date().toISOString().slice(0, 10), zip: 'sgb-extension.zip', notes };
   fs.writeFileSync(path.join(OUT_DIR, 'sgb-extension-version.json'), `${JSON.stringify(info, null, 2)}\n`);
   console.log(`sgb-extension.zip ${manifest.version}: 파일 ${files.length}개, ${zip.length} 바이트`);
 }
