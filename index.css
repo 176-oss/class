@@ -213,6 +213,14 @@ body {
     background: linear-gradient(135deg, #0ea5e9, #10b981);
 }
 
+.card-icon-wrapper.checker {
+    background: linear-gradient(135deg, #7c3aed, #c026d3);
+}
+
+.card-icon-wrapper.legacy {
+    background: linear-gradient(135deg, #94a3b8, #64748b);
+}
+
 .card-icon-wrapper.attendance {
     background: linear-gradient(135deg, #1f2d5c, #2f5bd3);
 }
@@ -287,6 +295,11 @@ body {
     font-weight: 600;
     background: #dcfce7;
     color: #166534;
+}
+
+.status-badge.legacy {
+    background: #e2e8f0;
+    color: #475569;
 }
 
 .status-badge.pending {
