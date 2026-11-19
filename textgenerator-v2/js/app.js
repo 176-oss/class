@@ -14,6 +14,7 @@ import { styleView } from './views/style.js';
 import { neisView } from './views/neis.js';
 import { backupView } from './views/backup.js';
 import { settingsView } from './views/settings.js';
+import { startExtensionWatch } from './ext-version.js';
 
 const ROUTES = [
   { name: 'roster', label: '명단', icon: 'users', view: rosterView },
@@ -399,6 +400,7 @@ async function start() {
   route();
 
   startBridge();
+  startExtensionWatch(); // 학교 PC에 생기부 확장이 있고 새 버전이 나왔으면 알림
   onDoneList(handleDoneList);
   requestDone();
 

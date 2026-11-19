@@ -57,16 +57,54 @@
                 </div>
             </div>
 
-            <!-- 텍스트 생성기 프로그램 -->
-            <div class="program-card" onclick="location.href='textgenerator/'">
+            <!-- 생기부 작성 도우미 (v2) -->
+            <div class="program-card" onclick="location.href='textgenerator-v2/'">
                 <div class="card-icon-wrapper textgen">
-                    <i data-lucide="file-text"></i>
+                    <i data-lucide="pen-line"></i>
                 </div>
                 <div class="card-content">
-                    <h2 class="card-title">생기부 생성기</h2>
-                    <p class="card-description">과세특, 자율, 진로, 동아리 등의 내용을 손쉽게 생성할 수 있는 도구입니다.</p>
+                    <h2 class="card-title">생기부 작성 도우미</h2>
+                    <p class="card-description">반 전체를 명렬순 표로 보면서 메모와 특징으로 AI 초안을 만들고, 점검해서 나이스에 옮길 글을 완성합니다.</p>
+                    <div class="card-footer">
+                        <div class="footer-left">
+                            <span class="status-badge">사용 가능</span>
+                            <a class="manual-btn" href="textgenerator-v2/guide.html" onclick="event.stopPropagation()">
+                                <i data-lucide="file-question"></i> 사용법
+                            </a>
+                            <a class="manual-btn" href="textgenerator-v2/sgb-extension.zip" download onclick="event.stopPropagation()">
+                                <i data-lucide="download"></i> 나이스 확장 받기
+                            </a>
+                        </div>
+                        <i data-lucide="chevron-right" class="arrow-icon"></i>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 생기부 점검기 -->
+            <div class="program-card" onclick="location.href='sgb-checker/'">
+                <div class="card-icon-wrapper checker">
+                    <i data-lucide="list-checks"></i>
+                </div>
+                <div class="card-content">
+                    <h2 class="card-title">생기부 점검기</h2>
+                    <p class="card-description">쓴 글을 2026 기재요령 기준으로 점검하고 고칠 문구를 제안합니다. 작성 도우미와 글을 주고받을 수 있습니다.</p>
                     <div class="card-footer">
                         <span class="status-badge">사용 가능</span>
+                        <i data-lucide="chevron-right" class="arrow-icon"></i>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 구버전 생기부 생성기 (그대로 둠) -->
+            <div class="program-card" onclick="location.href='textgenerator/'">
+                <div class="card-icon-wrapper legacy">
+                    <i data-lucide="history"></i>
+                </div>
+                <div class="card-content">
+                    <h2 class="card-title">생기부 생성기 (구버전)</h2>
+                    <p class="card-description">예전 생기부 생성기입니다. 이전 방식이 편한 분을 위해 그대로 두었습니다.</p>
+                    <div class="card-footer">
+                        <span class="status-badge legacy">구버전</span>
                         <i data-lucide="chevron-right" class="arrow-icon"></i>
                     </div>
                 </div>

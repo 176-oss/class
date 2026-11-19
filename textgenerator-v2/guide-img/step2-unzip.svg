@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="330" viewBox="0 0 1000 330" font-family="'Malgun Gothic','Apple SD Gothic Neo','Noto Sans KR',sans-serif">
+  <rect width="1000" height="330" fill="#FFFFFF"/>
+  <!-- 왼쪽: zip 파일과 오른쪽 클릭 메뉴 -->
+  <rect x="30" y="30" width="430" height="230" rx="14" fill="#FDF8EE" stroke="#E8DCC6"/>
+  <g transform="translate(60 60)">
+    <rect width="54" height="66" rx="6" fill="#FBEFD5" stroke="#C98A1B" stroke-width="2"/>
+    <rect x="22" y="6" width="10" height="40" fill="#C98A1B" opacity="0.6"/>
+    <text x="27" y="88" text-anchor="middle" font-size="15" fill="#2E2418">sgb-extension.zip</text>
+  </g>
+  <g transform="translate(200 52)">
+    <rect width="230" height="186" rx="8" fill="#FFFFFF" stroke="#D9CBB0"/>
+    <text x="18" y="34" font-size="16" fill="#6E604E">열기</text>
+    <rect x="8" y="50" width="214" height="40" rx="6" fill="#FBEFD5" stroke="#6B4410" stroke-width="3"/>
+    <text x="18" y="76" font-size="17" font-weight="700" fill="#2E2418">모두 압축 풀기...</text>
+    <text x="18" y="122" font-size="16" fill="#6E604E">이름 바꾸기</text>
+    <text x="18" y="160" font-size="16" fill="#6E604E">삭제</text>
+    <circle cx="214" cy="52" r="16" fill="#6B4410"/><text x="214" y="58" text-anchor="middle" font-size="17" font-weight="700" fill="#FFFFFF">1</text>
+  </g>
+  <!-- 화살표 -->
+  <path d="M478 145 L540 145" stroke="#6B4410" stroke-width="4" stroke-linecap="round"/>
+  <path d="M528 132 L544 145 L528 158" fill="none" stroke="#6B4410" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- 오른쪽: 풀린 폴더 -->
+  <rect x="560" y="30" width="410" height="230" rx="14" fill="#FDF8EE" stroke="#E8DCC6"/>
+  <g transform="translate(585 52)">
+    <path d="M0 10 h40 l8 8 h52 v52 h-100z" fill="#F5B83D"/>
+    <text x="118" y="42" font-size="18" font-weight="700" fill="#2E2418">sgb-extension</text>
+    <circle cx="370" cy="10" r="16" fill="#6B4410"/><text x="370" y="16" text-anchor="middle" font-size="17" font-weight="700" fill="#FFFFFF">2</text>
+  </g>
+  <g font-size="15" fill="#2E2418">
+    <rect x="585" y="140" width="360" height="104" rx="8" fill="#FFFFFF" stroke="#E8DCC6"/>
+    <text x="605" y="166">content</text><text x="745" y="166">icons</text><text x="855" y="166">lib</text>
+    <text x="605" y="196">shared</text><text x="745" y="196">sidepanel</text>
+    <text x="605" y="226" font-weight="700" fill="#6B4410">manifest.json</text><text x="745" y="226">background.js</text>
+  </g>
+  <text x="30" y="292" font-size="16" fill="#2E2418"><tspan font-weight="700">1</tspan> 내려받은 zip 파일에서 마우스 오른쪽 버튼 → [모두 압축 풀기]를 누릅니다.</text>
+  <text x="30" y="318" font-size="16" fill="#2E2418"><tspan font-weight="700">2</tspan> sgb-extension 폴더가 생기고 안에 manifest.json 이 보이면 됩니다. 이 폴더는 지우지 마세요.</text>
+</svg>
