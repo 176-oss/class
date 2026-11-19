@@ -160,11 +160,32 @@ function listTable(items, pos) {
       }))));
 }
 
+// 학교 PC 확장프로그램 받기와 설치 안내. zip 은 sgb-extension/tools/make-zip.mjs 로 만든다
+function extDownload() {
+  const ver = h('span', { class: 'small muted' });
+  fetch('sgb-extension-version.json', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)).then((j) => {
+    if (j && typeof j.version === 'string') ver.textContent = `최신 ${j.version}${j.date ? ` (${j.date})` : ''}`;
+  }).catch(() => {});
+  return h('details', { class: 'key-guide' },
+    h('summary', {}, '학교 PC 확장프로그램 받기와 설치'),
+    h('div', { class: 'stack' },
+      h('div', { class: 'row' },
+        h('a', { class: 'btn btn-secondary', href: 'sgb-extension.zip', download: 'sgb-extension.zip' }, icon('download'), '확장프로그램 내려받기 (sgb-extension.zip)'),
+        ver),
+      h('ol', { class: 'small' },
+        h('li', {}, '내려받은 zip 파일에서 마우스 오른쪽 버튼 > [모두 압축 풀기]를 누릅니다. sgb-extension 폴더가 생깁니다 (이 폴더를 지우면 확장도 사라지니 문서 폴더 등에 둡니다).'),
+        h('li', {}, '크롬 주소창에 chrome://extensions 를 입력하고, 오른쪽 위 [개발자 모드]를 켭니다.'),
+        h('li', {}, '[압축해제된 확장 프로그램을 로드합니다]를 눌러 sgb-extension 폴더를 고릅니다.'),
+        h('li', {}, '나이스 탭을 새로고침(F5)하고, 크롬 오른쪽 위 확장 아이콘(갈색 바탕의 종이와 연필)을 눌러 사이드 패널을 엽니다.')),
+      h('p', { class: 'small muted' }, '새 버전이 나오면 zip 을 다시 받아 같은 폴더에 덮어쓰고, chrome://extensions 에서 생기부 확장의 새로고침 단추를 누른 뒤 나이스 탭을 F5 합니다. 출결 확장과는 따로 설치합니다.')));
+}
+
 // 드라이브에 연결되어 있으면 확장이 드라이브에서 바로 가져가고, 보내기·파일은 예비 경로 (contract 9절)
 function extCard(items) {
   const connected = !!ctx?.syncConnected();
   return h('section', { class: 'card stack', 'aria-labelledby': 'ext-title' },
     h('h2', { class: 'card-title', id: 'ext-title' }, '확장프로그램으로 옮기기'),
+    extDownload(),
     connected
       ? alertBox('ok', '학교 PC 확장프로그램이 드라이브에서 완료 기록을 바로 가져갑니다. 나이스에 저장한 뒤 이 화면을 다시 열면 입력 완료가 표시됩니다.')
       : h('p', { class: 'small' }, '구글 드라이브에 연결하면 학교 PC 확장프로그램이 드라이브에서 완료 기록을 바로 가져갑니다. 지금은 아래의 드라이브 없이 보내기를 쓰세요.'),
@@ -185,7 +206,8 @@ function render() {
   const head = viewHeader('NEIS 옮기기', '완료로 표시한 글만 학번 순서로 보여 줍니다. [복사]한 뒤 나이스에 붙여 넣고 [옮김, 다음]을 누르세요.');
   const classes = store.listClasses();
   if (!classes.length) {
-    clear(root, head, emptyState('users', '아직 반이 없습니다.', h('a', { class: 'btn btn-primary', href: '#roster' }, '명단으로 가기')));
+    clear(root, head, emptyState('users', '아직 반이 없습니다.', h('a', { class: 'btn btn-primary', href: '#roster' }, '명단으로 가기')),
+      h('section', { class: 'card stack' }, extDownload()));
     return;
   }
   const areas = store.areasOfClass(cls());

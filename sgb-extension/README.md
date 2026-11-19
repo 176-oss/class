@@ -1,4 +1,4 @@
-# 생기부 도우미 - 나이스 연동 (크롬 확장, v0.4.5)
+# 생기부 도우미 - 나이스 연동 (크롬 확장, v0.4.6)
 
 생기부 작성 도우미에서 '완료'로 표시한 글을 나이스 생기부 입력 화면에 반자동으로 입력합니다.
 기획: `docs/textgenerator-v2/생기부-NEIS-확장프로그램-기획초안.md`. 데이터 규칙: 웹앱 계약 `textgenerator-v2/docs/contract.md` 7절·12절·19절.
@@ -90,7 +90,12 @@
 - 사이드 패널은 `sgb-panel.js`의 `mount(root)` 하나로 그려지므로 출결 패널의 '생기부' 탭에서 부르면 됩니다
 - 합칠 때 manifest는 출결 확장의 `key`를 씁니다 (설치된 출결 확장 ID 유지). 이 확장의 `chrome.storage` 데이터는 옮겨지지 않으니 글은 다시 불러옵니다
 
-## 배포 전 정리
+## 배포 (zip)
+- `node sgb-extension/tools/make-zip.mjs` 로 `textgenerator-v2/sgb-extension.zip` 과 `sgb-extension-version.json` 을 만듭니다. tests·mock-neis·tools 는 빼고, manifest 와 패널의 localhost 주소는 지운 채로 넣습니다. 버전을 올리면 꼭 다시 만드세요 (`tests/zip.test.mjs` 가 버전이 다르면 실패).
+- 선생님은 작성 도우미의 NEIS 옮기기 화면 또는 포털의 [나이스 확장 받기]에서 내려받아 압축을 풀고 chrome://extensions 의 [압축해제된 확장 프로그램을 로드합니다]로 설치합니다.
+- 아이콘은 출결 확장(남색 체크리스트)과 헷갈리지 않게 갈색 바탕의 종이와 연필입니다 (0.4.6).
+
+## 배포 전 정리 (zip 을 만들면 자동으로 됨)
 `http://localhost/*`, `http://127.0.0.1/*`를 manifest(`host_permissions`, `content_scripts.matches` 두 곳)와 `sidepanel/sgb-panel.js`의 `NEIS_URLS`에서 지우고 `mock-neis/`, `tests/`를 뺍니다.
 
 ## 테스트
