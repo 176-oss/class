@@ -121,3 +121,16 @@ export function debounce(fn, ms) {
   d.pending = () => timer !== null;
   return d;
 }
+
+/** 표의 칸마다 머리글 이름을 data-label 로 (휴대폰 폭 카드 보기에서 칸 이름으로 보인다). colspan 칸은 건너뜀 */
+export function labelTableCells(table) {
+  const heads = [...(table.tHead?.rows[0]?.cells || [])].map((c) => c.textContent.trim());
+  if (!heads.length) return;
+  for (const body of table.tBodies) for (const row of body.rows) {
+    let col = 0;
+    for (const cell of row.cells) {
+      if (cell.colSpan === 1 && heads[col] && !cell.dataset.label) cell.dataset.label = heads[col];
+      col += cell.colSpan;
+    }
+  }
+}

@@ -41,7 +41,7 @@ function createForm() {
   const nameField = field('반 이름', nameInput);
   const setBatch = (on) => { batchWrap.hidden = !on; nameField.hidden = on; submitLabel.textContent = on ? '반 한꺼번에 만들기' : '반 만들기'; };
   const batchBox = h('input', { type: 'checkbox', id: 'new-class-batch', onchange: (e) => setBatch(e.target.checked) });
-  const batchRow = h('label', { class: 'row check-row', for: 'new-class-batch' }, batchBox, h('span', {}, '같은 과목 반을 여러 개 한꺼번에 만들기'));
+  const batchRow = h('label', { class: 'row check-row', for: 'new-class-batch' }, batchBox, h('span', {}, '같은 과목 반 여러 개 만들기'));
   const submitLabel = h('span', {}, '반 만들기');
   subjectWrap.append(field('과목명', subjectInput), batchRow, batchWrap, field('기본 성취기준 (선택)', achInput, '학생마다 따로 적을 수도 있습니다. 한꺼번에 만들면 모든 반에 같이 들어갑니다.'));
   const errEl = h('p', { class: 'hint form-error', role: 'alert' });
@@ -332,7 +332,7 @@ function registerSection(cls) {
             if (!pasteArea.value.trim()) { toast('붙여넣은 명단이 없습니다'); pasteArea.focus(); return; }
             importParsed(cls, parsePastedRoster(pasteArea.value, context()), { split: splitOn() });
           },
-        }, '붙여넣은 명단 등록하기')))),
+        }, '명단 등록')))),
     h('div', { id: 'roster-result', class: 'stack', ref: (el) => { resultEl = el; } }));
   enableDrop(section, loadFile, { accept: ['.xlsx', '.xls', '.csv'] });
   return section;

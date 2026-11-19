@@ -81,6 +81,7 @@ export function defaultSettings(now = new Date()) {
     batchIntervalSec: 5,
     keyStorage: 'local',
     devFakeAI: false,
+    aiCheck: false, // 작성 표의 AI 점검 켜기
     publicPC: false,
     updatedAt: null,
   };

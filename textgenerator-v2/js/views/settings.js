@@ -126,7 +126,7 @@ function keyDriveField() {
     },
   });
   return h('div', { class: 'stack gap-1' },
-    h('label', { class: 'row check-row', for: 'key-drive' }, box, h('span', {}, '구글 드라이브에도 저장 (다른 PC에서 다시 입력하지 않아도 됨)')),
+    h('label', { class: 'row check-row', for: 'key-drive' }, box, h('span', {}, '드라이브에도 저장 (다른 PC에서도 쓰기)')),
     h('p', { class: 'hint', id: 'key-drive-hint' }, reason || '기본은 꺼짐입니다. 켜면 키가 구글 드라이브 앱 폴더의 데이터 파일에 함께 저장됩니다.'));
 }
 
@@ -375,7 +375,7 @@ function driveSection() {
       st.connected ? null : h('button', { type: 'button', class: 'btn btn-primary', onclick: () => ctx.connectDrive() }, icon('drive'), '연결하기'),
       st.connected ? h('button', { type: 'button', class: 'btn btn-primary', onclick: () => ctx.saveToDrive() }, icon('drive'), '지금 동기화하기') : null,
       st.connected ? h('button', { type: 'button', class: 'btn btn-secondary', onclick: disconnectDialog }, '연결 끊기') : null),
-    h('label', { class: 'row check-row', for: 'set-public-pc' }, pcBox, h('span', {}, '공용 PC (여러 사람이 쓰는 PC)')),
+    h('label', { class: 'row check-row', for: 'set-public-pc' }, pcBox, h('span', {}, '공용 PC')),
     h('p', { class: 'hint' }, '켜면 구글 연결 정보를 이 창에만 두고(창을 닫으면 지워짐), API 키를 드라이브에 저장하지 않습니다.'),
     st.connected ? h('details', { class: 'key-guide' },
       h('summary', {}, '드라이브의 생기부 데이터 지우기'),

@@ -322,7 +322,7 @@ function fillCard() {
     hasXlsx() ? null : alertBox('warn', XLSX_MISSING_TEXT),
     h('div', { class: 'row align-end' },
       field('이미 글이 있는 칸', modeSel),
-      h('label', { class: 'row', for: 'bk-fill-notdone' }, notDone, '완료로 표시하지 않은 글도 넣기')),
+      h('label', { class: 'row', for: 'bk-fill-notdone' }, notDone, '미완료 글도 넣기')),
     h('div', { class: 'row' },
       h('button', { type: 'button', class: 'btn btn-secondary', onclick: () => fileInput.click() }, icon('upload'), '나이스 엑셀 고르기'),
       h('span', { class: 'hint' }, '이 칸에 파일을 끌어다 놓아도 됩니다'),

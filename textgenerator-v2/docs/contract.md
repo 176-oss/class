@@ -750,12 +750,52 @@ export async function refineDraft({ record, text, request, studentName, roster, 
 - 후보 나눠 붙이기(`G.method === 'shared'`, 교과세특 기본): 공통 특징만으로 후보를 만든다 (학생 메모·이름 없이, 한 번에 3개, 최대 6개, 화면 메모리). 배정은 `Map(기록 id -> 후보 번호)`이고 `assignedDrafts`·`removeCandidate`(core/grid.js)가 계산한다. 붙이기 뒤 붙은 학생은 선택과 배정에서 뺀다.
 - 교과세특에서 반이 둘 이상이면 처음에는 모든 반을 숨기고(`defaultHidden`) 반 칩을 체크해 명단을 불러온다. 패널이 열리면 표는 상태·완료·자세히 칸을 빼고 점검은 개수만 보인다.
 
-## 27. 점검기와 반 전체 주고받기 (`js/core/handoff.js`, `js/handoff-ui.js`, 점검기 `shared/handoff-batch.js`)
+## 27. 점검기로 반 전체 보내기 (`js/core/handoff.js`, 점검기 `shared/handoff-batch.js`)
 - localStorage `sgb-handoff-batch` = `{ v:1, source:'textgenerator-v2'|'sgb-checker', school?:'mid'|'high', groups:[{ area, subject, items:[{ studentId, name, text }] }], at }`. 받는 쪽이 읽고 바로 지우고, 5분 지났거나 모양이 틀리면 지운다. 글 6,000자·3,000명·1.5MB 이하. area 는 작성기 5개 영역만.
 - 작성기 -> 점검기: 표의 [점검기로 보내기]. 점검기는 시작할 때와 storage 이벤트로 받아 바로 점검한다 (이미 점검 중이면 바꿀지 묻는다).
-- 점검기 -> 작성기: [고친 글을 작성 도우미로 보내기](원문과 달라진 글만). 작성기가 `planReturn` 으로 계획해 대화상자로 보여 주고, 확인하면 최종본에 넣는다. 명단에 없거나 이름이 다른 학생, 완료한 기록, 같은 글은 건너뛴다.
+- 점검기 -> 작성기 되돌려 보내기는 2026-11-13에 뺐다 (선생님 결정). `handoff-ui.js`, `planReturn` 을 지웠다. 작성기 -> 점검기만 남는다.
 - 두 도구는 이름 붙은 창(`sgb-checker`, `sgb-writer`)으로 열어, 이미 열려 있으면 다시 불러오지 않고 앞으로 가져오기만 한다 (고친 글을 잃지 않도록).
 - 후보 개수는 `candidateTarget` = 고른 학생 수 + 5 (최대 40). 명단 등록은 `classContext`(선택한 반의 학년·반)로 `1 김가온` 줄을 학번으로 바꾼다 (`parsePastedRoster(text, context)`, `parseRosterRows(rows, context)`).
 - `AREAS_BY_KIND.homeroom` 에서 `club` 을 뺐다 (담임은 동아리를 쓰지 않음). 이미 담임 반에 쓴 동아리 기록은 지우지 않고 남아 있다 (표에는 안 보임).
 - 성취기준 (`parseStandards`, `standardsText`): 반 `achievement` 를 줄 또는 `[코드]` 단위 항목으로 나눈다. 학생별 선택은 그 기록의 `achievement` 에 체크한 줄들을 줄바꿈으로 저장하고(비면 반 전체), 패널에서 체크한 `G.stds` 가 있으면 그것이 모두에 우선한다. AI 요청의 `achievement` 로만 쓰인다 (교과세특).
 - 표의 `체크한 학생만 보기`(`G.onlySelected`)는 가려 둔 반이어도 체크한 학생은 보여 준다.
+
+## 28. 교과세특 모둠 메모와 도달한 성취기준 (2026-11-13)
+- 모둠: 반에 `cls.groups = [{ id, name, memo, studentIds }]` 로 저장한다 (반의 다른 칸처럼 동기화·백업에 그대로 들어감). 한 반에서 학생은 모둠 하나에만 든다. 순수 함수 `groupOfStudent`, `saveGroup`(이 모둠 학생을 다른 모둠에서 빼고, 빈 모둠은 지움), `nextGroupName` (`js/core/grid.js`).
+- AI 메모: `composeMemo(공통 특징, 모둠 메모, 학생 메모)` 순서로 빈 것은 빼고 줄로 잇는다. 패널의 '학생마다 따로 만들기'와 맨 위 [메모로 초안 만들기]에 들어간다 (모둠 메모만 있어도 [메모로 초안 만들기] 대상). '후보를 만들어 나눠 붙이기'는 공통 특징만 쓴다.
+- 성취기준: 체크한 것(패널 `G.stds` 또는 학생별로 고른 기록 `achievement`)은 `achievementReached: true` 로 넘겨 `[도달한 성취기준]` 으로 보내고, 초안에 빠짐없이 드러내게 한다. 원칙 1·7도 '메모와 도달한 성취기준'으로 바뀐다. 아무것도 체크하지 않아 반 전체를 보낼 때는 지금처럼 `[관련 성취기준]` 참고용이다. 도달한 성취기준 글자 수는 분량 계산에도 넣는다. 공유 후보에는 학생별 성취기준을 넣지 않는다.
+
+## 29. 자율·진로 행사와 추가 요청 (2026-11-13)
+- 행사: 반에 `cls.events = { autonomy: [{ id, name, date }], career: [...] }` 로 저장 (날짜순). 날짜는 `formatEventDate` 로 기재요령 꼴 (하루 `2026.05.14.`, 기간 `2026.05.14.-2026.05.15.`, 중 77·고 82, 점검기 `date-format` 과 같음). `eventLabel` = `행사명(날짜)`. `missingEventLabels` 로 초안의 빠진 표기를 알린다.
+- AI: `buildPrompt({ events: [표기], request })`. 자율·진로에만 `[행사]` 블록을 넣고 '행사마다 그 행사를 쓰는 첫 문장을 표기 그대로 시작'하게 한다. `[추가 요청]` 은 모든 영역, 강조점·문장 모양에만 반영. 둘 다 `scrubMemo` 로 이름·학번을 가린다.
+- 행사를 체크하면 붙여넣기 방식이 `skip` 이면 `append` 로 바꾼다 (행사마다 이어 붙임).
+
+## 30. 작성 표 AI 점검, 시작 준비 팝업 (2026-11-13)
+- `js/core/ai-check.js` (순수): 점검기 `js/ai.js` 의 프롬프트·응답 검사를 옮김. `buildCheckPrompt`, `parseCheckResponse(raw, sent)`(보낸 글에 있는 original 만), `toCheckIssues(res, text)` -> `{ kind: 'ai', message, original, fix? }` (fix 는 원문에 original 이 한 번만 있을 때, 수정 문장은 마침표로 끝날 때), `fakeCheck`.
+- `gemini.js aiCheck({ record, text, studentName, roster, settings, apiKey, fake })`: `scrubMemo` 로 이름·학번·반 번호를 가리고, 이 학생 이름·학번이 남으면 `privacy` 로 보내지 않는다.
+- 설정 `aiCheck`(기본 false)로 켜고 끈다. 결과는 화면 메모리 `G.ai`(기록 id -> { text, issues }), 지금 최종본이 점검한 글과 다르면 버린다.
+- 시작 준비 팝업(`setupDialog`, app.js): `sync.start()` 가 끝난 뒤 드라이브 미연결(설정된 경우) 또는 키 없음이면 띄운다. [나중에]는 sessionStorage `sgb-v2-setup-later` 로 이번 창에서만 다시 묻지 않는다. 예전 '처음 실행 드라이브 연결' 대화상자(`sgb-v2-drive-intro`)를 대신한다.
+
+## 31. 현황 화면 뺌 (2026-11-13)
+- 선생님 결정으로 `#status`(현황)와 `js/views/status.js`를 지웠다. 메뉴는 명단, 작성, 내 스타일, NEIS 옮기기, 백업, 설정. 진행 상황은 작성 표의 상태·완료 열로 본다. 위 9절의 현황 설명은 옛 내용.
+
+## 32. 작성 표 정리 (2026-11-13)
+- 점검 지적은 학생 행 아래 줄(`tr.grid-issue-row`, 메모부터 끝까지)에 가로로 이어 쓴다. 점검 칸에는 '문제 n'·'AI n' 배지와 [정리]만. 같은 지적은 'n곳'으로 묶는다.
+- 행마다 있던 [자세히] 열을 지우고, 표 오른쪽 위 [한 명씩 작성하기] 하나로 `#write-detail` 을 연다 (고른 학생, 없으면 표의 첫 학생).
+- 표 최소 폭 1000px (휴대폰에서도 최종본 칸 280px 안팎). 패널을 옆에 여는 넓은 화면(1100px 이상)만 640px.
+
+## 33. 구글 로그인 창 반복 막기 (2026-11-14)
+- 토큰(약 1시간)이 끝난 뒤 자동 저장(3초 뒤)마다 조용한 재요청(`prompt: 'none'`)을 하면서 로그인 창이 계속 깜빡이던 문제를 고쳤다. GIS 토큰 방식은 조용한 재요청도 창을 잠깐 연다.
+- `sync.ensureToken(mode)`: `'button'` 은 로그인 창, `'start'`(앱을 열 때)만 조용한 재요청 한 번, 그 밖(자동 저장, 다시 시도, 탭 숨김, 온라인 복귀, 백업 목록)은 창을 열지 않고 `auth` 상태로 둔다. 바뀐 글은 기다림으로 남고, 머리 줄의 [다시 연결]을 누르면 올린다.
+## 34. 작성 표 단순화와 학교 행사 목록 (2026-11-14)
+- [메모로 초안 만들기]와 [한 명씩 작성하기]를 뺐다. 학생을 체크하면 초안 만들기 패널이 바로 열리고, 체크를 모두 풀면 닫힌다(`onSelection`). 패널을 닫아도 선택이 남아 있으면 [초안 만들기 패널 열기]. `#write-detail` 라우트는 남지만 표에서 가는 길은 없다.
+- 학교 행사 목록: 설정 `events = { autonomy: [{ id, name, date }], career: [...] }` (드라이브·백업에 함께). 표 위 [행사 목록 가져오기]로 붙여넣기·엑셀·CSV를 `parseEventList`(core/grid.js)로 읽어 더한다(같은 행사명·날짜는 한 번). 예전에 반에 넣은 행사(`cls.events`)도 함께 보인다.
+- 패널의 '행사' 칸은 대상 바로 아래. 목록에서 체크한 행사가 초안에 `행사명(날짜)`로 들어간다.
+- 작성 표의 열은 `allCols()` 의 이름(check, no, name, memo, final, bytes, status, issues, std, done)으로 만든다. [보이는 열]로 memo·bytes·status·issues·std·done 을 숨기고, name·memo·issues 는 머리 칸 손잡이(`role=separator`, 끌기 또는 화살표 16px, 두 번 누르면 처음대로)로 너비를 바꾼다. localStorage `sgb-v2-grid-cols` = { hide: [], w: { 열: px } } (기기별, 동기화 안 함). 점검 열을 숨기면 지적 줄도 숨긴다.
+
+## 35. 목표 바이트, 드러낼 모습만으로 쓰기, 긍정적 변화, 붙인 뒤 선택 풀기 (2026-11-14)
+- 패널의 목표 분량(간결·표준·충실)을 목표 바이트 숫자로 바꿨다 (`G.targetBytes`, 기본 영역 한도의 70%, 한도 안). `record.targetBytes` -> `lengthPlan({ targetBytes })` 는 메모가 짧아도 목표를 줄이지 않고, 메모의 사실을 과정·태도·배운 점으로 풀게 한다 (지어내기 금지). 학생별 화면은 예전 `length` 를 그대로 쓴다.
+- 드러낼 모습만으로 쓰기: 드러낼 모습이 있고 메모가 30자 미만이면(`traitsOnly`) 원칙 7을 '드러낼 모습을 태도와 행동 경향으로 풀어 씀, 활동·행사·숫자·결과는 지어내지 않음'으로 바꾸고 내용 부족으로 멈추지 않는다. 버튼은 공통 특징·학생 메모·드러낼 모습 중 하나만 있어도 켜진다.
+- 원칙 2에 '부정적인 내용은 고쳐 나가려는 노력과 긍정적인 행동 변화로, 나아진 모습이 메모에 없으면 노력과 성장 가능성으로'를 더했다.
+- 표에 붙인 학생은 선택에서 빠진다(`afterPaste`, 두 방식 모두). 모두 빠지면 패널이 닫힌다.
+- `traitsOnly` 는 담백하게: 원칙 7에 과장·꾸밈말·평가어 금지, 2~3문장, 목표는 한도 글자 수의 40% 이하(짧아도 됨). 메모가 30자 이상인 학생은 '메모의 사실을 하나하나 살려 공들여'를 더하고 목표 바이트대로.

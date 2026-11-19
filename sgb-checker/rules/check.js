@@ -4,6 +4,7 @@ import { byteLength } from './bytes.js';
 import { checkFormat, splitSentences } from './text.js';
 import { findForbidden } from './forbidden.js';
 import { commonSubjectBase, LIMIT_BASIS } from './areas.js';
+import { checkEvents, EVENT_AREAS } from './events.js';
 
 export const FORBIDDEN = data.entries;
 
@@ -24,8 +25,11 @@ export const RULES = {
   'special-char': { label: '특수문자', basis: { mid: '중 30', high: '고 30' } },
   'neis-char': { label: 'NEIS 깨짐 문자', basis: { mid: 'NEIS 입력', high: 'NEIS 입력' } },
   'date-format': { label: '날짜 형식', basis: { mid: '중 77', high: '고 82' } },
+  'event-date': { label: '행사 날짜가 목록과 다름', basis: { mid: '학교 행사 목록', high: '학교 행사 목록' } },
+  'event-name': { label: '행사 이름이 목록과 다름', basis: { mid: '학교 행사 목록', high: '학교 행사 목록' } },
+  'event-unknown': { label: '목록에 없는 행사 날짜', basis: { mid: '학교 행사 목록', high: '학교 행사 목록' } },
+  'event-no-date': { label: '행사 날짜 빠짐', basis: { mid: '중 77', high: '고 82' } },
   exaggeration: { label: '과장 표현', basis: { mid: '중 19', high: '고 19' } },
-  'grade3-autonomy': { label: '3학년 영역 이름', basis: { mid: '중 162', high: '고 208' } },
   'club-name-repeat': { label: '동아리명 반복', basis: { mid: '중 79', high: '고 84' } },
   'club-intro-length': { label: '자율동아리 소개 30자 초과', basis: { mid: '중 79', high: '고 84' } },
   'behavior-negative': { label: '성장 관점 확인', basis: { mid: '중 115', high: '고 158' } },
@@ -56,12 +60,7 @@ const NEG = /(산만|불량|거칠|폭력|지각이 잦|결석이 잦|소극적|
 const GROWTH = /(노력|개선|변화|성장|나아|발전|기대|극복|좋아짐|줄어|늘어|향상|스스로)/;
 
 function checkArea(text, ctx, out) {
-  const { area, grade } = ctx;
-  if (area === 'autonomy' && Number(grade) === 3) {
-    for (const m of text.matchAll(/자율\s*[·ㆍ･.]?\s*자치/g)) {
-      out.push({ ruleId: 'grade3-autonomy', level: 'warn', start: m.index, end: m.index + m[0].length, reason: "3학년은 '자율·자치활동'이 아니라 '자율활동'" });
-    }
-  }
+  const { area } = ctx;
   if (area === 'club') {
     const head = text.match(/^\s*\(([^():]{2,30})(?::[^)]*)?\)/);
     if (head) {
@@ -90,7 +89,7 @@ function checkArea(text, ctx, out) {
 
 /**
  * 글 하나 점검.
- * ctx: { school: 'mid'|'high', grade, area, subject, limitBytes, names: [], schoolWords: [], schoolYear }
+ * ctx: { school: 'mid'|'high', area, subject, limitBytes, names: [], schoolWords: [], schoolYear }
  * @returns { issues, bytes, limit }
  */
 export function checkText(text, ctx) {
@@ -101,6 +100,7 @@ export function checkText(text, ctx) {
   if (limit && bytes > limit) raw.push({ ruleId: 'bytes-over', level: 'error', start: 0, end: 0, reason: `${bytes}/${limit}바이트. 한도를 ${bytes - limit}바이트 넘음` });
   else if (limit && bytes >= limit * 0.95) raw.push({ ruleId: 'bytes-near', level: 'warn', start: 0, end: 0, reason: `${bytes}/${limit}바이트. 한도에 가까움` });
   raw.push(...checkFormat(t, ctx));
+  if (EVENT_AREAS.includes(ctx.area)) raw.push(...checkEvents(t, ctx.events, ctx.schoolYear));
   raw.push(...findForbidden(t, FORBIDDEN, ctx));
   checkArea(t, ctx, raw);
   const seen = new Set();
@@ -135,7 +135,7 @@ export function similarity(a, b) {
  * 같은 항목(과목) 안에서 비교. rows: [{ key, studentId, name, area, subject, text }]
  * @returns Map(key -> 지적[])
  */
-export function checkClass(rows, { school, grade } = {}) {
+export function checkClass(rows, { school } = {}) {
   const out = new Map(rows.map((r) => [r.key, []]));
   const add = (r, issue) => out.get(r.key).push(finish(issue, r.text, school));
   const groups = new Map();
@@ -172,8 +172,8 @@ export function checkClass(rows, { school, grade } = {}) {
       for (const { r, sp } of hits) add(r, { ruleId: 'repeat-sentence', level: 'warn', start: sp.start, end: sp.end, reason: `같은 문장이 ${people.size}명의 글에 있음. 학생별 특성이 드러나게 바꿈` });
     }
   }
-  // 고등학교 1~2학년 공통과목 1·2 합산 500자 (고 208)
-  if (school === 'high' && [1, 2].includes(Number(grade))) {
+  // 고등학교 공통과목 1·2 합산 500자 (고 208). 공통국어1 같은 과목은 2022 개정(1·2학년)에만 있어 학년은 보지 않는다
+  if (school === 'high') {
     const sums = new Map();
     for (const r of rows) {
       if (r.area !== 'subject') continue;

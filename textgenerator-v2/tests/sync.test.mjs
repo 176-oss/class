@@ -342,3 +342,34 @@ test('sync: 끈 secrets(빈 키)는 다른 기기의 옛 키를 이김', async (
   assert.equal(a.data.secrets.geminiKey, '');
   assert.equal(drive.readRaw(DATA_FILE_NAME).secrets.geminiKey, '');
 });
+
+test('sync: 토큰이 끝나면 자동 저장은 로그인 창을 열지 않고, 시작할 때만 조용히 한 번, 버튼은 창을 연다', async () => {
+  const drive = createFakeDrive();
+  const local = memLocal();
+  const { sync, tm } = make({ drive, local });
+  assert.equal((await sync.connect()).ok, true);
+  const tokenCalls = () => drive.calls.filter((x) => x === 'requestToken').length;
+
+  drive.setTokenOk(false); // 토큰 끝남 (조용한 재요청도 막힘)
+  drive.setTokenOk(true); // 조용한 재요청은 될 수 있어도, 자동 저장에서는 부르지 않아야 함
+  const before = tokenCalls();
+  for (let i = 0; i < 3; i += 1) {
+    local.mutate((d) => { d.records.push(rec(`3050${i}`, 'autonomy', { memo: '메모', updatedAt: new Date().toISOString() })); });
+    sync.notifyChange();
+    await tm.runAll();
+  }
+  assert.equal(tokenCalls(), before, '글을 고칠 때마다 로그인 창을 열지 않음');
+  assert.equal(sync.status.state, 'auth');
+  assert.equal(local.pending, true, '바뀐 것은 기다림으로 남음');
+  assert.equal(await sync.check(), false, '주기 확인도 창을 열지 않음');
+  assert.equal(tokenCalls(), before);
+
+  await sync.start(); // 앱을 다시 열 때 조용한 재요청 한 번
+  assert.equal(tokenCalls(), before + 1);
+  assert.equal(local.pending, false, '시작 때 다시 받은 토큰으로 올림');
+
+  drive.setTokenOk(false);
+  const r = await sync.syncNow({ reason: 'button' }); // [다시 연결]은 사용자가 누른 것이라 창을 연다
+  assert.equal(tokenCalls(), before + 2);
+  assert.equal(r.ok, true);
+});

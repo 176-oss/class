@@ -4,13 +4,14 @@
 import { h, clear, icon, debounce } from '../dom.js';
 import { toast, announce, chip, seg, badge, alertBox, emptyState, field, progressBar, openTool, openDialog } from '../ui.js';
 import * as store from '../store.js';
-import { AREA_LABELS, STATUS_LABELS, LENGTH_LABELS, TRAITS_BY_AREA, KIND_LABELS, newCandidate, deriveStatus, recordKey } from '../core/model.js';
+import { AREA_LABELS, STATUS_LABELS, TRAITS_BY_AREA, KIND_LABELS, newCandidate, deriveStatus, recordKey } from '../core/model.js';
 import { byteLength, byteLevel } from '../core/bytes.js';
-import { generateDrafts, AiError } from '../core/gemini.js';
+import { generateDrafts, aiCheck, AiError } from '../core/gemini.js';
 import { pickExamples } from '../core/style.js';
 import { createBatch } from '../core/batch.js';
 import { writeBatch, groupsForCheck } from '../core/handoff.js';
-import { checkCell, tidyText, composeMemo, planPaste, memoTargets, PASTE_MODES, assignedDrafts, removeCandidate, candidateTarget, autoAssign, parseStandards, standardsText } from '../core/grid.js';
+import { checkCell, tidyText, composeMemo, planPaste, PASTE_MODES, assignedDrafts, removeCandidate, candidateTarget, autoAssign, parseStandards, standardsText, groupOfStudent, saveGroup, nextGroupName, EVENT_AREAS, formatEventDate, eventLabel, saveEvent, missingEventLabels, parseEventList } from '../core/grid.js';
+import { readSheetFile } from '../xlsx-io.js';
 
 const G = {
   area: null,
@@ -20,7 +21,7 @@ const G = {
   panel: false,
   common: '',
   traits: new Set(),
-  length: 'standard',
+  targetBytes: null, // 목표 바이트 (null 이면 영역 한도의 70%)
   withOwn: true,
   styleOn: true,
   mode: 'skip',
@@ -28,6 +29,9 @@ const G = {
   short: new Set(), // 메모가 부족해 못 만든 기록 id
   job: null, // { batch, label, ids, kind }
   stds: new Set(), // 이번 초안에 쓸 성취기준 (줄 전체 글자)
+  evIds: new Set(), // 이번 초안에 쓸 행사 id (자율·진로)
+  request: '', // 추가 요청 (강조점·문장 모양)
+  ai: new Map(), // AI 점검 결과: 기록 id -> { text, issues } (점검한 글과 지금 글이 같을 때만 보여 줌, 화면 메모리)
   method: 'each', // each: 학생마다 만들기 | shared: 후보 몇 개를 만들어 학생에게 나눠 붙이기
   cands: [], // shared 방식의 후보 글 (최대 6개, 화면 메모리)
   assign: new Map(), // 기록 id -> 후보 번호
@@ -45,6 +49,26 @@ const checkTimers = new Map();
 let staleAll = false;
 
 const noKey = () => !ctx.isFakeAI() && !ctx.hasKey();
+
+// ---------- 모둠 (교과세특): 반에 cls.groups 로 저장, 모둠 메모는 그 모둠 학생의 초안 재료가 된다 ----------
+let quietClass = false; // 모둠 메모를 고칠 때 표를 다시 그리지 않는다 (입력 중 포커스를 잃지 않게)
+const liveCls = (cls) => store.getClass(cls?.id) || cls;
+const groupOf = (rec, cls) => groupOfStudent(liveCls(cls)?.groups, rec.studentId);
+function memoFor(rec, row, common, withOwn = true) {
+  return composeMemo(common, groupOf(rec, row?.cls)?.memo, withOwn ? rec.memo : '');
+}
+function writeGroups(clsId, groups, { quiet = false } = {}) {
+  quietClass = quiet;
+  try { store.updateClass(clsId, { groups }); } finally { quietClass = false; }
+}
+/** 이 학생 반의 행사 중 이번에 체크한 것의 표기 (자율·진로) */
+// 학교 행사 목록: 설정 events[영역] (모든 반이 함께 씀). 예전에 반에 넣은 행사(cls.events)도 함께 보여 준다
+const schoolEvents = () => store.state.settings?.events?.[G.area] || [];
+const eventsOf = (cls) => { const a = schoolEvents(); const ids = new Set(a.map((e) => e.id)); return [...a, ...(liveCls(cls)?.events?.[G.area] || []).filter((e) => !ids.has(e.id))]; };
+const writeSchoolEvents = (list) => store.updateSettings({ events: { ...(store.state.settings?.events || {}), [G.area]: list } });
+const newEventId = () => `e_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+const pickedEventList = (row) => (EVENT_AREAS.includes(G.area) ? eventsOf(row?.cls).filter((e) => G.evIds.has(e.id)) : []);
+const pickedEvents = (row) => pickedEventList(row).map(eventLabel);
 
 // ---------- 계산 ----------
 function classesForArea() {
@@ -112,11 +136,73 @@ function autosize(ta) {
 }
 function resizeAll() { els.table?.querySelectorAll('textarea.grid-ta').forEach(autosize); }
 
-function issueLines(chk) {
-  const kinds = { over: 'danger', forbidden: 'danger', spell: 'warn', neis: 'warn', input: 'warn', similar: 'warn', style: 'warn' };
-  const shown = chk.issues.slice(0, 3).map((i) => h('li', { class: `is-${kinds[i.kind] || 'warn'}` }, i.message));
-  if (chk.issues.length > 3) shown.push(h('li', { class: 'muted' }, `외 ${chk.issues.length - 3}건`));
-  return shown;
+// 점검 지적은 학생 행 바로 아래의 넓은 줄에 가로로 이어 쓴다 (좁은 칸에 세로로 쌓이지 않게)
+const ISSUE_LEVEL = { over: 'danger', forbidden: 'danger', spell: 'warn', neis: 'warn', input: 'warn', similar: 'warn', style: 'warn' };
+const MAX_LINE_ITEMS = 8;
+const issueItem = (level, message, tag, action) => h('li', { class: `is-${level}` },
+  tag ? h('span', { class: 'grid-issue-tag' }, tag) : null, h('span', {}, message), action || null);
+
+// ---------- AI 점검 (설정 aiCheck 로 켜고 끔) ----------
+const aiOn = () => !!store.state.settings?.aiCheck;
+/** AI 지적 결과. 점검한 뒤 글이 바뀌었으면 결과를 버린다. 없으면 null */
+function aiResult(id, ref) {
+  if (!aiOn()) return null;
+  const got = G.ai.get(id);
+  if (!got) return null;
+  if (got.text !== ref.final.value) { G.ai.delete(id); return null; }
+  return got;
+}
+function aiItems(id, row, ref, locked, got) {
+  return got.issues.map((i) => issueItem('warn', i.message, 'AI', i.fix && !locked ? h('button', {
+    type: 'button', class: 'btn btn-ghost btn-sm', 'aria-label': `${row.student.name} AI 고침 적용: ${i.message}`,
+    onclick: () => {
+      const cur = ref.final.value;
+      if (cur.indexOf(i.original) < 0) return;
+      const next = cur.replace(i.original, i.fix);
+      ref.final.value = next; autosize(ref.final);
+      G.ai.set(id, { text: next, issues: got.issues.filter((x) => x !== i && next.includes(x.original)) });
+      queue(id, { final: next }); refreshRow(id);
+      announce('AI 고침을 적용했습니다');
+    },
+  }, '고침 적용') : null));
+}
+
+function runAiCheck() {
+  flushEdits();
+  const targets = scopeRows().filter((r) => String(liveRec(r.rec).final || '').trim());
+  if (!targets.length) { toast('최종본이 있는 학생이 없습니다'); return; }
+  const roster = rosterAll();
+  const settings = store.state.settings;
+  const job = { label: 'AI 점검', total: targets.length, done: 0, failed: [], short: 0, stopReason: '', batch: null, summary: () => `${targets.length}명 점검했습니다` };
+  job.batch = createBatch({
+    targets: targets.map((r) => r.rec.id),
+    intervalMs: (Number(settings.batchIntervalSec) || 5) * 1000,
+    onProgress: (st) => { job.done = st.done + st.skipped + st.failed.length; job.failed = st.failed; job.stopReason = st.stopReason ? (st.stopMessage || '오류로 멈췄습니다') : ''; renderJob(); },
+    run: async (rid) => {
+      const rec = store.state.records.get(rid);
+      const text = rec?.final || '';
+      if (!text.trim()) return 'skipped';
+      const st = store.getStudent(rec.studentId);
+      const issues = await aiCheck({ record: rec, text, studentName: st?.name || '', roster, settings, apiKey: store.getApiKey(), fake: ctx.isFakeAI() });
+      G.ai.set(rid, { text, issues });
+      refreshRow(rid);
+    },
+  });
+  G.job = job;
+  renderBar(); renderJob();
+  Promise.resolve(job.batch.start()).catch((e) => { if (!(e instanceof AiError)) console.warn('AI 점검 중 예상 못 한 오류:', e?.name || 'Error'); }).finally(() => {
+    if (G.job === job && !job.batch.state.running && job.batch.state.next >= job.total) finishJob(); else renderJob();
+  });
+}
+
+function aiBar() {
+  const n = scopeRows().filter((r) => String(liveRec(r.rec).final || '').trim()).length;
+  return h('div', { class: 'row grid-ai' },
+    h('label', { class: 'check-row', for: 'grid-ai-on' },
+      h('input', { type: 'checkbox', id: 'grid-ai-on', checked: aiOn(), onchange: (e) => { store.updateSettings({ aiCheck: e.target.checked }); renderBar(); for (const id of cellRefs.keys()) refreshRow(id); document.getElementById('grid-ai-on')?.focus(); } }),
+      h('span', {}, 'AI 점검 (맞춤법, 영역, 나열식)')),
+    aiOn() ? h('button', { type: 'button', class: 'btn btn-secondary btn-sm', disabled: !!G.job || noKey() || !n, onclick: runAiCheck }, icon('spark'), `AI로 점검 (${n}명)`) : null,
+    aiOn() ? h('span', { class: 'small muted' }, noKey() ? '설정에서 API 키를 넣으면 쓸 수 있습니다.' : `${selectedRows().length ? '고른 학생' : '표의 학생'} 중 최종본이 있는 학생을 점검합니다. 이름과 학번은 가리고 보냅니다.`) : null);
 }
 
 function refreshRow(id, { setText = false } = {}) {
@@ -147,10 +233,22 @@ function refreshRow(id, { setText = false } = {}) {
     const chk = checkOfText(rec, ref.final.value);
     ref.chk = chk;
     ref.tr.classList.toggle('has-issue', chk.count > 0);
+    const ai = chk.empty ? null : aiResult(id, ref);
+    const same = new Map(); // 같은 지적은 한 번만, 몇 곳인지 붙인다
+    for (const i of chk.empty ? [] : chk.issues) { const k = `${i.kind}|${i.message}`; same.set(k, { i, n: (same.get(k)?.n || 0) + 1 }); }
+    const items = chk.empty ? [] : [
+      ...[...same.values()].map(({ i, n }) => issueItem(ISSUE_LEVEL[i.kind] || 'warn', n > 1 ? `${i.message} ${n}곳` : i.message)),
+      ...(ai ? aiItems(id, row, ref, locked, ai) : []),
+    ];
+    clear(ref.detailCell, items.length ? h('ul', { class: 'grid-issue-line', 'aria-label': `${row.student.name} 점검 지적` },
+      items.slice(0, MAX_LINE_ITEMS), items.length > MAX_LINE_ITEMS ? h('li', { class: 'muted' }, `외 ${items.length - MAX_LINE_ITEMS}건`) : null) : null);
+    ref.detail.hidden = !items.length || !ref.showDetail;
+    ref.tr.classList.toggle('has-detail', items.length > 0);
     if (chk.empty) { clear(ref.issues, h('span', { class: 'muted' }, '-')); return; }
     clear(ref.issues,
-      chk.count ? badge(`문제 ${chk.count}`, 'danger') : h('span', { class: 'small muted' }, '문제 없음'),
-      chk.count ? h('ul', { class: 'issue-list grid-issues' }, issueLines(chk)) : null,
+      h('div', { class: 'row gap-1' },
+        chk.count ? badge(`문제 ${chk.count}`, 'danger') : h('span', { class: 'small muted' }, '문제 없음'),
+        ai ? badge(ai.issues.length ? `AI ${ai.issues.length}` : 'AI 없음', ai.issues.length ? 'warn' : 'done') : null),
       chk.fixable && !locked ? h('button', {
         type: 'button', class: 'btn btn-ghost btn-sm', 'aria-label': `${row.student.name} 글 정리하기`,
         onclick: () => {
@@ -196,26 +294,94 @@ function rowEl(row) {
     tr: null, memo, final: fin, done: doneBox, std: stdBtn,
     bytes: h('td', { class: 'num' }), status: h('td', {}), issues: h('td', { class: 'grid-issue-cell' }),
   };
-  const compact = G.panel;
-  const showStd = G.area === 'subject' && !compact;
   const showClass = cls.kind !== 'homeroom';
-  ref.tr = h('tr', { 'data-id': id },
-    h('td', { class: 'col-check' }, h('label', { class: 'check-hit' }, sel)),
-    h('td', { class: 'num' }, showClass ? `${Number(String(student.studentId).slice(0, 1))}-${Number(String(student.studentId).slice(1, 3))} ${Number(String(student.studentId).slice(3)) || ''}` : (String(student.studentId).slice(3) * 1 || student.studentId)),
-    h('th', { scope: 'row', class: 'col-name' }, student.name),
-    h('td', {}, memo),
-    h('td', {}, fin),
-    ref.bytes,
-    compact ? null : ref.status,
-    ref.issues,
-    showStd ? h('td', {}, stdBtn) : null,
-    compact ? null : h('td', { class: 'col-done' }, h('label', { class: 'check-hit' }, doneBox)),
-    compact ? null : h('td', {}, h('a', {
-      class: 'btn btn-ghost btn-sm', 'aria-label': `${student.name} 자세히 (후보 3개 비교, 검사, NEIS)`,
-      href: `#write-detail?class=${encodeURIComponent(cls.id)}&area=${G.area}&student=${student.studentId}`,
-    }, '자세히')));
+  const cells = {
+    check: () => h('td', { class: 'col-check' }, h('label', { class: 'check-hit' }, sel)),
+    no: () => h('td', { class: 'num' }, showClass ? `${Number(String(student.studentId).slice(0, 1))}-${Number(String(student.studentId).slice(1, 3))} ${Number(String(student.studentId).slice(3)) || ''}` : (String(student.studentId).slice(3) * 1 || student.studentId)),
+    name: () => h('th', { scope: 'row', class: 'col-name' }, student.name, G.area === 'subject' && groupOf(rec, cls) ? h('span', { class: 'small muted grid-group-tag' }, groupOf(rec, cls).name) : null),
+    memo: () => h('td', {}, memo),
+    final: () => h('td', {}, fin),
+    bytes: () => ref.bytes,
+    status: () => ref.status,
+    issues: () => ref.issues,
+    std: () => h('td', {}, stdBtn),
+    done: () => h('td', { class: 'col-done' }, h('label', { class: 'check-hit' }, doneBox)),
+  };
+  const keys = visibleCols().map((c) => c.key);
+  ref.tr = h('tr', { 'data-id': id }, keys.map((k) => cells[k]()));
+  // 지적 줄: 체크·번호·이름 칸 아래는 비우고, 그 뒤부터 끝까지 넓게 쓴다 (점검 열을 숨기면 지적 줄도 숨김)
+  ref.showDetail = keys.includes('issues');
+  ref.detailCell = h('td', { class: 'grid-issue-detail', colspan: String(keys.length - 3) });
+  ref.detail = h('tr', { class: 'grid-issue-row', hidden: true }, h('td', { colspan: '3' }), ref.detailCell);
   cellRefs.set(id, ref);
-  return ref.tr;
+  return [ref.tr, ref.detail];
+}
+
+// ---------- 열: 숨기기와 너비 조절 (이 브라우저에만 저장) ----------
+const COLS_KEY = 'sgb-v2-grid-cols';
+const colPrefs = (() => { try { const v = JSON.parse(localStorage.getItem(COLS_KEY) || 'null'); return { hide: Array.isArray(v?.hide) ? v.hide : [], w: v?.w && typeof v.w === 'object' ? v.w : {} }; } catch { return { hide: [], w: {} }; } })();
+const saveColPrefs = () => { try { localStorage.setItem(COLS_KEY, JSON.stringify(colPrefs)); } catch { /* 저장 못 하면 이번에만 */ } };
+// hideable: 숨길 수 있는 열. resize: 너비를 끌어 바꿀 수 있는 열 (최종본은 남는 폭을 모두 씀)
+function allCols() {
+  const wide = rows.some((r) => r.cls.kind !== 'homeroom'); // 교과·동아리 반은 학년-반 번호로 보인다
+  const p = G.panel;
+  return [
+    { key: 'check', label: '', w: 44 },
+    { key: 'no', label: wide ? '반 번호' : '번호', w: wide ? 76 : 48, num: true },
+    { key: 'name', label: '이름', w: 76, resize: true },
+    { key: 'memo', label: '메모', w: p ? '14%' : '18%', hideable: true, resize: true },
+    { key: 'final', label: '최종본', w: 'auto' },
+    { key: 'bytes', label: '바이트', w: 64, num: true, hideable: true },
+    p ? null : { key: 'status', label: '상태', w: 72, hideable: true },
+    { key: 'issues', label: '점검', w: p ? 96 : 104, hideable: true, resize: true },
+    G.area === 'subject' && !p ? { key: 'std', label: '성취기준', w: 104, hideable: true } : null,
+    p ? null : { key: 'done', label: '완료', w: 52, hideable: true },
+  ].filter(Boolean);
+}
+const visibleCols = () => allCols().filter((c) => !(c.hideable && colPrefs.hide.includes(c.key)));
+const colWidth = (c) => (colPrefs.w[c.key] ? `${colPrefs.w[c.key]}px` : typeof c.w === 'number' ? `${c.w}px` : c.w);
+const COL_MIN = 48; const COL_MAX = 640;
+
+/** 머리 칸 오른쪽 끝의 손잡이: 끌거나, 포커스 뒤 왼쪽·오른쪽 화살표로 16px씩. 두 번 누르면 처음 너비 */
+function resizer(c, col) {
+  const set = (px) => { const v = Math.round(Math.min(COL_MAX, Math.max(COL_MIN, px))); colPrefs.w[c.key] = v; col.style.width = `${v}px`; el.setAttribute('aria-valuenow', String(v)); return v; };
+  const el = h('span', {
+    class: 'col-resize', role: 'separator', tabindex: '0', 'aria-orientation': 'vertical', 'aria-label': `${c.label} 열 너비 (왼쪽·오른쪽 화살표로 조절)`,
+    'aria-valuemin': String(COL_MIN), 'aria-valuemax': String(COL_MAX),
+    onpointerdown: (e) => {
+      e.preventDefault();
+      const th = el.parentElement; const x0 = e.clientX; const w0 = th.getBoundingClientRect().width;
+      el.setPointerCapture?.(e.pointerId);
+      const move = (ev) => { set(w0 + ev.clientX - x0); };
+      const up = () => { el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up); saveColPrefs(); resizeAll(); };
+      el.addEventListener('pointermove', move); el.addEventListener('pointerup', up);
+    },
+    onkeydown: (e) => {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      e.preventDefault();
+      const cur = el.parentElement.getBoundingClientRect().width;
+      announce(`${c.label} 열 ${set(cur + (e.key === 'ArrowRight' ? 16 : -16))}px`);
+      saveColPrefs(); resizeAll();
+    },
+    ondblclick: () => { delete colPrefs.w[c.key]; saveColPrefs(); renderTable(); },
+  });
+  return el;
+}
+
+/** 표 위 '보이는 열' 메뉴 */
+function colMenu() {
+  const opts = allCols().filter((c) => c.hideable);
+  const hidden = opts.filter((c) => colPrefs.hide.includes(c.key)).length;
+  return h('details', { class: 'grid-colmenu' },
+    h('summary', { class: 'btn btn-ghost btn-sm' }, `보이는 열${hidden ? ` (${hidden}개 숨김)` : ''}`),
+    h('div', { class: 'stack gap-1 grid-colmenu-body', role: 'group', 'aria-label': '보이는 열' },
+      opts.map((c) => h('label', { class: 'check-row', for: `col-${c.key}` },
+        h('input', { type: 'checkbox', id: `col-${c.key}`, checked: !colPrefs.hide.includes(c.key), onchange: (e) => {
+          colPrefs.hide = e.target.checked ? colPrefs.hide.filter((k) => k !== c.key) : [...colPrefs.hide, c.key];
+          saveColPrefs(); renderTable(); document.getElementById(`col-${c.key}`)?.focus();
+        } }), h('span', {}, c.label))),
+      h('button', { type: 'button', class: 'btn btn-ghost btn-sm', onclick: () => { colPrefs.hide = []; colPrefs.w = {}; saveColPrefs(); renderTable(); } }, '열 처음대로'),
+      h('p', { class: 'hint' }, '열 이름 오른쪽 끝을 끌면 너비가 바뀝니다. 두 번 누르면 처음 너비로 돌아갑니다.')));
 }
 
 function renderTable() {
@@ -224,7 +390,7 @@ function renderTable() {
   rows = buildRows();
   const classes = classesForArea();
   if (!classes.length) { clear(els.tableHost, emptyState('users', '이 영역을 쓰는 반이 없습니다.')); return; }
-  if (!rows.length) { clear(els.tableHost, emptyState('users', G.onlySelected ? '체크한 학생이 없습니다. "체크한 학생만 보기"를 끄고 학생을 체크하세요.' : G.hidden.size ? '위에서 반을 체크하면 그 반의 명단이 나옵니다.' : '표시할 학생이 없습니다.', h('a', { class: 'btn btn-primary', href: '#roster' }, '명단으로 가기'))); return; }
+  if (!rows.length) { clear(els.tableHost, emptyState('users', G.onlySelected ? '체크한 학생이 없습니다. "체크한 학생만"를 끄고 학생을 체크하세요.' : G.hidden.size ? '위에서 반을 체크하면 그 반의 명단이 나옵니다.' : '표시할 학생이 없습니다.', h('a', { class: 'btn btn-primary', href: '#roster' }, '명단으로 가기'))); return; }
   const selAll = h('input', {
     type: 'checkbox', id: 'grid-select-all', 'aria-label': '보이는 학생 모두 고르기',
     onchange: (e) => { for (const r of rows) { if (e.target.checked) G.selected.add(r.rec.id); else G.selected.delete(r.rec.id); } syncChecks(); onSelection(); },
@@ -242,25 +408,21 @@ function renderTable() {
       });
       body.push(h('tr', { class: 'grid-group' },
         h('td', { class: 'col-check' }, h('label', { class: 'check-hit' }, gbox)),
-        h('th', { colspan: G.panel ? '6' : '10', scope: 'colgroup' }, `${row.cls.name} (${KIND_LABELS[row.cls.kind]}${row.cls.subject ? ` · ${row.cls.subject}` : ''}) · ${mine.length}명`)));
+        h('th', { colspan: String(visibleCols().length - 1), scope: 'colgroup' }, `${row.cls.name} (${KIND_LABELS[row.cls.kind]}${row.cls.subject ? ` · ${row.cls.subject}` : ''}) · ${mine.length}명`)));
     }
-    body.push(rowEl(row));
+    body.push(...rowEl(row));
   }
-  const wide = rows.some((r) => r.cls.kind !== 'homeroom'); // 교과·동아리 반은 학년-반 번호로 보인다
-  const noW = wide ? '76px' : '48px';
-  const subj = G.area === 'subject' && !G.panel;
+  const cols = visibleCols();
+  const colEls = cols.map((c) => h('col', { style: { width: colWidth(c) } }));
   const table = h('table', { class: 'table grid-table' },
     h('caption', { class: 'sr-only' }, `${AREA_LABELS[G.area]} 작성 표 (명렬순)`),
-    h('colgroup', {}, ...(G.panel ? ['44px', noW, '84px', '14%', 'auto', '72px', '96px'] : ['44px', noW, '84px', '17%', 'auto', '72px', '84px', '19%', ...(subj ? ['96px'] : []), '56px', '72px']).map((w) => h('col', { style: { width: w } }))),
-    h('thead', {}, h('tr', {},
-      h('th', { scope: 'col', class: 'col-check' }, h('label', { class: 'check-hit' }, selAll)),
-      h('th', { scope: 'col', class: 'num' }, wide ? '반 번호' : '번호'), h('th', { scope: 'col' }, '이름'),
-      h('th', { scope: 'col' }, '메모'), h('th', { scope: 'col' }, '최종본 (칸에서 바로 쓰기)'),
-      h('th', { scope: 'col', class: 'num' }, '바이트'), G.panel ? null : h('th', { scope: 'col' }, '상태'),
-      h('th', { scope: 'col' }, '점검'), subj ? h('th', { scope: 'col' }, '성취기준') : null, G.panel ? null : h('th', { scope: 'col' }, '완료'), G.panel ? null : h('th', { scope: 'col' }, ''))),
+    h('colgroup', {}, colEls),
+    h('thead', {}, h('tr', {}, cols.map((c, i) => h('th', { scope: 'col', class: [c.key === 'check' ? 'col-check' : null, c.num ? 'num' : null, 'grid-th'] },
+      c.key === 'check' ? h('label', { class: 'check-hit' }, selAll) : c.label,
+      c.resize ? resizer(c, colEls[i]) : null)))),
     h('tbody', {}, body));
   els.table = table;
-  clear(els.tableHost, h('div', { class: 'table-wrap grid-wrap' }, table));
+  clear(els.tableHost, h('div', { class: 'grid-table-actions' }, colMenu()), h('div', { class: 'table-wrap grid-wrap' }, table));
   for (const r of rows) refreshRow(r.rec.id);
   resizeAll();
   syncChecks();
@@ -328,12 +490,19 @@ function syncBoard() {
 
 function selectedRows() { return rows.filter((r) => G.selected.has(r.rec.id)); }
 
+// 학생을 고르면 초안 만들기 패널을 바로 열고, 모두 풀면 닫는다
 function onSelection() {
-  if (G.onlySelected) renderTable(); // 체크를 풀면 그 학생은 표에서 빠진다
+  const n = selectedRows().length;
+  const toggle = (n > 0) !== G.panel;
+  if (toggle) G.panel = n > 0;
+  if (toggle) applyLayout(); else if (G.onlySelected) renderTable(); // 체크를 풀면 그 학생은 표에서 빠진다
   syncChecks();
   renderBar();
   if (G.panel) renderPanel();
+  // 좁은 화면은 패널이 표 아래에 생기니, 처음 열 때 패널로 내려간다
+  if (toggle && G.panel && window.matchMedia?.('(max-width: 1099px)').matches) els.panel?.scrollIntoView({ block: 'start', behavior: 'smooth' });
 }
+function openPanel() { G.panel = true; applyLayout(); renderPanel(); renderBar(); document.getElementById('grid-common')?.focus(); }
 
 // ---------- 성취기준 ----------
 /** 이 학생에게 쓸 성취기준 글: 패널에서 체크한 것 > 학생에게 고른 것 > 반에 올려 둔 전체 */
@@ -402,23 +571,16 @@ function sendToChecker() {
 function renderBar() {
   if (!els.bar) return;
   const n = selectedRows().length;
-  const memoCount = memoTargets(scopeRows().map(toPlain)).length;
   clear(els.bar,
-    h('div', { class: 'row grid-actions' },
-      h('button', {
-        type: 'button', class: 'btn btn-primary', disabled: !!G.job || noKey() || !memoCount,
-        'aria-describedby': 'grid-memo-hint', onclick: runMemoBatch,
-      }, icon('spark'), '메모로 초안 한번에 만들기'),
-      h('span', { class: 'small muted', id: 'grid-memo-hint' },
-        noKey() ? '설정에서 API 키를 넣으면 쓸 수 있습니다.'
-          : memoCount ? `${n ? '고른 학생 중 ' : ''}메모가 있고 최종본이 빈 ${memoCount}명의 초안을 최종본 칸에 만듭니다.`
-            : `${n ? '고른 학생 중 ' : ''}메모가 있고 최종본이 빈 학생이 없습니다.`)),
+    n ? null : h('p', { class: 'small muted' }, '초안을 만들 학생을 표에서 체크하면 오른쪽에 초안 만들기 패널이 열립니다. 여러 명을 체크하면 함께 만듭니다.'),
+    eventBar(),
+    aiBar(),
+    groupBar(),
     n ? h('div', { class: 'row grid-selbar', role: 'status' },
       h('strong', {}, `${n}명 선택`),
-      h('button', { type: 'button', class: 'btn btn-secondary btn-sm', onclick: () => { G.panel = true; renderPanel(); applyLayout(); document.getElementById('grid-common')?.focus(); } }, '특징 쓰고 초안 만들기'),
+      G.panel ? null : h('button', { type: 'button', class: 'btn btn-secondary btn-sm', onclick: openPanel }, '초안 만들기 패널 열기'),
       h('button', { type: 'button', class: 'btn btn-ghost btn-sm', onclick: () => { G.selected.clear(); onSelection(); } }, '선택 풀기')) : null);
 }
-const toPlain = (r) => { const l = liveRec(r.rec); return { id: l.id, memo: l.memo, final: l.final, status: statusOf(r.rec) }; };
 function scopeRows() { const sel = selectedRows(); return sel.length ? sel : rows; }
 
 function applyLayout() {
@@ -496,23 +658,83 @@ function renderJob() {
     j.failed.length ? h('ul', { class: 'issue-list' }, j.failed.slice(0, 5).map((f) => h('li', { class: 'is-warn' }, `${store.getStudent(store.state.records.get(f.id)?.studentId)?.name || ''}: ${f.message || '실패'}`))) : null);
 }
 
-// 맨 위 버튼: 메모가 있는 학생의 초안을 한꺼번에 최종본 칸에 만든다
-function runMemoBatch() {
-  const ids = memoTargets(scopeRows().map(toPlain));
-  if (!ids.length) { toast('대상 학생이 없습니다'); return; }
-  const made = [];
-  const job = { after: null };
-  startJob({
-    ids, label: '메모로 초안 만들기',
-    makeRecord: (rec, row) => ({ ...rec, achievement: rec.achievement || row?.cls?.achievement || '' }),
-    onText: (rid, text) => {
-      store.updateRecord(rid, { draft: text, final: text, candidates: [newCandidate(text)] });
-      made.push(rid);
-      refreshRow(rid, { setText: true });
-    },
-  });
-  if (G.job) G.job.after = { action: '되돌리기', onAction: () => { for (const rid of made) { store.updateRecord(rid, { final: '', draft: '', candidates: [] }); refreshRow(rid, { setText: true }); } toast('만든 초안을 지웠습니다'); } };
-  void job;
+// ---------- 모둠 ----------
+/** 위쪽 모둠 버튼: 누르면 그 모둠 학생을 고르고 패널을 연다 */
+function groupBar() {
+  if (G.area !== 'subject') return null;
+  const shown = classesForArea().filter((c) => G.onlySelected || !G.hidden.has(c.id));
+  const list = shown.flatMap((c) => (liveCls(c).groups || []).map((g) => ({ c, g })));
+  if (!list.length) return null;
+  const many = shown.length > 1;
+  return h('div', { class: 'row grid-groups', role: 'group', 'aria-labelledby': 'grid-groups-label' },
+    h('span', { class: 'small muted', id: 'grid-groups-label' }, '모둠'),
+    list.map(({ c, g }) => h('button', {
+      type: 'button', class: 'btn btn-secondary btn-sm', 'aria-label': `${many ? `${c.name} ` : ''}${g.name} ${g.studentIds.length}명 고르기`,
+      onclick: () => selectGroup(c, g),
+    }, `${many ? `${c.name} ` : ''}${g.name} (${g.studentIds.length}명)`)));
+}
+
+function selectGroup(c, g) {
+  G.selected.clear();
+  for (const sid of g.studentIds) G.selected.add(store.getRecord(sid, G.area, c.subject).id);
+  G.hidden.delete(c.id);
+  G.panel = true;
+  renderBar(); applyLayout(); renderPanel();
+  document.getElementById(`gp-group-memo-${g.id}`)?.focus();
+}
+
+/** 패널: 고른 학생으로 모둠 만들기, 고른 학생이 든 반의 모둠과 모둠 메모 */
+function groupSection(sel) {
+  if (G.area !== 'subject') return null;
+  const byCls = new Map();
+  for (const r of sel) { if (!byCls.has(r.cls.id)) byCls.set(r.cls.id, liveCls(r.cls)); }
+  const one = byCls.size === 1 ? [...byCls.values()][0] : null;
+  const make = () => {
+    if (!one) { toast('모둠은 한 반 안에서 만듭니다. 한 반의 학생만 골라 주세요.'); return; }
+    const groups = one.groups || [];
+    const g = { id: `g_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, name: nextGroupName(groups), memo: '', studentIds: sel.map((r) => r.student.studentId) };
+    writeGroups(one.id, saveGroup(groups, g));
+    toast(`${one.name}에 ${g.name}(${g.studentIds.length}명)을 만들었습니다. 모둠 메모를 적어 주세요.`);
+    renderTable(); renderBar(); renderPanel();
+    document.getElementById(`gp-group-memo-${g.id}`)?.focus();
+  };
+  const cards = [...byCls.values()].flatMap((c) => (c.groups || []).map((g) => groupCard(c, g, sel)));
+  return h('section', { class: 'stack', 'aria-labelledby': 'gp-group' },
+    h('h3', { class: 'section-title', id: 'gp-group' }, '모둠 메모'),
+    h('p', { class: 'hint' }, '같이 활동한 학생을 모둠으로 묶고 공통 메모를 적어 두면, 초안을 만들 때 그 모둠 학생에게 모둠 메모가 들어갑니다. 한 학생은 한 반에서 모둠 하나에만 들어갑니다.'),
+    h('div', { class: 'row' }, h('button', { type: 'button', class: 'btn btn-secondary', disabled: !sel.length, onclick: make }, icon('plus'), `고른 ${sel.length}명으로 새 모둠 만들기`)),
+    cards.length ? cards : null);
+}
+
+function groupCard(c, g, sel) {
+  const save = (patch) => {
+    const cur = (liveCls(c).groups || []).find((x) => x.id === g.id);
+    if (cur) writeGroups(c.id, saveGroup(liveCls(c).groups, { ...cur, ...patch }), { quiet: true });
+  };
+  const names = g.studentIds.map((sid) => store.getStudent(sid)?.name).filter(Boolean);
+  const picked = sel.filter((r) => r.cls.id === c.id).map((r) => r.student.studentId);
+  const same = picked.length === g.studentIds.length && picked.every((x) => g.studentIds.includes(x));
+  return h('div', { class: 'stack gap-1 grid-draft' },
+    h('div', { class: 'row-between' },
+      h('label', { class: 'label', for: `gp-group-name-${g.id}` }, '모둠 이름'),
+      h('span', { class: 'small muted' }, c.name)),
+    h('input', { class: 'input', id: `gp-group-name-${g.id}`, value: g.name, maxlength: '20', onchange: (e) => { save({ name: e.target.value }); renderBar(); renderTable(); } }),
+    h('p', { class: 'small' }, `${names.length}명: ${names.join(', ')}`),
+    h('label', { class: 'label', for: `gp-group-memo-${g.id}` }, `${g.name} 공통 메모`),
+    h('textarea', {
+      class: 'textarea', id: `gp-group-memo-${g.id}`, rows: '3', value: g.memo || '',
+      placeholder: '예: 주기율표 모둠 탐구에서 족별 성질을 표로 정리하고 발표함.',
+      oninput: (e) => save({ memo: e.target.value }), // 바로 저장해야 곧이어 [초안 만들기]를 눌러도 들어간다
+    }),
+    h('div', { class: 'row' },
+      same ? null : h('button', { type: 'button', class: 'btn btn-ghost btn-sm', onclick: () => selectGroup(c, g) }, '이 모둠 고르기'),
+      !same && picked.length ? h('button', { type: 'button', class: 'btn btn-ghost btn-sm', onclick: () => { writeGroups(c.id, saveGroup(liveCls(c).groups, { ...g, studentIds: picked })); toast(`${g.name}을 고른 ${picked.length}명으로 바꿨습니다`); renderTable(); renderBar(); renderPanel(); } }, `고른 ${picked.length}명으로 바꾸기`) : null,
+      h('button', { type: 'button', class: 'btn btn-ghost btn-sm', onclick: () => {
+        const before = liveCls(c).groups || [];
+        writeGroups(c.id, before.filter((x) => x.id !== g.id));
+        toast(`${g.name}을 지웠습니다. 학생 메모와 기록은 그대로입니다.`, { action: '되돌리기', onAction: () => { writeGroups(c.id, before); renderTable(); renderBar(); renderPanel(); } });
+        renderTable(); renderBar(); renderPanel();
+      } }, '모둠 지우기')));
 }
 
 // ---------- 오른쪽 패널: 특징 -> 초안 -> 수정 -> 표에 붙여넣기 ----------
@@ -530,7 +752,7 @@ function renderPanel() {
     oninput: (e) => { G.common = e.target.value; updateMakeButtons(); },
   });
   const picked = pickExamples(store.getStyles(), G.area, G.area === 'subject' ? (sel[0]?.cls.subject || null) : null);
-  const canMake = !G.job && !noKey() && sel.length > 0 && (G.common.trim() || G.withOwn);
+  const canMake = !G.job && !noKey() && sel.length > 0 && (G.common.trim() || G.withOwn || G.traits.size > 0);
   clear(els.panel,
     h('div', { class: 'panel-head' },
       h('h2', { class: 'card-title' }, '일괄 작성'),
@@ -539,14 +761,16 @@ function renderPanel() {
       h('h3', { class: 'section-title', id: 'gp-1' }, `1 대상 (${sel.length}명)`),
       sel.length ? h('div', { class: 'stack gap-1' }, [...groups.values()].map((g) => h('p', { class: 'small' }, h('strong', {}, `${g.cls.name}${g.cls.subject ? ` (${g.cls.subject})` : ''}: `), g.list.map((r) => r.student.name).join(', '))))
         : alertBox('info', '표에서 글을 쓸 학생을 체크하세요. 교과반이 여러 개면 반별 제목 줄의 체크로 반 전체를 고를 수 있습니다.')),
+    eventsBox(sel),
+    groupSection(sel),
     h('section', { class: 'stack', 'aria-labelledby': 'gp-2' },
       h('h3', { class: 'section-title', id: 'gp-2' }, '2 특징'),
       field('공통 특징', common, '이름과 학번은 AI로 보내지 않습니다. 학생마다 다른 글이 되도록 학생 메모를 함께 쓸 수 있습니다.'),
       h('div', { class: 'field' }, h('span', { class: 'label', id: 'gp-traits' }, '드러낼 모습'),
-        h('div', { class: 'row chips', role: 'group', 'aria-labelledby': 'gp-traits' }, traits.map((t) => chip(t, G.traits.has(t), (on) => { if (on) G.traits.add(t); else G.traits.delete(t); })))),
-      h('div', { class: 'field' }, h('span', { class: 'label', id: 'gp-len' }, '목표 분량'),
-        seg({ labelledby: 'gp-len', options: Object.entries(LENGTH_LABELS), value: G.length, onChange: (v) => { G.length = v; } })),
+        h('div', { class: 'row chips', role: 'group', 'aria-labelledby': 'gp-traits' }, traits.map((t) => chip(t, G.traits.has(t), (on) => { if (on) G.traits.add(t); else G.traits.delete(t); updateMakeButtons(); })))),
+      targetBytesField(),
       standardsBox(sel),
+      field('추가 요청 (선택)', h('textarea', { class: 'textarea', id: 'grid-request', rows: '2', value: G.request, placeholder: '예: 리더십을 특히 강조, 문장을 짧게', oninput: (e) => { G.request = e.target.value; } }), '강조점과 문장 모양에만 반영하고, 메모에 없는 사실은 더하지 않습니다.'),
       h('label', { class: 'check-row' }, h('input', { type: 'checkbox', checked: G.withOwn, onchange: (e) => { G.withOwn = e.target.checked; renderPanel(); } }), '학생 메모도 함께 쓰기'),
       picked ? h('label', { class: 'check-row' }, h('input', { type: 'checkbox', checked: G.styleOn, onchange: (e) => { G.styleOn = e.target.checked; renderPanel(); } }), `내 스타일 적용 (${picked.summary})`) : null),
     ...methodSections(sel, generated, canMake));
@@ -557,8 +781,105 @@ function updateMakeButtons() {
   const n = selectedRows().length;
   const base = !G.job && !G.candBusy && !noKey() && n > 0;
   els.panel?.querySelectorAll('[data-make]').forEach((b) => {
-    b.disabled = !(base && (b.dataset.make === 'shared' ? G.common.trim() && G.cands.length < candidateTarget(n) : (G.common.trim() || G.withOwn)));
+    const hasInput = G.common.trim() || G.traits.size > 0;
+    b.disabled = !(base && (b.dataset.make === 'shared' ? hasInput && G.cands.length < candidateTarget(n) : (hasInput || G.withOwn)));
   });
+}
+
+// 행사 목록 가져오기: 붙여넣기 또는 엑셀·CSV (앞 칸 행사명, 뒤 칸 날짜). 지금 목록에 더한다 (같은 행사는 한 번)
+function importEvents() {
+  const year = store.state.settings?.schoolYear;
+  const ta = h('textarea', { class: 'textarea', id: 'ev-import', rows: '8', placeholder: '학생자치회 임원 선거\t2026.03.15.\n체육대회\t2026.05.14.-2026.05.15.\n진로의 날, 2026.6.3' });
+  const note = h('div', { class: 'stack gap-1', role: 'status' });
+  let dlg = null;
+  function save(input, how) {
+    const r = parseEventList(input, year);
+    if (!r.events.length) { clear(note, alertBox('warn', h('div', {}, '읽은 행사가 없습니다. 한 줄에 행사명과 날짜를 적어 주세요.', r.errors.length ? h('ul', {}, r.errors.slice(0, 5).map((x) => h('li', {}, x))) : null))); return; }
+    const cur = schoolEvents();
+    const have = new Set(cur.map((e) => `${e.name}|${e.date}`));
+    const added = r.events.filter((e) => !have.has(`${e.name}|${e.date}`));
+    let list = cur;
+    for (const e of added) list = saveEvent(list, { id: newEventId(), ...e });
+    writeSchoolEvents(list);
+    toast(`${how} 행사 ${added.length}개를 더했습니다${r.events.length - added.length ? ` (이미 있는 ${r.events.length - added.length}개 빼고)` : ''}${r.errors.length ? `. 읽지 못한 줄 ${r.errors.length}개` : ''}`);
+    dlg?.close(true);
+    if (G.panel) renderPanel();
+    renderBar();
+  }
+  const fileIn = h('input', { type: 'file', accept: '.xlsx,.xls,.csv', hidden: true, 'aria-label': '행사 목록 파일', onchange: async () => {
+    const f = fileIn.files?.[0]; fileIn.value = '';
+    if (!f) return;
+    try { save(await readSheetFile(f), '파일에서'); } catch (e) { clear(note, alertBox('danger', e?.message || '파일을 읽지 못했습니다. 엑셀(.xlsx) 또는 CSV인지 확인해 주세요.')); }
+  } });
+  dlg = openDialog({
+    title: `${AREA_LABELS[G.area]} 행사 목록 가져오기`,
+    body: [
+      h('p', { class: 'small' }, '학교 행사를 한 줄에 하나씩 행사명과 날짜(또는 기간)로 붙여 넣거나, 엑셀·CSV 파일(앞 칸 행사명, 뒤 칸 날짜)을 올립니다. 날짜는 2026.05.14., 기간은 2026.05.14.-2026.05.15.으로 맞춰 저장합니다. 모든 반이 이 목록을 함께 씁니다.'),
+      field('붙여넣기', ta), note,
+      h('div', { class: 'row' }, h('button', { type: 'button', class: 'btn btn-secondary', onclick: () => fileIn.click() }, icon('upload'), '엑셀·CSV 파일에서 가져오기'), fileIn),
+    ],
+    actions: [
+      { label: '취소', variant: 'secondary', value: false },
+      { label: '붙여넣은 목록 저장', variant: 'primary', value: 'paste' },
+    ],
+    beforeClose: (v) => { if (v !== 'paste') return true; save(ta.value, '붙여넣은'); return false; },
+  });
+  setTimeout(() => ta.focus(), 0);
+}
+
+function eventBar() {
+  if (!EVENT_AREAS.includes(G.area)) return null;
+  const n = schoolEvents().length;
+  return h('div', { class: 'row grid-events' },
+    h('span', { class: 'small' }, n ? `${AREA_LABELS[G.area]} 행사 목록 ${n}개` : `${AREA_LABELS[G.area]} 행사 목록이 없습니다`),
+    h('button', { type: 'button', class: 'btn btn-secondary btn-sm', onclick: importEvents }, icon('upload'), '행사 목록 가져오기'),
+    h('span', { class: 'small muted' }, '학생을 체크하면 패널에서 쓸 행사를 고릅니다.'));
+}
+
+// 패널: 이번 초안에 쓸 행사 (자율·진로). 학교 행사 목록에서 체크하고, 없는 행사는 하나씩 더한다
+function eventsBox(sel) {
+  if (!EVENT_AREAS.includes(G.area) || !sel.length) return null;
+  const year = store.state.settings?.schoolYear;
+  const list = eventsOf(sel[0].cls);
+  for (const id of [...G.evIds]) if (!list.some((e) => e.id === id)) G.evIds.delete(id);
+  const nameIn = h('input', { class: 'input', type: 'text', id: 'gp-ev-name', maxlength: '60', placeholder: '예: 학생자치회 임원 선거' });
+  const dateIn = h('input', { class: 'input', type: 'text', id: 'gp-ev-date', maxlength: '30', placeholder: '예: 2026.03.15.' });
+  const err = h('p', { class: 'hint form-error', role: 'alert' });
+  const pick = (id, on) => { if (on) { G.evIds.add(id); if (G.mode === 'skip') G.mode = 'append'; } else G.evIds.delete(id); };
+  const add = () => {
+    err.textContent = '';
+    const name = nameIn.value.trim();
+    if (!name) { err.textContent = '행사 이름을 적어 주세요.'; nameIn.focus(); return; }
+    const d = formatEventDate(dateIn.value, year);
+    if (!d.ok) { err.textContent = d.error; dateIn.focus(); return; }
+    const ev = { id: newEventId(), name, date: d.value };
+    writeSchoolEvents(saveEvent(schoolEvents(), ev));
+    pick(ev.id, true);
+    toast(`행사를 더했습니다: ${eventLabel(ev)}`);
+    renderPanel(); renderBar();
+    document.getElementById('gp-ev-name')?.focus();
+  };
+  const n = list.filter((e) => G.evIds.has(e.id)).length;
+  return h('section', { class: 'stack', 'aria-labelledby': 'gp-ev' },
+    h('div', { class: 'row-between' }, h('h3', { class: 'section-title', id: 'gp-ev' }, '행사 (이번 글에 넣을 것을 체크)'),
+      h('button', { type: 'button', class: 'btn btn-ghost btn-sm', onclick: importEvents }, '목록 가져오기')),
+    list.length ? h('div', { class: 'stack gap-1 grid-ev-list', role: 'group', 'aria-labelledby': 'gp-ev' }, list.map((e) => h('div', { class: 'row-between' },
+      h('label', { class: 'check-row', for: `gp-ev-${e.id}` },
+        h('input', { type: 'checkbox', id: `gp-ev-${e.id}`, checked: G.evIds.has(e.id), onchange: (ev) => { pick(e.id, ev.target.checked); renderPanel(); document.getElementById(`gp-ev-${e.id}`)?.focus(); } }),
+        h('span', {}, eventLabel(e))),
+      h('button', { type: 'button', class: 'btn btn-ghost btn-sm', 'aria-label': `${eventLabel(e)} 행사 지우기`, onclick: () => {
+        const before = schoolEvents();
+        writeSchoolEvents(before.filter((x) => x.id !== e.id)); G.evIds.delete(e.id);
+        toast(`행사를 지웠습니다: ${eventLabel(e)}`, { action: '되돌리기', onAction: () => { writeSchoolEvents(before); renderPanel(); renderBar(); } });
+        renderPanel(); renderBar();
+      } }, '지우기'))))
+      : h('p', { class: 'hint' }, '행사 목록이 없습니다. [목록 가져오기]로 학교 행사를 한꺼번에 넣거나 아래에서 하나씩 더하세요.'),
+    h('details', {}, h('summary', {}, '행사 하나 더하기'),
+      h('div', { class: 'stack gap-1' }, h('div', { class: 'grid-2' }, field('행사 이름', nameIn), field('날짜 또는 기간', dateIn)), err,
+        h('div', { class: 'row' }, h('button', { type: 'button', class: 'btn btn-secondary btn-sm', onclick: add }, icon('plus'), '행사 더하기')))),
+    h('p', { class: 'hint' }, n
+      ? `체크한 행사 ${n}개를 '행사명(날짜)'로 시작해 씁니다. 붙여넣기는 '뒤에 이어씀'이라 행사마다 만든 글이 최종본에 쌓입니다.`
+      : '행사를 체크하면 글을 행사명(2026.05.14.) 형식으로 시작합니다.'));
 }
 
 // 패널: 이번 초안에 쓸 성취기준 (고른 학생들 반에 올려 둔 것을 모아 보여 준다)
@@ -577,6 +898,25 @@ function standardsBox(sel) {
       h('input', { type: 'checkbox', id: `gp-std-${i}`, checked: G.stds.has(l), onchange: (e) => { if (e.target.checked) G.stds.add(l); else G.stds.delete(l); } }),
       h('span', {}, l)))),
     h('p', { class: 'hint' }, G.stds.size ? '체크한 성취기준으로 글을 만듭니다 (학생별로 고른 것보다 우선).' : '아무것도 체크하지 않으면 학생별로 고른 성취기준, 없으면 반에 올려 둔 전체를 씁니다.'));
+}
+
+// 목표 바이트: 영역 한도 안에서. 메모가 짧아도 이 분량에 가깝게 풀어 쓴다
+function targetBytesOf() {
+  const lim = store.limitOf(G.area);
+  const v = Number(G.targetBytes);
+  return v > 0 ? Math.min(v, lim) : Math.round((lim * 0.7) / 10) * 10;
+}
+function targetBytesField() {
+  const lim = store.limitOf(G.area);
+  const hint = h('span', { class: 'hint', id: 'gp-bytes-hint' });
+  const paint = () => clear(hint, `한도 ${lim}바이트 중. 대략 ${Math.floor(targetBytesOf() / 2.6)}자. 메모가 짧아도 메모의 사실을 과정·태도·배운 점으로 풀어 이 분량에 가깝게 씁니다.`);
+  const input = h('input', {
+    class: 'input', type: 'number', id: 'gp-bytes', min: '100', max: String(lim), step: '10', inputmode: 'numeric', value: String(targetBytesOf()), 'aria-describedby': 'gp-bytes-hint',
+    oninput: (e) => { const v = Number(e.target.value); G.targetBytes = v > 0 ? v : null; paint(); },
+  });
+  paint();
+  return h('div', { class: 'field' }, h('label', { class: 'label', for: 'gp-bytes' }, '목표 바이트'),
+    h('div', { class: 'row' }, input, h('span', { class: 'small muted' }, `/ ${lim}바이트`)), hint);
 }
 
 function methodSeg() {
@@ -621,14 +961,14 @@ function sharedSections(sel) {
   const assigned = sel.filter((r) => G.assign.has(r.rec.id) && G.cands[G.assign.get(r.rec.id)]?.trim());
   const target = candidateTarget(sel.length);
   const remain = Math.max(0, target - G.cands.length);
-  const canMake = !G.candBusy && !G.job && !noKey() && sel.length > 0 && G.common.trim() && remain > 0;
+  const canMake = !G.candBusy && !G.job && !noKey() && sel.length > 0 && (G.common.trim() || G.traits.size > 0) && remain > 0;
   return [
     h('section', { class: 'stack', 'aria-labelledby': 'gp-3' },
       h('h3', { class: 'section-title', id: 'gp-3' }, '3 후보 만들기'),
       methodSeg(),
-      h('p', { class: 'hint' }, `위의 공통 특징만으로 후보를 만듭니다 (학생 메모는 쓰지 않음). 고른 학생 ${sel.length}명에 5개를 더해 ${target}개까지 만들고, 만든 뒤 후보마다 붙일 학생을 고르세요.`),
+      h('p', { class: 'hint' }, `위의 공통 특징만으로 후보를 만듭니다 (학생 메모와 모둠 메모는 쓰지 않음). 고른 학생 ${sel.length}명에 5개를 더해 ${target}개까지 만들고, 만든 뒤 후보마다 붙일 학생을 고르세요.`),
       noKey() ? h('p', { class: 'hint' }, '설정에서 API 키를 넣으면 만들 수 있습니다. ', h('a', { href: '#settings' }, '설정으로 가기')) : null,
-      !G.common.trim() ? h('p', { class: 'hint' }, '공통 특징을 먼저 적어 주세요.') : null,
+      !G.common.trim() && !G.traits.size ? h('p', { class: 'hint' }, '공통 특징을 적거나 드러낼 모습을 골라 주세요.') : null,
       h('div', { class: 'row' },
         h('button', { type: 'button', class: 'btn btn-primary', 'data-make': 'shared', disabled: !canMake, onclick: makeShared }, icon('spark'), G.candBusy ? '만드는 중' : (G.cands.length ? `후보 ${remain}개 더 만들기` : `후보 ${target}개 만들기`)),
         G.cands.length ? h('button', { type: 'button', class: 'btn btn-ghost', disabled: G.candBusy, onclick: () => { G.cands = []; G.assign = new Map(); renderPanel(); } }, '후보 모두 지우기') : null,
@@ -685,7 +1025,7 @@ function candCard(i, sel) {
 function makeShared() {
   const sel = selectedRows();
   if (!sel.length) { toast('표에서 학생을 먼저 고르세요'); return; }
-  if (!G.common.trim()) { toast('공통 특징을 먼저 적어 주세요'); return; }
+  if (!G.common.trim() && !G.traits.size) { toast('공통 특징을 적거나 드러낼 모습을 골라 주세요'); return; }
   const need = candidateTarget(sel.length) - G.cands.length;
   if (need <= 0) { toast('후보가 이미 충분합니다'); return; }
   flushEdits();
@@ -693,7 +1033,7 @@ function makeShared() {
   const rec = store.state.records.get(first.rec.id) || first.rec;
   const settings = store.state.settings;
   const roster = rosterAll();
-  const common = G.common; const traits = [...G.traits]; const length = G.length; const stdText = G.stds.size ? standardsText(G.stds) : '';
+  const common = G.common; const traits = [...G.traits]; const targetBytes = targetBytesOf(); const stdText = G.stds.size ? standardsText(G.stds) : ''; const request = G.request; const events = pickedEvents(first);
   const calls = Math.ceil(need / 3);
   const job = { label: '후보 만들기', total: calls, done: 0, failed: [], short: 0, stopReason: '', batch: null, summary: () => `후보 ${G.cands.length}개` };
   const target = candidateTarget(sel.length);
@@ -705,7 +1045,7 @@ function makeShared() {
       const left = target - G.cands.length;
       if (left <= 0) return 'skipped';
       const res = await generateDrafts({
-        record: { ...rec, memo: common, traits, length, achievement: stdText || rec.achievement || first.cls.achievement || '' },
+        record: { ...rec, memo: common, traits, targetBytes, achievement: stdText || first.cls.achievement || '', achievementReached: !!stdText, events, request }, // 후보는 여러 학생이 같이 쓰니 학생별 성취기준은 넣지 않는다
         studentName: '', roster, settings, apiKey: store.getApiKey(), count: Math.min(3, left), fake: ctx.isFakeAI(), style: styleFor(rec),
       });
       const drafts = (res?.drafts || []).filter((d) => d && d.trim()).map((d) => d.trim());
@@ -726,10 +1066,7 @@ function pasteShared() {
   const sel = selectedRows();
   const drafts = assignedDrafts(G.cands, G.assign);
   const target = sel.filter((r) => drafts[r.rec.id]);
-  applyPaste(target, drafts, (patched) => {
-    for (const id of patched) { G.assign.delete(id); G.selected.delete(id); }
-    syncChecks(); renderBar(); renderPanel();
-  });
+  applyPaste(target, drafts, afterPaste);
 }
 
 function draftEditor(r) {
@@ -743,8 +1080,9 @@ function draftEditor(r) {
   function paint() {
     const text = ta.value;
     const chk = checkOfText(rec, text);
-    clear(meta, `${byteLength(text)}바이트`, chk.count ? ` · 문제 ${chk.count}건: ${chk.issues.slice(0, 2).map((i) => i.message).join(', ')}` : '');
-    meta.classList.toggle('text-danger', chk.count > 0);
+    const miss = missingEventLabels(text, pickedEventList(r));
+    clear(meta, `${byteLength(text)}바이트`, chk.count ? ` · 문제 ${chk.count}건: ${chk.issues.slice(0, 2).map((i) => i.message).join(', ')}` : '', miss.length ? ` · 행사 표기 빠짐: ${miss.join(', ')}` : '');
+    meta.classList.toggle('text-danger', chk.count > 0 || miss.length > 0);
   }
   setTimeout(() => { autosize(ta); paint(); }, 0);
   return h('div', { class: 'stack gap-1 grid-draft' },
@@ -756,11 +1094,11 @@ function draftEditor(r) {
 function makeSelected() {
   const sel = selectedRows().filter((r) => statusOf(r.rec) !== 'done');
   if (!sel.length) { toast('고른 학생이 없습니다'); return; }
-  const common = G.common; const withOwn = G.withOwn; const traits = [...G.traits]; const length = G.length; const stdText = G.stds.size ? standardsText(G.stds) : '';
+  const common = G.common; const withOwn = G.withOwn; const traits = [...G.traits]; const targetBytes = targetBytesOf(); const stdText = G.stds.size ? standardsText(G.stds) : ''; const request = G.request;
   G.generated = new Set([...G.generated].filter((id) => !sel.some((r) => r.rec.id === id)));
   startJob({
     ids: sel.map((r) => r.rec.id), label: '초안 만들기',
-    makeRecord: (rec, row) => ({ ...rec, memo: composeMemo(common, withOwn ? rec.memo : ''), traits, length, achievement: stdText || rec.achievement || row?.cls?.achievement || '' }),
+    makeRecord: (rec, row) => ({ ...rec, memo: memoFor(rec, row, common, withOwn), traits, targetBytes, achievement: stdText || rec.achievement || row?.cls?.achievement || '', achievementReached: !!(stdText || rec.achievement), events: pickedEvents(row), request }),
     onText: (rid, text) => {
       store.updateRecord(rid, { draft: text, candidates: [newCandidate(text)] });
       G.generated.add(rid);
@@ -774,7 +1112,14 @@ function pasteToTable() {
   const sel = selectedRows().filter((r) => G.generated.has(r.rec.id));
   const drafts = {};
   for (const r of sel) drafts[r.rec.id] = (store.state.records.get(r.rec.id) || r.rec).draft;
-  applyPaste(sel, drafts);
+  applyPaste(sel, drafts, afterPaste);
+}
+
+// 표에 붙인 학생은 선택에서 빼서 다음 학생을 고를 수 있게 한다 (모두 빠지면 패널이 닫힘)
+function afterPaste(patched) {
+  for (const id of patched) { G.selected.delete(id); G.generated.delete(id); G.assign.delete(id); }
+  onSelection();
+  if (patched.length) toast(`붙인 ${patched.length}명은 선택을 풀었습니다. 다음 학생을 고르세요.`);
 }
 
 /** 표의 명렬 순서대로 최종본 칸에 붙인다. after(붙은 기록 id 목록) 는 붙인 뒤 화면 정리용 */
@@ -829,7 +1174,7 @@ function renderAll() {
     for (const id of [...G.selected]) { /* 숨긴 반의 선택은 그대로 둔다 */ void id; }
     renderTable(); renderBoard(); renderBar(); if (G.panel) renderPanel();
   }));
-  const onlyChip = chip('체크한 학생만 보기', G.onlySelected, (on) => { G.onlySelected = on; renderTable(); renderBar(); if (G.panel) renderPanel(); });
+  const onlyChip = chip('체크한 학생만', G.onlySelected, (on) => { G.onlySelected = on; renderTable(); renderBar(); if (G.panel) renderPanel(); });
   clear(root,
     h('div', { class: 'view-head row-between' }, h('h1', { class: 'view-title', tabindex: '-1' }, '작성'), els.save),
     noKey() ? alertBox('info', h('p', {}, 'AI 초안을 만들려면 설정에서 Gemini API 키를 넣어 주세요. 표에서 직접 쓰기와 점검은 키 없이도 됩니다. ', h('a', { href: '#settings' }, '설정으로 가기'))) : null,
@@ -841,7 +1186,8 @@ function renderAll() {
       h('button', { type: 'button', class: 'btn btn-secondary', onclick: sendToChecker }, icon('send'), '점검기로 보내기'),
       h('div', { class: 'field' }, h('span', { class: 'label', id: 'grid-class-label' }, G.area === 'subject' ? '명단을 불러올 반 (체크)' : '보이는 반'),
         h('div', { class: 'row chips', role: 'group', 'aria-labelledby': 'grid-class-label' }, classChips, onlyChip))),
-    els.bar, els.job, els.board, els.layout);
+    els.bar, els.job, els.board,
+    els.layout);
   renderTable(); renderBoard(); renderBar(); renderJob(); renderPanel(); setSave();
 }
 
@@ -866,6 +1212,7 @@ export const gridView = {
       renderBar();
       return;
     }
+    if (kind === 'classes' && quietClass) return;
     if (['classes', 'students', 'settings', 'all', 'styles'].includes(kind)) {
       if (typing() || edits.size) { staleAll = true; return; }
       pickDefaults(null); renderAll();

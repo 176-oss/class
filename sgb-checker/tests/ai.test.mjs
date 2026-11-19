@@ -5,7 +5,7 @@ import { maskNames, buildRequest, buildPrompt, parseAiResponse, aiReview, callGe
 const KEY = 'AIzaSyA-test-key-0000000000000000001234';
 const reply = (obj) => JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify(obj) }] } }] });
 const okFetch = (obj, seen = []) => async (url, init) => { seen.push({ url, init }); return { ok: true, status: 200, text: async () => reply(obj) }; };
-const ctx = { school: 'mid', grade: 1, area: 'autonomy', subject: '', limitBytes: 1500, names: ['김민준', '이서연'], schoolWords: [], schoolYear: 2026, studentId: '10101' };
+const ctx = { school: 'mid', area: 'autonomy', subject: '', limitBytes: 1500, names: ['김민준', '이서연'], schoolWords: [], schoolYear: 2026, studentId: '10101' };
 
 test('이름 가리기와 위치 되돌리기', () => {
   const t = '김민준 학생과 서연이는 함께 발표함.';

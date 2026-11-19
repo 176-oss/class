@@ -67,29 +67,6 @@ export function takeBatch(storage, want, now = Date.now()) {
   return v;
 }
 
-// ---------- 점검기에서 고친 글을 작성기에 반영하는 계획 ----------
-/**
- * batch: validBatch 결과, lookup(studentId, area, subject, name) -> 기록({ id, final, status }) 또는 null (명단에 없는 학생)
- * 반환: { updates:[{ id, studentId, name, area, subject, text, before }], skipped:{ noStudent, done, same } }
- * 완료한 기록은 건드리지 않는다. 이미 같은 글이면 건너뛴다.
- */
-export function planReturn(batch, lookup) {
-  const out = { updates: [], skipped: { noStudent: 0, done: 0, same: 0 } };
-  const seen = new Set();
-  for (const g of batch.groups) {
-    for (const it of g.items) {
-      const rec = lookup(it.studentId, g.area, g.subject, it.name);
-      if (!rec) { out.skipped.noStudent += 1; continue; }
-      if (seen.has(rec.id)) continue;
-      seen.add(rec.id);
-      if (rec.status === 'done') { out.skipped.done += 1; continue; }
-      if (String(rec.final || '').trim() === it.text.trim()) { out.skipped.same += 1; continue; }
-      out.updates.push({ id: rec.id, studentId: it.studentId, name: it.name, area: g.area, subject: g.subject, text: it.text, before: rec.final || '' });
-    }
-  }
-  return out;
-}
-
 /** 작성기 표의 행들을 보낼 묶음으로: rows [{ studentId, name, area, subject, text }] -> groups */
 export function groupsForCheck(rows) {
   const map = new Map();
