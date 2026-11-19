@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>생기부 작성 도우미 사용 안내</title>
+<meta name="description" content="생기부 작성 도우미와 학교 PC 나이스 확장프로그램(생기부 도우미) 설치·사용 안내">
+<link rel="stylesheet" href="css/tokens.css">
+<link rel="stylesheet" href="css/components.css">
+<style>
+  html { scroll-behavior: smooth; scroll-padding-top: var(--sp-4); }
+  body { margin: 0; background: var(--color-bg); color: var(--color-text); font-family: var(--font-sans); line-height: 1.6; word-break: keep-all; overflow-wrap: anywhere; }
+  img { max-width: 100%; }
+  .g-top { background: var(--color-primary); color: var(--color-on-primary); }
+  .g-top-inner { max-width: 820px; margin: 0 auto; padding: var(--sp-4) var(--sp-5); display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap; }
+  .g-top a { color: var(--color-on-primary); text-decoration: none; font-size: var(--fs-sm); opacity: 0.9; }
+  .g-top a:hover { opacity: 1; text-decoration: underline; }
+  .g-brand { font-size: var(--fs-lg); font-weight: var(--fw-semibold); margin: 0; }
+  .g-main { max-width: 820px; margin: 0 auto; padding: var(--sp-5); display: flex; flex-direction: column; gap: var(--sp-4); }
+  .card { padding: var(--sp-5); }
+  .g-hero h1 { font-size: var(--fs-2xl); margin: 0 0 var(--sp-2); color: var(--color-primary); }
+  .g-hero p { margin: 0; color: var(--color-text-muted); }
+  .g-actions { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-top: var(--sp-3); }
+  .g-actions .btn { text-decoration: none; }
+  .g-chips { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+  .g-chips a { padding: var(--sp-2) var(--sp-3); border: 1px solid var(--color-border); border-radius: 999px; background: var(--color-surface); color: var(--color-primary); text-decoration: none; font-size: var(--fs-sm); font-weight: var(--fw-semibold); }
+  .g-chips a:hover { background: var(--color-accent-soft); }
+  .card h2 { font-size: var(--fs-xl); margin: 0 0 var(--sp-2); color: var(--color-primary); }
+  .g-lead { margin: 0 0 var(--sp-3); color: var(--color-text-muted); }
+  .g-ol { margin: 0; padding-left: 1.4em; }
+  .g-ol li { margin: var(--sp-2) 0; }
+  .g-ol li::marker { color: var(--color-primary); font-weight: var(--fw-semibold); }
+  code { background: var(--color-accent-soft); color: var(--color-primary); padding: 1px 6px; border-radius: 4px; font-size: 0.93em; word-break: break-all; font-family: inherit; }
+  .g-note { font-size: var(--fs-sm); color: var(--color-text-muted); margin: var(--sp-2) 0 0; }
+  .g-copy { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; margin: var(--sp-2) 0; }
+  .g-copy code { font-size: var(--fs-lg); padding: var(--sp-2) var(--sp-3); user-select: all; }
+  .g-copied { font-size: var(--fs-sm); color: var(--color-primary); font-weight: var(--fw-semibold); }
+  .g-sum ol { list-style: none; margin: var(--sp-3) 0 0; padding: 0; display: grid; gap: var(--sp-2); }
+  .g-sum a { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-2) var(--sp-3); border: 1px solid var(--color-border); border-radius: var(--r-md); background: var(--color-surface); color: var(--color-text); text-decoration: none; }
+  .g-sum a:hover { background: var(--color-accent-soft); }
+  .g-sum .n { flex: none; width: 28px; height: 28px; border-radius: 50%; background: var(--color-primary); color: var(--color-on-primary); font-weight: var(--fw-semibold); font-size: var(--fs-sm); display: flex; align-items: center; justify-content: center; }
+  .g-sum b { color: var(--color-primary); }
+  .g-sum .d { color: var(--color-text-muted); font-size: var(--fs-sm); }
+  .g-sum .t { display: flex; flex-direction: column; min-width: 0; }
+  .g-step { display: flex; flex-direction: column; gap: var(--sp-3); }
+  .g-step-head { display: flex; align-items: center; gap: var(--sp-3); }
+  .g-step-head h3 { margin: 0; font-size: var(--fs-xl); color: var(--color-primary); line-height: 1.3; }
+  .g-step-no { flex: none; width: 44px; height: 44px; border-radius: 50%; background: var(--color-primary); color: var(--color-on-primary); font-size: var(--fs-xl); font-weight: var(--fw-semibold); display: flex; align-items: center; justify-content: center; }
+  .g-shot { margin: 0; }
+  .g-shot-btn { display: block; width: 100%; padding: 0; border: 1px solid var(--color-border); border-radius: var(--r-md); background: var(--color-surface); cursor: zoom-in; overflow: hidden; }
+  .g-shot-btn img { display: block; margin: 0 auto; width: auto; max-width: 100%; height: auto; }
+  .g-shot figcaption { margin-top: var(--sp-2); font-size: var(--fs-sm); color: var(--color-text-muted); }
+  .g-tag { display: inline-block; padding: 1px var(--sp-2); border-radius: 999px; font-size: var(--fs-xs); font-weight: var(--fw-semibold); margin-right: var(--sp-1); }
+  .g-tag-real { background: var(--color-primary); color: var(--color-on-primary); }
+  .g-tag-draw { background: var(--color-done-bg); color: var(--color-done-text); }
+  .g-tag-sample { background: var(--color-accent-soft); color: var(--color-primary); }
+  .g-step-body p { margin: 0 0 var(--sp-2); }
+  .g-two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--sp-3); align-items: start; }
+  @media (max-width: 640px) { .g-two { grid-template-columns: minmax(0, 1fr); } }
+  .g-trouble { border: 1px solid var(--color-border); border-radius: var(--r-md); background: var(--color-bg); margin-top: var(--sp-2); }
+  .g-trouble summary { cursor: pointer; padding: var(--sp-3); font-weight: var(--fw-semibold); }
+  .g-trouble div { padding: 0 var(--sp-3) var(--sp-3); }
+  .g-foot { text-align: center; color: var(--color-text-muted); font-size: var(--fs-sm); padding: var(--sp-5) 0 var(--sp-6); }
+  .g-foot a { color: var(--color-primary); }
+  .g-lb { position: fixed; inset: 0; z-index: 100; background: rgba(46, 36, 24, 0.94); display: flex; flex-direction: column; }
+  .g-lb[hidden] { display: none; }
+  .g-lb-bar { display: flex; justify-content: flex-end; padding: var(--sp-3); }
+  .g-lb-stage { flex: 1; min-height: 0; overflow: auto; display: flex; padding: 0 var(--sp-3) var(--sp-3); }
+  .g-lb-stage img { margin: auto; max-width: 100%; max-height: 100%; background: #fff; border-radius: var(--r-md); }
+  .g-lb-cap { color: #fff; font-size: var(--fs-sm); text-align: center; padding: 0 var(--sp-3) var(--sp-3); }
+  @media (max-width: 520px) { .g-main { padding: var(--sp-4); } .g-hero h1 { font-size: var(--fs-xl); } .g-step-head h3 { font-size: var(--fs-lg); } }
+</style>
+</head>
+<body>
+<header class="g-top">
+  <div class="g-top-inner">
+    <p class="g-brand">생기부 작성 도우미</p>
+    <a href="../index.html">스마트 도구함으로</a>
+  </div>
+</header>
+
+<main class="g-main">
+  <section class="card g-hero">
+    <h1>사용 안내</h1>
+    <p>작성 도우미에서 반 전체 생기부를 쓰고 점검한 뒤, 학교 PC의 크롬 확장프로그램 <b>생기부 도우미</b>로 나이스에 반자동으로 입력합니다. 나이스 저장은 선생님이 확인한 뒤에만 합니다.</p>
+    <div class="g-actions">
+      <a class="btn btn-primary" href="./">작성 도우미 열기</a>
+      <a class="btn btn-secondary" href="sgb-extension.zip" download>학교 PC 확장프로그램 받기</a>
+      <a class="btn btn-secondary" href="../sgb-checker/">점검기 열기</a>
+    </div>
+  </section>
+
+  <nav class="g-chips" aria-label="목차">
+    <a href="#write">1. 작성 도우미로 글 쓰기</a>
+    <a href="#ext">2. 확장프로그램 설치</a>
+    <a href="#step-6">3. 나이스에 입력하기</a>
+    <a href="#first">4. 처음 시험하기</a>
+    <a href="#update">업데이트</a>
+  </nav>
+
+  <section class="card" id="write">
+    <h2>1. 작성 도우미로 글 쓰기</h2>
+    <ol class="g-ol">
+      <li><b>명단</b>에서 반을 만들고 학생을 등록합니다. 나이스 출석부 엑셀을 올리거나, 반을 고른 뒤 <code>1 김가온</code>처럼 번호와 이름만 붙여넣어도 됩니다. 파일은 끌어다 놓아도 됩니다.</li>
+      <li><b>작성</b>에서 반 전체가 명렬순 표로 나옵니다. 메모와 최종본 칸에 바로 쓰고, 오른쪽 점검 칸에서 띄어쓰기·맞춤법·금지 표현·글자 수를 확인합니다.</li>
+      <li>AI 초안은 맨 위 <b>[메모로 초안 한번에 만들기]</b>를 쓰거나, 학생을 체크한 뒤 <b>[특징 쓰고 초안 만들기]</b>로 오른쪽 패널에서 만들고 <b>[표에 순서대로 붙여넣기]</b>를 누릅니다. 교과세특은 반을 체크하고 칩 판에서 학생을 고르며, 성취기준을 체크하면 그 내용을 넣어 씁니다.</li>
+      <li>필요하면 <b>[점검기로 보내기]</b>로 더 자세히 점검하고, 고친 글을 작성 도우미로 다시 받습니다.</li>
+      <li>다 쓴 글은 <b>완료</b>로 체크합니다. 나이스에는 완료한 글만 넘어갑니다.</li>
+    </ol>
+    <p class="g-note">AI를 쓰려면 설정에서 Gemini API 키를 넣습니다. 구글 드라이브에 연결해 두면 학교 PC 확장프로그램이 완료한 글을 바로 가져갑니다.</p>
+  </section>
+
+  <section class="card g-sum" id="ext" aria-labelledby="ext-t">
+    <h2 id="ext-t">2. 학교 PC에 확장프로그램 설치 (약 5분)</h2>
+    <p class="g-lead" style="margin-bottom:0">그림을 따라 하면 됩니다. 단계를 누르면 해당 설명으로 이동합니다. 출결관리 도우미 확장과는 따로 설치합니다.</p>
+    <ol>
+      <li><a href="#step-1"><span class="n">1</span><span class="t"><b>설치 파일 받기</b><span class="d">sgb-extension.zip 내려받기</span></span></a></li>
+      <li><a href="#step-2"><span class="n">2</span><span class="t"><b>압축 풀기</b><span class="d">지우지 않을 폴더에 풀어 둡니다</span></span></a></li>
+      <li><a href="#step-3"><span class="n">3</span><span class="t"><b>확장 프로그램 관리 화면 열기</b><span class="d">크롬 주소창에 chrome://extensions</span></span></a></li>
+      <li><a href="#step-4"><span class="n">4</span><span class="t"><b>개발자 모드 켜고 폴더 불러오기</b><span class="d">[압축해제된 확장 프로그램을 로드합니다]</span></span></a></li>
+      <li><a href="#step-5"><span class="n">5</span><span class="t"><b>아이콘 고정</b><span class="d">갈색 종이와 연필 아이콘을 핀으로 고정</span></span></a></li>
+      <li><a href="#step-6"><span class="n">6</span><span class="t"><b>나이스에서 사이드 패널 열기</b><span class="d">입력할 화면을 띄우고 아이콘 클릭</span></span></a></li>
+      <li><a href="#step-7"><span class="n">7</span><span class="t"><b>입력하고 확인한 뒤 저장</b><span class="d">[입력 시작] → [확인 완료 · 저장] → [이대로 저장]</span></span></a></li>
+    </ol>
+  </section>
+
+  <article class="card g-step" id="step-1" aria-labelledby="step-1-t">
+    <header class="g-step-head"><span class="g-step-no" aria-hidden="true">1</span><h3 id="step-1-t">설치 파일 받기</h3></header>
+    <figure class="g-shot">
+      <button type="button" class="g-shot-btn" data-zoom><img src="guide-img/step1-download.png" width="716" height="339" alt="작성 도우미 NEIS 옮기기 화면의 '학교 PC 확장프로그램 받기와 설치'입니다. [확장프로그램 내려받기 (sgb-extension.zip)] 버튼과 최신 버전이 보입니다." loading="lazy"></button>
+      <figcaption><span class="g-tag g-tag-real">실제 화면</span> 그림을 누르면 크게 보입니다.</figcaption>
+    </figure>
+    <div class="g-step-body">
+      <p>학교 PC의 크롬에서 작성 도우미의 <b>NEIS 옮기기</b> 화면을 열고 '학교 PC 확장프로그램 받기와 설치'를 펼쳐 <b>[확장프로그램 내려받기]</b>를 누릅니다. 아래 버튼으로 바로 받아도 됩니다. <code>sgb-extension.zip</code> 파일이 <b>다운로드</b> 폴더에 저장됩니다.</p>
+      <div class="g-actions"><a class="btn btn-primary" href="sgb-extension.zip" download>sgb-extension.zip 내려받기</a></div>
+      <details class="g-trouble"><summary>내려받기가 안 되거나 파일이 열리지 않아요</summary><div>학교 보안 설정으로 압축 파일 내려받기가 막혀 있을 수 있습니다. 정보 담당 선생님께 문의해 주세요.</div></details>
+    </div>
+  </article>
+
+  <article class="card g-step" id="step-2" aria-labelledby="step-2-t">
+    <header class="g-step-head"><span class="g-step-no" aria-hidden="true">2</span><h3 id="step-2-t">압축 풀기</h3></header>
+    <figure class="g-shot">
+      <button type="button" class="g-shot-btn" data-zoom><img src="guide-img/step2-unzip.svg" width="1000" height="330" alt="sgb-extension.zip에서 마우스 오른쪽 버튼을 눌러 모두 압축 풀기를 고르면(1번), sgb-extension 폴더가 만들어지고 안에 manifest.json 등이 보입니다(2번)." loading="lazy"></button>
+      <figcaption><span class="g-tag g-tag-draw">그림 예시</span> 설명용으로 그린 그림입니다.</figcaption>
+    </figure>
+    <div class="g-step-body">
+      <p>받은 압축 파일에서 <b>마우스 오른쪽 → 모두 압축 풀기</b>를 누릅니다. <b>문서 폴더처럼 지우지 않을 곳</b>에 두세요. <b>폴더를 지우면 확장프로그램도 사라집니다.</b></p>
+      <details class="g-trouble"><summary>폴더 안에 같은 이름의 폴더가 한 번 더 들어 있어요</summary><div><code>manifest.json</code> 파일이 바로 보이는 안쪽 폴더를 4단계에서 고르면 됩니다.</div></details>
+    </div>
+  </article>
+
+  <article class="card g-step" id="step-3" aria-labelledby="step-3-t">
+    <header class="g-step-head"><span class="g-step-no" aria-hidden="true">3</span><h3 id="step-3-t">확장 프로그램 관리 화면 열기</h3></header>
+    <figure class="g-shot">
+      <button type="button" class="g-shot-btn" data-zoom><img src="guide-img/step3-address.png" width="1000" height="230" alt="크롬 주소창에 chrome://extensions 를 붙여넣고(1번) 키보드 Enter 키를 누릅니다(2번)." loading="lazy"></button>
+      <figcaption><span class="g-tag g-tag-draw">그림 예시</span> 그림을 누르면 크게 보입니다.</figcaption>
+    </figure>
+    <div class="g-step-body">
+      <p>크롬 주소창에 아래 주소를 넣고 <b>Enter</b>를 누릅니다. 이 주소는 링크로는 열리지 않으니 <b>[주소 복사]</b>를 누른 뒤 주소창에 붙여넣기(<b>Ctrl+V</b>) 하세요.</p>
+      <div class="g-copy"><code id="chrome-addr">chrome://extensions</code><button class="btn btn-primary btn-sm" type="button" id="copy-addr">주소 복사</button><span class="g-copied" id="copy-addr-msg" role="status" aria-live="polite"></span></div>
+      <details class="g-trouble"><summary>주소를 열 수 없어요</summary><div>크롬 오른쪽 위 점 세 개 메뉴 → <b>확장 프로그램</b> → <b>확장 프로그램 관리</b>로도 열 수 있습니다.</div></details>
+    </div>
+  </article>
+
+  <article class="card g-step" id="step-4" aria-labelledby="step-4-t">
+    <header class="g-step-head"><span class="g-step-no" aria-hidden="true">4</span><h3 id="step-4-t">개발자 모드 켜고 폴더 불러오기</h3></header>
+    <figure class="g-shot">
+      <button type="button" class="g-shot-btn" data-zoom><img src="guide-img/step4-devmode.png" width="1000" height="273" alt="확장 프로그램 관리 화면 오른쪽 위의 개발자 모드 스위치(1번)를 눌러 켭니다." loading="lazy"></button>
+      <figcaption><span class="g-tag g-tag-sample">화면 예시</span> 크롬 버전에 따라 모양이 조금 다를 수 있습니다.</figcaption>
+    </figure>
+    <figure class="g-shot">
+      <button type="button" class="g-shot-btn" data-zoom><img src="guide-img/step4-load.png" width="1000" height="273" alt="개발자 모드를 켜면 왼쪽 위에 나타나는 [압축해제된 확장 프로그램을 로드합니다] 버튼(2번)을 누릅니다." loading="lazy"></button>
+      <figcaption><span class="g-tag g-tag-sample">화면 예시</span> 그림을 누르면 크게 보입니다.</figcaption>
+    </figure>
+    <div class="g-step-body">
+      <ol class="g-ol">
+        <li>오른쪽 위 <b>개발자 모드</b> 스위치를 켭니다.</li>
+        <li>왼쪽 위에 나타난 <b>[압축해제된 확장 프로그램을 로드합니다]</b>를 누릅니다.</li>
+        <li>2단계에서 푼 <code>sgb-extension</code> 폴더(<code>manifest.json</code>이 바로 보이는 폴더)를 고르고 <b>[폴더 선택]</b>을 누릅니다.</li>
+      </ol>
+      <p class="g-note">목록에 <b>생기부 도우미 - 나이스 연동</b>이 보이고 스위치가 켜져 있으면 설치된 것입니다. '개발자 모드' 경고가 뜨면 닫으면 됩니다.</p>
+      <details class="g-trouble"><summary>[로드] 버튼이 보이지 않아요</summary><div>개발자 모드가 꺼져 있는 것입니다. 오른쪽 위 스위치를 켜 주세요. 스위치를 누를 수 없으면 학교에서 막아 둔 것이므로 정보 담당 선생님께 문의해 주세요.</div></details>
+    </div>
+  </article>
+
+  <article class="card g-step" id="step-5" aria-labelledby="step-5-t">
+    <header class="g-step-head"><span class="g-step-no" aria-hidden="true">5</span><h3 id="step-5-t">아이콘 고정</h3></header>
+    <figure class="g-shot">
+      <button type="button" class="g-shot-btn" data-zoom><img src="guide-img/step5-toolbar.svg" width="1000" height="330" alt="크롬 오른쪽 위 퍼즐 모양 아이콘(1번)을 누르고, 생기부 도우미 - 나이스 연동 옆의 핀(2번)을 누르면 주소창 옆에 갈색 아이콘이 고정됩니다(3번)." loading="lazy"></button>
+      <figcaption><span class="g-tag g-tag-draw">그림 예시</span> 설명용으로 그린 그림입니다.</figcaption>
+    </figure>
+    <div class="g-step-body">
+      <p>크롬 오른쪽 위 <b>퍼즐 모양 아이콘</b>을 눌러 <b>생기부 도우미 - 나이스 연동</b> 옆의 <b>핀</b>을 누르면 주소창 옆에 아이콘이 항상 보입니다. 생기부는 <b>갈색 종이와 연필</b>, 출결은 <b>남색 체크</b> 아이콘입니다.</p>
+    </div>
+  </article>
+
+  <article class="card g-step" id="step-6" aria-labelledby="step-6-t">
+    <header class="g-step-head"><span class="g-step-no" aria-hidden="true">6</span><h3 id="step-6-t">나이스에서 사이드 패널 열기</h3></header>
+    <div class="g-two">
+      <figure class="g-shot">
+        <button type="button" class="g-shot-btn" data-zoom><img src="guide-img/step6-panel.png" width="394" height="520" alt="생기부 도우미 사이드 패널입니다. 위에 '나이스 생기부 화면 감지됨: 자율·자치활동 특기사항'과 조회 조건이, 아래에 불러온 파일과 [구글 드라이브에서 받기], [파일 불러오기] 버튼이 보입니다." loading="lazy"></button>
+        <figcaption><span class="g-tag g-tag-real">실제 패널</span> 학생은 가상입니다.</figcaption>
+      </figure>
+      <div class="g-step-body">
+        <ol class="g-ol">
+          <li>나이스에서 입력할 생기부 화면(예: 자율·자치활동 특기사항)을 열고 학년·반을 <b>[조회]</b>합니다.</li>
+          <li>주소창 옆 <b>생기부 도우미</b> 아이콘을 누르면 오른쪽에 패널이 열리고 <b>'나이스 생기부 화면 감지됨'</b>이 보입니다. 입력하려는 탭이 화면에 보여야 켜집니다.</li>
+          <li>글 가져오기: 구글 드라이브에 연결했다면 <b>[구글 드라이브에서 받기]</b>, 아니면 작성 도우미에서 받은 파일이나 엑셀을 <b>[파일 불러오기]</b>로 엽니다(패널에 끌어다 놓아도 됩니다). 완료한 글만 들어옵니다.</li>
+        </ol>
+        <details class="g-trouble"><summary>'새로고침(F5)하세요'라고 나와요</summary><div>확장을 새로 설치하거나 업데이트하면 이미 열려 있던 나이스 탭은 새로고침해야 합니다. 나이스 탭에서 F5를 누르세요.</div></details>
+        <details class="g-trouble"><summary>화면이 보이는데 감지되지 않아요</summary><div>입력하려는 탭이 화면 앞에 있는지 확인하고, 나이스에서 [조회]를 한 번 누릅니다. 그래도 안 되면 F5를 누릅니다.</div></details>
+      </div>
+    </div>
+  </article>
+
+  <article class="card g-step" id="step-7" aria-labelledby="step-7-t">
+    <header class="g-step-head"><span class="g-step-no" aria-hidden="true">7</span><h3 id="step-7-t">입력하고 확인한 뒤 저장</h3></header>
+    <div class="g-two">
+      <figure class="g-shot">
+        <button type="button" class="g-shot-btn" data-zoom><img src="guide-img/step7-review.png" width="394" height="760" alt="[입력 시작]을 누른 뒤의 패널입니다. 학생마다 입력됨이 표시되고, 나이스에 이미 글이 있는 학생은 '선택 필요'와 함께 [뒤에 이어쓰기], [덮어쓰기] 버튼이 나옵니다. 아래에 [확인 완료 · 저장] 버튼이 있습니다." loading="lazy"></button>
+        <figcaption><span class="g-tag g-tag-real">실제 패널</span> 학생은 가상입니다.</figcaption>
+      </figure>
+      <div class="g-step-body">
+        <ol class="g-ol">
+          <li><b>[입력 시작]</b>을 누르면 이 화면의 학생들에게 글이 들어갑니다. 아직 저장된 것은 아닙니다.</li>
+          <li>나이스에 <b>이미 글이 있는 학생</b>은 바로 바꾸지 않고 '선택 필요'로 남깁니다. <b>[뒤에 이어쓰기]</b> 또는 <b>[덮어쓰기]</b>를 고르세요('두 글 비교'로 확인).</li>
+          <li>나이스 표에서 글을 확인하고 <b>[확인 완료 · 저장]</b> → 목록 확인 → <b>[이대로 저장]</b>을 누릅니다.</li>
+          <li>마지막으로 저장할 학생 목록이 팝업으로 뜹니다. <b>[확인]</b>을 누르면 저장되고 나이스에 '자료의 저장이 완료되었습니다.'가 뜹니다.</li>
+        </ol>
+        <p class="g-note">저장 전에는 언제든 <b>[멈추기]</b>를 누르고 나이스 <b>[조회]</b>를 누르면 원래대로 돌아갑니다. 마감·확정 버튼은 확장이 절대 누르지 않습니다.</p>
+      </div>
+    </div>
+  </article>
+
+  <section class="card" id="first">
+    <h2>4. 처음 시험하기</h2>
+    <p class="g-lead">처음에는 아래 순서로 안전하게 시험해 보세요.</p>
+    <ol class="g-ol">
+      <li>학생 1명만 [입력 시작] 해 보고, 저장하지 말고 <b>[멈추기]</b>를 누릅니다.</li>
+      <li>나이스 <b>[조회]</b>를 눌러 원래대로 돌아오는지 봅니다.</li>
+      <li>이상이 없으면 학생 1명을 저장까지 해 보고, 그다음 여러 명을 합니다.</li>
+    </ol>
+  </section>
+
+  <section class="card" id="update">
+    <h2>업데이트하기</h2>
+    <p class="g-lead">작성 도우미 NEIS 옮기기 화면에서 최신 버전 번호를 확인할 수 있습니다. 사이드 패널 위쪽 '확장 v…'와 다르면 업데이트하세요.</p>
+    <ol class="g-ol">
+      <li>새 <code>sgb-extension.zip</code>을 받습니다. <a href="sgb-extension.zip" download>지금 받기</a></li>
+      <li>압축을 풀어 <b>기존 sgb-extension 폴더에 덮어씁니다</b>.</li>
+      <li><a href="#step-3">chrome://extensions</a>를 열어 생기부 도우미의 <b>새로고침</b>(둥근 화살표)을 누릅니다.</li>
+      <li>나이스 탭을 새로고침(F5)합니다.</li>
+    </ol>
+    <p class="g-note">확장프로그램 [제거]는 누르지 마세요. 제거하면 이 PC에 불러 둔 글과 입력 기록이 지워집니다 (작성 도우미의 글은 그대로입니다).</p>
+  </section>
+
+  <p class="g-foot"><a href="./">작성 도우미 열기</a> · <a href="../sgb-checker/">점검기 열기</a> · <a href="../index.html">스마트 도구함으로</a></p>
+</main>
+
+<div class="g-lb" id="lightbox" role="dialog" aria-modal="true" aria-label="그림 크게 보기" hidden>
+  <div class="g-lb-bar"><button type="button" class="btn btn-primary btn-sm" id="lb-close">닫기</button></div>
+  <div class="g-lb-stage" id="lb-stage"><img id="lb-img" alt=""></div>
+  <p class="g-lb-cap" id="lb-cap"></p>
+</div>
+
+<script>
+(function () {
+  var addr = document.getElementById('chrome-addr');
+  var msg = document.getElementById('copy-addr-msg');
+  document.getElementById('copy-addr').addEventListener('click', function () {
+    function sel() { var r = document.createRange(); r.selectNodeContents(addr); var s = window.getSelection(); s.removeAllRanges(); s.addRange(r); }
+    var done = function () { msg.textContent = '복사했습니다. 크롬 주소창에 붙여넣고 Enter를 누르세요.'; };
+    var fail = function () { sel(); msg.textContent = '주소를 선택했습니다. Ctrl+C로 복사한 뒤 크롬 주소창에 붙여넣으세요.'; };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(addr.textContent).then(done, fail); else fail();
+  });
+  var lb = document.getElementById('lightbox');
+  var img = document.getElementById('lb-img');
+  var cap = document.getElementById('lb-cap');
+  var closeBtn = document.getElementById('lb-close');
+  var opener = null;
+  function close() { if (lb.hidden) return; lb.hidden = true; document.body.style.overflow = ''; img.removeAttribute('src'); if (opener) opener.focus(); opener = null; }
+  document.querySelectorAll('[data-zoom]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var src = b.querySelector('img'); opener = b;
+      img.src = src.currentSrc || src.src; img.alt = src.alt; cap.textContent = src.alt;
+      lb.hidden = false; document.body.style.overflow = 'hidden'; closeBtn.focus();
+    });
+  });
+  closeBtn.addEventListener('click', close);
+  lb.addEventListener('click', function (e) { if (e.target === lb || e.target.id === 'lb-stage') close(); });
+  document.addEventListener('keydown', function (e) { if (!lb.hidden && e.key === 'Escape') { e.preventDefault(); close(); } });
+})();
+</script>
+</body>
+</html>
