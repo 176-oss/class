@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { maskNames, buildRequest, buildPrompt, parseAiResponse, aiReview, callGemini, AiError, API_BASE, validModel, suggestionPasses } from '../js/ai.js';
 
-const KEY = 'AIzaSyA-test-key-0000000000000000001234';
+const KEY = 'TEST-DUMMY-KEY-ONE-xxxxxxxxxxxxxxx1234'; // 시험용 가짜 키 (실제 키 모양 'AIza...'로 쓰지 않음: GitHub 비밀 정보 경고)
 const reply = (obj) => JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify(obj) }] } }] });
 const okFetch = (obj, seen = []) => async (url, init) => { seen.push({ url, init }); return { ok: true, status: 200, text: async () => reply(obj) }; };
 const ctx = { school: 'mid', area: 'autonomy', subject: '', limitBytes: 1500, names: ['김민준', '이서연'], schoolWords: [], schoolYear: 2026, studentId: '10101' };

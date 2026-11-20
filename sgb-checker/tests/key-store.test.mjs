@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { fakeStorage } from './helpers.mjs';
 import { createKeyStore, SHARED_KEY, isValidKey, maskKey } from '../shared/key-store.js';
 
-const K1 = 'AIzaSyA-test-key-0000000000000000001234';
-const K2 = 'AIzaSyB-test-key-0000000000000000005678';
+const K1 = 'TEST-DUMMY-KEY-ONE-xxxxxxxxxxxxxxx1234'; // 시험용 가짜 키 (실제 키 모양 'AIza...'로 쓰지 않음: GitHub 비밀 정보 경고)
+const K2 = 'TEST-DUMMY-KEY-TWO-xxxxxxxxxxxxxxx5678'; // 시험용 가짜 키 (실제 키 모양 'AIza...'로 쓰지 않음: GitHub 비밀 정보 경고)
 const shared = (key, savedBy = 'sgb-checker') => JSON.stringify({ key, savedBy, savedAt: 1 });
 
 test('공용 자리에 있으면 그걸 씀', () => {
