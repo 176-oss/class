@@ -11,7 +11,7 @@ const ls = (() => { try { return window.localStorage; } catch { return null; } }
 export const keys = createKeyStore(ls);
 
 function defaults() {
-  return { school: 'mid', limits: {}, schoolWords: [], events: [], aiOn: false, models: [...DEFAULT_MODELS], fakeAi: false };
+  return { school: 'mid', limits: {}, schoolWords: [], events: [], aiOn: true, aiDefault: 2, models: [...DEFAULT_MODELS], fakeAi: false };
 }
 function loadSettings() {
   const d = defaults();
@@ -24,7 +24,8 @@ function loadSettings() {
     }
     if (Array.isArray(v.schoolWords)) d.schoolWords = v.schoolWords.filter((w) => typeof w === 'string' && w.trim().length >= 2).map((w) => w.trim().slice(0, 40)).slice(0, 30);
     if (Array.isArray(v.events)) d.events = v.events.filter((e) => e && typeof e.name === 'string' && e.name.trim() && canonDate(e.date) === e.date).map((e) => ({ name: e.name.trim().slice(0, 60), date: e.date })).slice(0, MAX_EVENTS);
-    d.aiOn = v.aiOn === true;
+    // AI 점검은 기본으로 켠다. 예전(기본이 꺼짐이던 때) 설정은 한 번 켜 주고, 그 뒤에 선생님이 끄면 그대로 둔다
+    d.aiOn = v.aiDefault === 2 ? v.aiOn === true : true;
     d.fakeAi = v.fakeAi === true;
     if (Array.isArray(v.models)) { const m = v.models.filter(validModel).slice(0, 8); if (m.length) d.models = m; }
   } catch { /* 깨진 설정은 기본값 */ }

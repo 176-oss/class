@@ -36,6 +36,30 @@ export function findHeader(rows) {
 }
 
 /**
+ * 시트 이름으로 항목을 모를 때 머리글과 첫 줄로 알아내기 (나이스에서 내려받은 특기사항 엑셀).
+ * '세부능력 및 특기사항' -> 세특, '행동특성 및 종합의견' -> 행특, '동아리활동 부서명' -> 동아리,
+ * '영역 구분' 칸의 값 '자율·자치활동_특기사항' / '진로활동_특기사항' / '동아리활동_특기사항'.
+ */
+export function areaFromHeader(rows, head) {
+  const header = (rows[head.row] || []).map((v) => cell(v).replace(/\s/g, ''));
+  if (header.some((c) => c.includes('세부능력'))) return { area: 'subject', subject: '' };
+  if (header.some((c) => c.includes('행동특성') || c.includes('종합의견'))) return { area: 'behavior' };
+  if (header.some((c) => c.includes('동아리활동부서명') || c === '부서명')) return { area: 'club' };
+  const ai = header.findIndex((c) => c === '영역구분' || c === '영역');
+  if (ai >= 0) {
+    for (let r = head.row + 1; r < Math.min(rows.length, head.row + 6); r++) {
+      const v = cell((rows[r] || [])[ai]).replace(/[\s·ㆍ･_]/g, '');
+      if (!v) continue;
+      if (v.includes('자율') || v.includes('자치')) return { area: 'autonomy' };
+      if (v.includes('진로')) return { area: 'career' };
+      if (v.includes('동아리')) return { area: 'club' };
+      if (v.includes('행동특성')) return { area: 'behavior' };
+    }
+  }
+  return null;
+}
+
+/**
  * 시트 목록 -> 점검 묶음.
  * sheets: [{ name, rows: 셀 값 2차원 배열 }]
  * @returns { groups: [{ sheetName, area, subject, rows: [{ studentId, name, subject, text, tooLong }] }], problems: [문장] }
@@ -48,7 +72,7 @@ export function parseSheets(sheets) {
     if (!rows.some((r) => (r || []).some((v) => cell(v).trim()))) continue;
     const head = findHeader(rows);
     if (!head) { problems.push(`'${sh.name}' 시트에서 머리글(학번·이름·내용)을 찾지 못함`); continue; }
-    const guess = areaFromSheetName(sh.name);
+    const guess = areaFromSheetName(sh.name) || areaFromHeader(rows, head);
     const out = [];
     for (let r = head.row + 1; r < rows.length; r++) {
       const row = rows[r] || [];
@@ -60,7 +84,7 @@ export function parseSheets(sheets) {
       if (text.length > LIMITS.cell) { text = text.slice(0, LIMITS.cell); tooLong = true; }
       out.push({ studentId: id.slice(0, 20), name: name.slice(0, 30), subject: (get('subject') || guess?.subject || '').slice(0, 40), text: text.trim(), tooLong });
     }
-    groups.push({ sheetName: String(sh.name).slice(0, 40), area: guess?.area || null, subject: guess?.subject || '', rows: out });
+    groups.push({ sheetName: String(sh.name).slice(0, 40), area: guess?.area || null, subject: guess?.subject || (guess?.area === 'subject' ? out.find((x) => x.subject)?.subject || '' : ''), rows: out });
   }
   return { groups, problems };
 }
