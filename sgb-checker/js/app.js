@@ -8,6 +8,8 @@ import { takeHandoff } from '../shared/handoff.js';
 import { takeBatch, BATCH_KEY } from '../shared/handoff-batch.js';
 import { announce, ask, confirmBox, download, badge, enableDrop } from './ui.js';
 import { renderDetail } from './detail.js';
+import { eventCard } from './events-card.js';
+import { setupDialog } from './setup.js';
 import { renderSettings } from './settings.js';
 
 const main = document.getElementById('main');
@@ -73,6 +75,7 @@ function startView() {
       h('div', { class: 'field' }, h('label', { for: 'paste' }, '또는 붙여넣기'),
         h('span', { id: 'paste-help', class: 'muted' }, '학생 한 명의 글을 붙여넣거나, 엑셀에서 머리글(학번, 이름, 내용)까지 표째로 복사해 붙여넣으세요.'), paste),
       h('div', null, h('button', { type: 'button', class: 'btn btn-primary', onclick: onPaste }, '점검하기'))),
+    eventCard({ render }),
   );
 }
 
@@ -164,7 +167,7 @@ function downloadTemplate() {
 
 // ---------- 결과 ----------
 const FILTERS = [
-  ['all', '전체'], ['error', '오류만'], ['warn', '확인만'], ['pass', '통과만'], ['bytes', '바이트 초과만'], ['forbidden', '금지 내용만'], ['empty', '미작성'],
+  ['all', '전체'], ['error', '오류만'], ['warn', '확인 필요만'], ['pass', '통과만'], ['bytes', '바이트 초과만'], ['forbidden', '금지 내용만'], ['empty', '미작성'],
 ];
 function passes(it, f) {
   const st = statusOf(it);
@@ -289,3 +292,5 @@ try {
 } catch { /* 저장소를 못 쓰면 넘어감 */ }
 if (!window.XLSX) S.notice = { kind: 'error', text: '엑셀 도구를 불러오지 못했습니다. 붙여넣기는 쓸 수 있습니다.' };
 if (!gotBatch) render();
+// 처음 들어올 때 API 키가 없으면 시작 준비 팝업 (작성 도우미와 같은 방식)
+setTimeout(() => setupDialog({ render }), 0);

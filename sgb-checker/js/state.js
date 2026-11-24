@@ -85,8 +85,8 @@ export function statusOf(it) {
   if (a.length) return 'warn';
   return 'pass';
 }
-export const STATUS_LABEL = { pass: '통과', warn: '확인', error: '오류', empty: '미작성' };
-export const LEVEL_LABEL = { error: '오류', warn: '확인' };
+export const STATUS_LABEL = { pass: '통과', warn: '확인 필요', error: '오류', empty: '미작성' };
+export const LEVEL_LABEL = { error: '오류', warn: '확인 필요' };
 
 export function areaLabel(it) { return areaById(it.area)?.label || it.area; }
 
