@@ -53,7 +53,7 @@ export function badge(kind, text) {
 
 // ---------- 파일 끌어다 놓기 ----------
 /** el 위에 파일을 끌어다 놓으면 onFile(file). accept: ['.xlsx'] 처럼 끝 글자. 하나만 받는다 (고르기 버튼은 그대로 있음) */
-export function enableDrop(el, onFile, { accept = [], onReject } = {}) {
+export function enableDrop(el, onFile, { accept = [], onReject, multiple = false } = {}) {
   const ok = (f) => !accept.length || accept.some((ext) => f.name.toLowerCase().endsWith(ext));
   const hasFiles = (e) => Array.from(e.dataTransfer?.types || []).includes('Files');
   el.classList.add('dropzone');
@@ -64,9 +64,9 @@ export function enableDrop(el, onFile, { accept = [], onReject } = {}) {
     e.preventDefault();
     el.classList.remove('is-drop');
     const files = Array.from(e.dataTransfer.files || []);
-    const f = files.find(ok);
-    if (!f) { if (onReject) onReject(accept); return; }
-    onFile(f);
+    const good = files.filter(ok);
+    if (!good.length) { if (onReject) onReject(accept); return; }
+    onFile(multiple ? good : good[0]);
   });
   return el;
 }

@@ -153,7 +153,7 @@ export function renderDetail(it, { go, render }) {
       h('section', { 'aria-labelledby': 'doc-h' },
         h('h3', { id: 'doc-h' }, '글'),
         it.current.trim() ? h('div', { class: 'doc' }, marked(it.current, on)) : h('p', { class: 'doc muted' }, '미작성'),
-        h('div', { class: 'legend' }, h('span', null, h('mark', { class: 'm-error' }, '오류'), ' 굵은 실선'), h('span', null, h('mark', { class: 'm-warn' }, '확인'), ' 점선'))),
+        h('div', { class: 'legend' }, h('span', null, h('mark', { class: 'm-error' }, '오류'), ' 굵은 실선'), h('span', null, h('mark', { class: 'm-warn' }, '확인 필요'), ' 점선'))),
       h('section', { 'aria-labelledby': 'iss-h' },
         h('h3', { id: 'iss-h' }, `지적 ${on.length}개`),
         it.aiNote ? h('p', { class: 'alert', role: 'status' }, it.aiNote) : null,

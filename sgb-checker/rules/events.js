@@ -7,12 +7,22 @@ export const MAX_EVENTS = 300;
 
 const p2 = (n) => String(n).padStart(2, '0');
 
-/** 날짜 하나 -> 'YYYY.MM.DD.'. '2026-5-14', '2026.05.14', '20260514', '2026년 5월 14일', '5.14'(year 필요). 못 읽으면 null */
+/**
+ * 날짜 하나 -> 'YYYY.MM.DD.'. 못 읽으면 null.
+ * '2026-5-14', '2026.05.14', '2026/5/14', '20260514', '2026년 5월 14일', '26.5.14', '5.14'·'5/14'·'5월 14일'(year 필요),
+ * 뒤의 요일 '(수)'·'수요일', 전각 숫자, 끝의 마침표도 받는다.
+ */
 function oneDate(raw, year) {
-  const s = String(raw ?? '').trim().replace(/\s+/g, '');
+  const s = String(raw ?? '')
+    .replace(/[０-９．／－]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
+    .replace(/\s+[월화수목금토일]\s*$/, '')
+    .replace(/[(（]\s*[월화수목금토일]\s*(요일)?\s*[)）]/g, '')
+    .replace(/[월화수목금토일]요일/g, '')
+    .trim().replace(/\s+/g, '').replace(/[.]+$/, '.');
   let r = s.match(/^(\d{4})[.\-/년](\d{1,2})[.\-/월](\d{1,2})[.일]?$/) || s.match(/^(\d{4})(\d{2})(\d{2})$/);
   let y; let m; let d;
   if (r) [, y, m, d] = r;
+  else if ((r = s.match(/^(\d{2})[.\-/](\d{1,2})[.\-/](\d{1,2})\.?$/))) { [, y, m, d] = r; y = `20${y}`; }
   else if ((r = s.match(/^(\d{1,2})[.\-/월](\d{1,2})[.일]?$/)) && year) { [, m, d] = r; y = String(year); } else return null;
   const dt = new Date(+y, +m - 1, +d);
   if (dt.getFullYear() !== +y || dt.getMonth() !== +m - 1 || dt.getDate() !== +d) return null;
@@ -28,9 +38,25 @@ export function canonDate(raw, year) {
   const a = oneDate(parts[0], year);
   if (!a) return null;
   if (parts.length === 1) return a;
-  const b = oneDate(parts[1], +a.slice(0, 4));
+  // 끝 날짜가 '6'·'6일'처럼 날만 있으면 시작과 같은 달
+  const dayOnly = String(parts[1]).trim().match(/^(\d{1,2})\s*일?\.?$/);
+  const b = dayOnly ? oneDate(`${a.slice(0, 8)}${dayOnly[1]}`, null) : oneDate(parts[1], +a.slice(0, 4));
   if (!b || b < a) return null;
   return b === a ? a : `${a}-${b}`;
+}
+
+/** canonDate 로 못 읽으면 '3/4-3/6'·'2026.3.4-3.6' 처럼 붙은 '-' 를 기간 구분으로 보고 다시 읽는다 */
+export function flexibleDate(raw, year) {
+  const first = canonDate(raw, year);
+  if (first) return first;
+  const s = String(raw ?? '').trim();
+  for (let i = s.indexOf('-'); i > 0; i = s.indexOf('-', i + 1)) {
+    const a = oneDate(s.slice(0, i), year);
+    if (!a) continue;
+    const r = canonDate(`${a}~${s.slice(i + 1)}`, year);
+    if (r) return r;
+  }
+  return null;
 }
 
 /**
@@ -48,12 +74,12 @@ export function parseEventList(input, year) {
     let name; let rawDate;
     if (cells.length >= 2) { [name, rawDate] = [cells[0], cells.slice(1).join(' ')]; } else {
       const line = cells[0];
-      const m = line.match(/^(.+?)\s*\(([^()]+)\)\s*$/) || line.match(/^(.+?)[\t,]\s*(.+)$/) || line.match(/^(.+?)\s+(\d{4}[.\-/년][\s\S]*|\d{8}[\s\S]*)$/);
+      const m = line.match(/^(.+?)\s*\(([^()]+)\)\s*$/) || line.match(/^(.+?)[\t,]\s*(.+)$/) || line.match(/^(.+?)\s+(\d{4}[.\-/년][\s\S]*|\d{8}[\s\S]*|\d{2}[.\-/]\d{1,2}[.\-/]\d{1,2}[\s\S]*|\d{1,2}\s*[.\-/월]\s*\d{1,2}[\s\S]*)$/);
       if (!m) { errors.push(`${i + 1}째 줄: 행사명과 날짜를 나눌 수 없습니다 ('${line.slice(0, 30)}')`); return; }
       [, name, rawDate] = m;
     }
     if (/^(행사|행사명|이름)$/.test(name) && /날짜|일자|기간/.test(rawDate)) return; // 머리글
-    const date = canonDate(rawDate, year);
+    const date = flexibleDate(rawDate, year);
     if (!date) { errors.push(`${i + 1}째 줄: '${rawDate.slice(0, 30)}'을(를) 날짜로 읽을 수 없습니다 (예: 2026.03.04. 또는 2026.03.04.-2026.03.06.)`); return; }
     name = name.replace(/\s+/g, ' ').slice(0, 60);
     const k = `${name}|${date}`;

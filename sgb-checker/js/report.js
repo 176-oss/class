@@ -16,7 +16,7 @@ export function buildReport(items) {
     a.n++; a[it.status]++;
     for (const i of it.issues) a.labels.set(i.label, (a.labels.get(i.label) || 0) + 1);
   }
-  const summary = [['항목', '학생 수', '통과', '확인', '오류', '미작성', '많이 나온 지적']];
+  const summary = [['항목', '학생 수', '통과', '확인 필요', '오류', '미작성', '많이 나온 지적']];
   for (const [k, a] of byArea) {
     const top = [...a.labels].sort((x, y) => y[1] - x[1]).slice(0, 5).map(([l, n]) => `${l} ${n}건`).join(', ');
     summary.push([k, a.n, a.pass, a.warn, a.error, a.empty, top]);
@@ -26,7 +26,7 @@ export function buildReport(items) {
     students.push([
       it.studentId, it.name, it.areaLabel + (it.subject ? ` (${it.subject})` : ''),
       `${it.bytes}/${it.limit || '-'}`, it.issues.length,
-      it.issues.map((i) => `[${i.level === 'error' ? '오류' : '확인'}] ${i.label}${i.text ? `: "${i.text}"` : ''} - ${i.reason}`).join('\n'),
+      it.issues.map((i) => `[${i.level === 'error' ? '오류' : '확인 필요'}] ${i.label}${i.text ? `: "${i.text}"` : ''} - ${i.reason}`).join('\n'),
       [...new Set(it.issues.map((i) => i.basis).filter(Boolean))].join(', '),
       it.issues.filter((i) => typeof i.fix === 'string' && i.fix).map((i) => `"${i.text}" -> "${i.fix}"`).join('\n'),
       (it.excepted || []).map((e) => `${e.issue.label}${e.issue.text ? `: "${e.issue.text}"` : ''} (사유: ${e.reason})`).join('\n'),

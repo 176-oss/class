@@ -2,12 +2,14 @@
 import { h, clear, labelTableCells } from './dom.js';
 import { S, recheck, loadGroups, statusOf, activeIssues, issuesOf, areaLabel, STATUS_LABEL, LEVEL_LABEL, settings, saveSettings, keys } from './state.js';
 import { readWorkbook, parseSheets, parseTsv, SheetError } from './sheet.js';
-import { buildReport, reportFile, textSheet } from './report.js';
+import { buildReport, reportFile } from './report.js';
 import { areasFor, areaById } from '../rules/areas.js';
 import { takeHandoff } from '../shared/handoff.js';
 import { takeBatch, BATCH_KEY } from '../shared/handoff-batch.js';
 import { announce, ask, confirmBox, download, badge, enableDrop } from './ui.js';
 import { renderDetail } from './detail.js';
+import { eventCard } from './events-card.js';
+import { setupDialog } from './setup.js';
 import { renderSettings } from './settings.js';
 
 const main = document.getElementById('main');
@@ -44,35 +46,28 @@ function notice() {
 
 // ---------- 시작 ----------
 function startView() {
-  const areaSelect = h('select', { id: 'pick-area' },
-    h('option', { value: '' }, '자동 (시트 이름으로)'),
-    areasFor(S.school).map((a) => h('option', { value: a.id }, a.label)));
-  if (pasteMeta?.area && areaById(pasteMeta.area)) areaSelect.value = pasteMeta.area;
   const paste = h('textarea', { id: 'paste', 'aria-describedby': 'paste-help', value: pasteText, oninput: (e) => { pasteText = e.target.value; } });
-  const file = h('input', { type: 'file', id: 'file', accept: '.xlsx,.xls,.csv', onchange: (e) => onFile(e.target.files?.[0], e.target) });
-  const fileField = h('div', { class: 'field' }, h('label', { for: 'file' }, '엑셀 올리기 (끌어다 놓기 가능, 5MB까지)'), file);
-  enableDrop(fileField, (f) => onFile(f, null), { accept: ['.xlsx', '.xls', '.csv'], onReject: () => { S.notice = { kind: 'error', text: '엑셀(.xlsx, .xls) 또는 CSV 파일을 놓아 주세요.' }; render(); } });
+  const file = h('input', { type: 'file', id: 'file', accept: '.xlsx,.xls,.csv', multiple: true, onchange: (e) => onFiles(Array.from(e.target.files || []), e.target) });
+  const fileField = h('div', { class: 'field' }, h('label', { for: 'file' }, '엑셀 올리기 (여러 파일을 한꺼번에 고르거나 끌어다 놓기, 파일마다 5MB까지)'), file,
+    h('span', { class: 'muted' }, '나이스에서 내려받은 엑셀을 그대로 올리면 됩니다. 항목(자율, 동아리, 진로, 행특, 세특)은 시트 이름과 머리글을 보고 저절로 정합니다.'));
+  enableDrop(fileField, (fs) => onFiles(fs, null), { accept: ['.xlsx', '.xls', '.csv'], multiple: true, onReject: () => { S.notice = { kind: 'error', text: '엑셀(.xlsx, .xls) 또는 CSV 파일을 놓아 주세요.' }; render(); } });
 
   return h('div', null,
     h('h2', '생기부 점검'),
     h('p', { class: 'muted' }, '올린 엑셀과 글은 이 페이지 안에서만 다루고 저장하지 않습니다. 페이지를 닫으면 사라집니다.'),
     notice(),
     h('section', { class: 'card stack', 'aria-labelledby': 's2' },
-      h('h3', { id: 's2' }, '1. 항목'),
+      h('h3', { id: 's2' }, '1. 점검 기준'),
       h('p', { class: 'muted' }, `${S.school === 'high' ? '고등학교' : '중학교'} 기준으로 점검합니다. `, h('button', { type: 'button', class: 'btn', onclick: () => go('settings') }, '설정에서 학교급 바꾸기')),
-      h('div', { class: 'field' }, h('label', { for: 'pick-area' }, '점검할 항목'), areaSelect,
-        h('span', { class: 'muted' }, '엑셀 시트 이름이 자율, 동아리, 진로, 행특, 세특_국어처럼 되어 있으면 저절로 고릅니다.')),
       aiChoice()),
     h('section', { class: 'card stack', 'aria-labelledby': 's3' },
       h('h3', { id: 's3' }, '2. 글 넣기'),
-      h('div', { class: 'row' },
-        h('button', { type: 'button', class: 'btn', onclick: downloadTemplate }, '양식 내려받기'),
-        h('span', { class: 'muted' }, '학번 | 이름 | 과목 | 내용. 세특은 과목 칸을 채우면 같은 과목끼리 비교하고, 공통과목 1·2 합산을 봅니다.')),
       fileField,
       pending ? pendingView() : null,
       h('div', { class: 'field' }, h('label', { for: 'paste' }, '또는 붙여넣기'),
-        h('span', { id: 'paste-help', class: 'muted' }, '학생 한 명의 글을 붙여넣거나, 엑셀에서 머리글(학번, 이름, 내용)까지 표째로 복사해 붙여넣으세요.'), paste),
+        h('span', { id: 'paste-help', class: 'muted' }, '학생 한 명의 글을 붙여넣거나, 엑셀에서 머리글(학번, 이름, 내용)까지 표째로 복사해 붙여넣으세요. 항목을 알 수 없으면 점검 전에 고르게 합니다.'), paste),
       h('div', null, h('button', { type: 'button', class: 'btn btn-primary', onclick: onPaste }, '점검하기'))),
+    eventCard({ render }),
   );
 }
 
@@ -88,31 +83,58 @@ function aiChoice() {
     settings.aiOn && noKey ? h('p', null, 'API 키가 없습니다. ', h('button', { type: 'button', class: 'btn', onclick: () => go('settings') }, '설정에서 키 넣기')) : null);
 }
 
-async function onFile(f, input) {
-  if (!f) return;
-  S.notice = null;
-  try {
-    const buffer = f.size <= 5 * 1024 * 1024 ? await f.arrayBuffer() : new ArrayBuffer(0);
-    pending = readWorkbook(XLSX(), { name: f.name, size: f.size, buffer });
-    if (!pending.groups.length) { S.notice = { kind: 'error', text: pending.problems[0] || '읽을 수 있는 시트가 없습니다.' }; pending = null; }
-  } catch (e) {
-    pending = null;
-    S.notice = { kind: 'error', text: e instanceof SheetError ? e.message : '파일을 읽지 못했습니다.' };
-  }
+const MAX_FILES = 20;
+async function onFiles(files, input) {
   if (input) input.value = '';
+  files = files.filter(Boolean);
+  if (!files.length) return;
+  S.notice = null;
+  const groups = [];
+  const problems = [];
+  if (files.length > MAX_FILES) problems.push(`파일은 한 번에 ${MAX_FILES}개까지 읽습니다. 나머지 ${files.length - MAX_FILES}개는 다시 올려 주세요.`);
+  for (const f of files.slice(0, MAX_FILES)) {
+    const tag = files.length > 1 ? `${f.name} · ` : '';
+    try {
+      const buffer = f.size <= 5 * 1024 * 1024 ? await f.arrayBuffer() : new ArrayBuffer(0);
+      const r = readWorkbook(XLSX(), { name: f.name, size: f.size, buffer });
+      for (const g of r.groups) groups.push({ ...g, sheetName: `${tag}${g.sheetName}` });
+      for (const p of r.problems) problems.push(`${tag}${p}`);
+      if (!r.groups.length && !r.problems.length) problems.push(`${f.name}: 읽을 수 있는 시트가 없습니다.`);
+    } catch (e) {
+      problems.push(`${f.name}: ${e instanceof SheetError ? e.message : '파일을 읽지 못했습니다.'}`);
+    }
+  }
+  if (!groups.length) {
+    pending = null;
+    S.notice = { kind: 'error', text: problems.join(' ') || '읽을 수 있는 시트가 없습니다.' };
+    render();
+    announce(S.notice.text);
+    return;
+  }
+  readyOrAsk(groups, problems, `파일 ${Math.min(files.length, MAX_FILES)}개`);
+}
+
+/** 항목을 모두 알면 바로 점검하고, 모르는 시트가 있으면 그것만 고르게 한다 */
+function readyOrAsk(groups, problems, what) {
+  if (groups.every((g) => g.area && areaById(g.area)?.chars[S.school])) {
+    startCheck(groups);
+    const n = groups.reduce((a, g) => a + g.rows.length, 0);
+    S.notice = { kind: problems.length ? 'warn' : 'info', text: `${what}에서 시트 ${groups.length}개, ${n}명의 글을 읽어 점검했습니다. 항목은 시트 이름과 머리글로 정했습니다.${problems.length ? ` 읽지 못한 것: ${problems.join(' ')}` : ''}` };
+    render();
+    return;
+  }
+  pending = { groups, problems };
   render();
-  announce(S.notice ? S.notice.text : '파일을 읽었습니다. 시트와 항목을 확인한 뒤 점검을 시작하세요.');
+  announce('항목을 알 수 없는 시트가 있습니다. 항목을 골라 점검을 시작하세요.');
 }
 
 function pendingView() {
-  const pick = document.getElementById('pick-area')?.value || '';
   return h('div', { class: 'alert stack', role: 'group', 'aria-label': '읽은 시트' },
-    h('p', null, h('b', '읽은 시트'), ' 항목이 맞는지 확인하세요.'),
+    h('p', null, h('b', '항목을 골라 주세요'), ' 시트 이름과 머리글로 항목을 알 수 없는 것이 있습니다.'),
     pending.problems.map((p) => h('p', { class: 'muted' }, p)),
     h('div', { class: 'table-wrap' }, h('table', null,
       h('thead', null, h('tr', null, ['시트', '학생 수', '항목', '과목'].map((t) => h('th', { scope: 'col' }, t)))),
       h('tbody', null, pending.groups.map((g, i) => {
-        if (!g.area && pick) g.area = pick;
         return h('tr', null,
           h('th', { scope: 'row' }, g.sheetName),
           h('td', { class: 'num' }, g.rows.length),
@@ -130,7 +152,7 @@ function pendingView() {
 function onPaste() {
   const text = pasteText.replace(/\r\n?/g, '\n');
   if (!text.trim()) { S.notice = { kind: 'error', text: '붙여넣은 글이 없습니다.' }; render(); return; }
-  const area = document.getElementById('pick-area').value;
+  const area = pasteMeta?.area && areaById(pasteMeta.area) ? pasteMeta.area : '';
   const subject = pasteMeta?.subject || '';
   let groups;
   if (text.includes('\t')) {
@@ -141,8 +163,7 @@ function onPaste() {
     groups = [{ sheetName: '붙여넣기', area: null, subject, rows: [{ studentId: pasteMeta?.studentId || '', name: '', subject, text: text.trim().slice(0, 5000), tooLong: text.trim().length > 5000 }] }];
   }
   for (const g of groups) { if (!g.area) g.area = area || null; if (!g.subject) g.subject = subject; }
-  if (groups.some((g) => !g.area)) { S.notice = { kind: 'error', text: '점검할 항목을 골라 주세요.' }; render(); document.getElementById('pick-area')?.focus(); return; }
-  startCheck(groups);
+  readyOrAsk(groups, [], '붙여넣은 글');
 }
 
 function startCheck(groups) {
@@ -154,17 +175,9 @@ function startCheck(groups) {
   go('results');
 }
 
-function downloadTemplate() {
-  const rows = [['학번', '이름', '과목', '내용'], ['10101', '가상학생', '', '(예시) 학급 회의에서 의견을 정리하여 발표함.']];
-  const X = XLSX();
-  const wb = X.utils.book_new();
-  for (const n of ['자율', '동아리', '진로', '세특_국어', '행특']) X.utils.book_append_sheet(wb, textSheet(X, rows), n);
-  download('생기부-점검-양식.xlsx', X.write(wb, { type: 'array', bookType: 'xlsx' }));
-}
-
 // ---------- 결과 ----------
 const FILTERS = [
-  ['all', '전체'], ['error', '오류만'], ['warn', '확인만'], ['pass', '통과만'], ['bytes', '바이트 초과만'], ['forbidden', '금지 내용만'], ['empty', '미작성'],
+  ['all', '전체'], ['error', '오류만'], ['warn', '확인 필요만'], ['pass', '통과만'], ['bytes', '바이트 초과만'], ['forbidden', '금지 내용만'], ['empty', '미작성'],
 ];
 function passes(it, f) {
   const st = statusOf(it);
@@ -289,3 +302,5 @@ try {
 } catch { /* 저장소를 못 쓰면 넘어감 */ }
 if (!window.XLSX) S.notice = { kind: 'error', text: '엑셀 도구를 불러오지 못했습니다. 붙여넣기는 쓸 수 있습니다.' };
 if (!gotBatch) render();
+// 처음 들어올 때 API 키가 없으면 시작 준비 팝업 (작성 도우미와 같은 방식)
+setTimeout(() => setupDialog({ render }), 0);
