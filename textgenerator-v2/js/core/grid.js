@@ -128,6 +128,32 @@ export function nextGroupName(groups) {
   return `${n}모둠`;
 }
 
+export const CLEAR_PARTS = { final: '최종본', draft: '초안과 후보', memo: '메모' };
+
+/**
+ * 고른 학생의 작성 내용 지우기 계획 (순수). records: [{ id, memo, draft, final, candidates, status }]
+ * parts: { final, draft, memo } 중 지울 것. includeDone 이 아니면 완료한 기록은 건너뛴다.
+ * 반환: { patches:[{ id, patch, before }], summary:{ cleared, empty, done } } — before 는 되돌리기용
+ */
+export function planClear(records, parts, { includeDone = false } = {}) {
+  const out = { patches: [], summary: { cleared: 0, empty: 0, done: 0 } };
+  const filled = (v) => (Array.isArray(v) ? v.length > 0 : typeof v === 'string' && v.trim() !== '');
+  for (const r of records) {
+    if (r.status === 'done' && !includeDone) { out.summary.done += 1; continue; }
+    const patch = {};
+    const before = {};
+    if (parts.final && filled(r.final)) { patch.final = ''; before.final = r.final; }
+    if (parts.draft && (filled(r.draft) || filled(r.candidates))) { patch.draft = ''; patch.candidates = []; before.draft = r.draft || ''; before.candidates = r.candidates || []; }
+    if (parts.memo && filled(r.memo)) { patch.memo = ''; before.memo = r.memo; }
+    if (!Object.keys(patch).length) { out.summary.empty += 1; continue; }
+    // 완료한 기록의 최종본을 지우면 완료도 푼다 (빈 글이 완료로 남지 않게)
+    if (r.status === 'done' && 'final' in patch) { patch.status = 'unset'; before.status = 'done'; }
+    out.patches.push({ id: r.id, patch, before });
+    out.summary.cleared += 1;
+  }
+  return out;
+}
+
 // ---------- 표에 순서대로 붙여넣기 ----------
 export const PASTE_MODES = { skip: '이미 최종본이 있으면 건너뜀', append: '이미 있으면 뒤에 이어씀', overwrite: '이미 있으면 덮어씀' };
 
