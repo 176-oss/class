@@ -10,7 +10,7 @@ import { generateDrafts, aiCheck, AiError } from '../core/gemini.js';
 import { pickExamples } from '../core/style.js';
 import { createBatch } from '../core/batch.js';
 import { writeBatch, groupsForCheck } from '../core/handoff.js';
-import { checkCell, tidyText, composeMemo, planPaste, PASTE_MODES, assignedDrafts, removeCandidate, candidateTarget, autoAssign, parseStandards, standardsText, groupOfStudent, saveGroup, nextGroupName, EVENT_AREAS, formatEventDate, eventLabel, saveEvent, missingEventLabels, parseEventList } from '../core/grid.js';
+import { checkCell, tidyText, composeMemo, planPaste, PASTE_MODES, CLEAR_PARTS, planClear, assignedDrafts, removeCandidate, candidateTarget, autoAssign, parseStandards, standardsText, groupOfStudent, saveGroup, nextGroupName, EVENT_AREAS, formatEventDate, eventLabel, saveEvent, missingEventLabels, parseEventList } from '../core/grid.js';
 import { readSheetFile } from '../xlsx-io.js';
 
 const G = {
@@ -455,7 +455,8 @@ function renderBoard() {
   if (!list.length) { clear(els.board); els.board.hidden = true; return; }
   els.board.hidden = false;
   clear(els.board,
-    h('h2', { class: 'section-title' }, '학생 고르기'),
+    h('div', { class: 'row-between' }, h('h2', { class: 'section-title' }, '학생 고르기'),
+      h('button', { type: 'button', class: 'btn btn-secondary btn-sm', onclick: clearSelection }, '선택 모두 해제')),
     h('p', { class: 'small muted' }, '이름을 눌러 고르고 다시 누르면 풉니다. 밑줄이 있는 학생은 최종본이 이미 있습니다.'),
     list.map((cls) => {
       const members = boardIds(cls);
@@ -579,8 +580,76 @@ function renderBar() {
     n ? h('div', { class: 'row grid-selbar', role: 'status' },
       h('strong', {}, `${n}명 선택`),
       G.panel ? null : h('button', { type: 'button', class: 'btn btn-secondary btn-sm', onclick: openPanel }, '초안 만들기 패널 열기'),
-      h('button', { type: 'button', class: 'btn btn-ghost btn-sm', onclick: () => { G.selected.clear(); onSelection(); } }, '선택 풀기')) : null);
+      h('button', { type: 'button', class: 'btn btn-danger btn-sm', onclick: openClearDialog }, '작성 내용 지우기'),
+      h('button', { type: 'button', class: 'btn btn-ghost btn-sm', onclick: clearSelection }, `선택 모두 해제 (${G.selected.size}명)`)) : null);
 }
+/** 고른 학생 모두 해제 (숨긴 반에서 고른 학생까지) */
+function clearSelection() {
+  const n = G.selected.size;
+  if (!n) return;
+  G.selected.clear();
+  onSelection();
+  renderBoard();
+  announce(`${n}명의 선택을 모두 풀었습니다`);
+}
+
+/** 고른 학생의 작성 내용을 한꺼번에 지운다 (무엇을 지울지 고르고, 지운 뒤 되돌리기) */
+function openClearDialog() {
+  flushEdits();
+  const sel = selectedRows();
+  if (!sel.length) { toast('고른 학생이 없습니다'); return; }
+  const parts = { final: true, draft: true, memo: false };
+  let includeDone = false;
+  const recs = () => sel.map((r) => store.state.records.get(r.rec.id) || r.rec);
+  const info = h('p', { class: 'small', role: 'status' });
+  const paint = () => {
+    const p = planClear(recs(), parts, { includeDone });
+    const s = p.summary;
+    clear(info, `${s.cleared}명의 내용을 지웁니다.${s.empty ? ` 지울 내용이 없는 ${s.empty}명은 그대로.` : ''}${s.done ? ` 완료한 ${s.done}명은 건너뜁니다.` : ''}`);
+    return p;
+  };
+  const boxes = Object.entries(CLEAR_PARTS).map(([k, label]) => h('label', { class: 'check-row', for: `clr-${k}` },
+    h('input', { type: 'checkbox', id: `clr-${k}`, checked: parts[k], onchange: (e) => { parts[k] = e.target.checked; paint(); } }), label));
+  const doneBox = h('label', { class: 'check-row', for: 'clr-done' },
+    h('input', { type: 'checkbox', id: 'clr-done', checked: false, onchange: (e) => { includeDone = e.target.checked; paint(); } }), '완료한 학생도 지우기 (완료가 풀립니다)');
+  paint();
+  openDialog({
+    title: `고른 ${sel.length}명의 작성 내용 지우기`,
+    body: [
+      h('p', {}, '지울 것을 고르세요. 지운 뒤 알림의 [되돌리기]로 바로 되살릴 수 있습니다.'),
+      h('div', { class: 'stack gap-1', role: 'group', 'aria-label': '지울 것' }, boxes),
+      doneBox,
+      info,
+    ],
+    actions: [
+      { label: '취소', variant: 'secondary', value: false },
+      {
+        label: '지우기', variant: 'danger',
+        onClick: () => {
+          if (!parts.final && !parts.draft && !parts.memo) { toast('지울 것을 하나 이상 고르세요'); return false; }
+          const p = paint();
+          if (!p.patches.length) { toast('지울 내용이 없습니다'); return false; }
+          for (const x of p.patches) {
+            const patch = { ...x.patch };
+            if (patch.status === 'unset') { const cur = store.state.records.get(x.id); patch.status = deriveStatus({ ...cur, ...patch, status: 'x' }); }
+            store.updateRecord(x.id, patch);
+            refreshRow(x.id, { setText: true });
+          }
+          G.generated = new Set([...G.generated].filter((id) => !p.patches.some((x) => x.id === id)));
+          if (G.panel) renderPanel();
+          renderBoard();
+          toast(`${p.patches.length}명의 작성 내용을 지웠습니다`, {
+            action: '되돌리기',
+            onAction: () => { for (const x of p.patches) { store.updateRecord(x.id, x.before); refreshRow(x.id, { setText: true }); } renderBoard(); toast('지운 내용을 되살렸습니다'); },
+          });
+          announce(`${p.patches.length}명의 작성 내용을 지웠습니다`);
+          return true;
+        },
+      },
+    ],
+  });
+}
+
 function scopeRows() { const sel = selectedRows(); return sel.length ? sel : rows; }
 
 function applyLayout() {

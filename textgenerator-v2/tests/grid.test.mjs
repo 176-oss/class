@@ -162,3 +162,19 @@ test('parseEventList: 붙여넣기 여러 꼴, 엑셀 표, 머리글·오류·�
   assert.deepEqual(parseEventList([['행사', '일자'], ['독서 토론회', '2026.09.10'], ['직업인 특강', '9/24']], 2026).events,
     [{ name: '독서 토론회', date: '2026.09.10.' }, { name: '직업인 특강', date: '2026.09.24.' }]);
 });
+
+test('고른 학생 작성 내용 지우기: 고른 것만, 완료는 건너뜀(고르면 지우고 완료 풂), 되돌리기 값', async () => {
+  const { planClear } = await import('../js/core/grid.js');
+  const recs = [
+    { id: 'a', memo: '메모', draft: '초안', final: '최종', candidates: [{ text: '후보' }], status: 'draft' },
+    { id: 'b', memo: '', draft: '', final: '', candidates: [], status: 'empty' },
+    { id: 'c', memo: '메모', draft: '', final: '완료 글', candidates: [], status: 'done' },
+  ];
+  let p = planClear(recs, { final: true, draft: true, memo: false });
+  assert.deepEqual(p.summary, { cleared: 1, empty: 1, done: 1 });
+  assert.deepEqual(p.patches[0], { id: 'a', patch: { final: '', draft: '', candidates: [] }, before: { final: '최종', draft: '초안', candidates: [{ text: '후보' }] } });
+  p = planClear(recs, { final: true, draft: false, memo: true }, { includeDone: true });
+  assert.deepEqual(p.patches.map((x) => x.id), ['a', 'c']);
+  assert.deepEqual(p.patches[1], { id: 'c', patch: { final: '', memo: '', status: 'unset' }, before: { final: '완료 글', memo: '메모', status: 'done' } });
+  assert.equal(planClear(recs, { memo: true }).summary.cleared, 1);
+});
